@@ -71,7 +71,20 @@
 **Current state:** Policy and PPO types reflect the new 38-dim scalar context. There is a known bug: `train.py` still passes `scalar_dim=30` to `BGPolicyNetwork` instead of 38 — this will cause a shape mismatch at training time and must be fixed before running.
 
 **Open questions / next steps:**
-- **Bug**: fix `scalar_dim=30` → `scalar_dim=38` in `train.py` `build_components()`
 - Implement `SymbolicBoardComputer.to_scalar_vector()` to actually populate all 38 dims from live game state
 - Run a short self-play episode to confirm reward signals (including gold penalty) are sensible
+---
+
+---
+### 2026-03-15 — Fix scalar_dim mismatch in train.py
+
+**Files changed:** `train.py`
+
+**What was done:** Fixed one-line bug: `scalar_dim=30` → `scalar_dim=38` in `build_components()` to match the expanded `SCALAR_DIM` constant in `policy.py`.
+
+**Current state:** `train.py` and `policy.py` are now consistent on 38-dim scalar context.
+
+**Open questions / next steps:**
+- Implement `SymbolicBoardComputer.to_scalar_vector()` to populate all 38 dims from live game state
+- Run a short self-play episode to confirm reward signals are sensible
 ---

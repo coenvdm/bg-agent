@@ -176,7 +176,7 @@ def build_components(
         d_model=128,
         nhead=4,
         num_layers=3,
-        scalar_dim=30,
+        scalar_dim=38,
         n_actions=N_ACTIONS,
         dropout=0.1,
     ).to(device)
