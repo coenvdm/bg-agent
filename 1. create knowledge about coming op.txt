@@ -1,0 +1,2 @@
+1. create knowledge about coming opponent
+2. think about reward shaping, perhaps we give reward when another opponent dies for example? (except if they disconnected)

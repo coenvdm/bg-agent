@@ -1,0 +1,7086 @@
+{
+  "version": "2026-03-14",
+  "total": 264,
+  "cards": {
+    "annoy-o-tron": {
+      "name": "Annoy-o-Tron",
+      "tier": 1,
+      "base_atk": 1,
+      "base_hp": 2,
+      "tribes": [
+        "MECH"
+      ],
+      "keywords": {
+        "taunt": true,
+        "divine_shield": true,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Taunt. Divine Shield."
+    },
+    "aureate_laureate": {
+      "name": "Aureate Laureate",
+      "tier": 1,
+      "base_atk": 1,
+      "base_hp": 1,
+      "tribes": [
+        "PIRATE"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": true,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Divine Shield. Battlecry: Make this minion Golden."
+    },
+    "bubble_gunner": {
+      "name": "Bubble Gunner",
+      "tier": 1,
+      "base_atk": 2,
+      "base_hp": 3,
+      "tribes": [
+        "MURLOC"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Gain a random Bonus Keyword."
+    },
+    "buzzing_vermin": {
+      "name": "Buzzing Vermin",
+      "tier": 1,
+      "base_atk": 1,
+      "base_hp": 1,
+      "tribes": [
+        "BEAST"
+      ],
+      "keywords": {
+        "taunt": true,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Taunt. Deathrattle: Summon a 2/2 Beetle."
+    },
+    "cord_puller": {
+      "name": "Cord Puller",
+      "tier": 1,
+      "base_atk": 1,
+      "base_hp": 1,
+      "tribes": [
+        "MECH"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": true,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Divine Shield. Deathrattle: Summon a 1/1 Microbot."
+    },
+    "crackling_cyclone": {
+      "name": "Crackling Cyclone",
+      "tier": 1,
+      "base_atk": 2,
+      "base_hp": 1,
+      "tribes": [
+        "ELEMENTAL"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": true,
+        "reborn": false,
+        "windfury": true,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Divine Shield. Windfury."
+    },
+    "dune_dweller": {
+      "name": "Dune Dweller",
+      "tier": 1,
+      "base_atk": 3,
+      "base_hp": 2,
+      "tribes": [
+        "ELEMENTAL"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "tavern",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Give Elementals in the Tavern +1/+1 this game."
+    },
+    "flighty_scout": {
+      "name": "Flighty Scout",
+      "tier": 1,
+      "base_atk": 3,
+      "base_hp": 3,
+      "tribes": [
+        "MURLOC"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "start_of_combat",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Start of Combat: If this minion is in your hand, summon a copy of it."
+    },
+    "harmless_bonehead": {
+      "name": "Harmless Bonehead",
+      "tier": 1,
+      "base_atk": 1,
+      "base_hp": 1,
+      "tribes": [
+        "UNDEAD"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: Summon two 1/1 Skeletons."
+    },
+    "minted_corsair": {
+      "name": "Minted Corsair",
+      "tier": 1,
+      "base_atk": 1,
+      "base_hp": 3,
+      "tribes": [
+        "PIRATE"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "on_sell",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "When you sell this, get a Tavern Coin."
+    },
+    "misfit_dragonling": {
+      "name": "Misfit Dragonling",
+      "tier": 1,
+      "base_atk": 2,
+      "base_hp": 1,
+      "tribes": [
+        "DRAGON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "start_of_combat",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": true,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Start of Combat: Gain stats equal to your Tier."
+    },
+    "ominous_seer": {
+      "name": "Ominous Seer",
+      "tier": 1,
+      "base_atk": 2,
+      "base_hp": 1,
+      "tribes": [
+        "DEMON",
+        "NAGA"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: The next Tavern spell you buy costs (1) less."
+    },
+    "passenger": {
+      "name": "Passenger",
+      "tier": 1,
+      "base_atk": 2,
+      "base_hp": 2,
+      "tribes": [],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "The first time your team Passes each turn, gain +1/+2."
+    },
+    "picky_eater": {
+      "name": "Picky Eater",
+      "tier": 1,
+      "base_atk": 1,
+      "base_hp": 1,
+      "tribes": [
+        "DEMON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Consume a random minion in the Tavern to gain its stats."
+    },
+    "razorfen_geomancer": {
+      "name": "Razorfen Geomancer",
+      "tier": 1,
+      "base_atk": 2,
+      "base_hp": 1,
+      "tribes": [
+        "QUILBOAR"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Get 2 Blood Gems."
+    },
+    "risen_rider": {
+      "name": "Risen Rider",
+      "tier": 1,
+      "base_atk": 2,
+      "base_hp": 1,
+      "tribes": [
+        "UNDEAD"
+      ],
+      "keywords": {
+        "taunt": true,
+        "divine_shield": false,
+        "reborn": true,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Taunt. Reborn."
+    },
+    "rot_hide_gnoll": {
+      "name": "Rot Hide Gnoll",
+      "tier": 1,
+      "base_atk": 1,
+      "base_hp": 4,
+      "tribes": [
+        "UNDEAD"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "all_friendly",
+      "effect_duration": "this_combat",
+      "scales_with_board": true,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Has +1 Attack for each friendly minion that died this combat."
+    },
+    "surf_n_surf": {
+      "name": "Surf n Surf",
+      "tier": 1,
+      "base_atk": 1,
+      "base_hp": 1,
+      "tribes": [
+        "NAGA",
+        "BEAST"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "single_target",
+      "effect_duration": "this_combat",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Spellcraft: Give a minion \"Deathrattle: Summon a 3/2 Crab\" until next turn."
+    },
+    "swampstriker": {
+      "name": "Swampstriker",
+      "tier": 1,
+      "base_atk": 1,
+      "base_hp": 5,
+      "tribes": [
+        "MURLOC"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": true,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Windfury. After you summon a Murloc, gain +1 Attack."
+    },
+    "tusked_camper": {
+      "name": "Tusked Camper",
+      "tier": 1,
+      "base_atk": 2,
+      "base_hp": 3,
+      "tribes": [
+        "QUILBOAR"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "rally",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Rally: This plays a Blood Gem on itself."
+    },
+    "twilight_hatchling": {
+      "name": "Twilight Hatchling",
+      "tier": 1,
+      "base_atk": 1,
+      "base_hp": 1,
+      "tribes": [
+        "DRAGON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: Summon a 3/3 Whelp that attacks immediately."
+    },
+    "wrath_weaver": {
+      "name": "Wrath Weaver",
+      "tier": 1,
+      "base_atk": 1,
+      "base_hp": 4,
+      "tribes": [
+        "DEMON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "After you play a Demon, deal 1 damage to your hero and gain +2/+1."
+    },
+    "blue_volumizer": {
+      "name": "Blue Volumizer",
+      "tier": 2,
+      "base_atk": 1,
+      "base_hp": 3,
+      "tribes": [
+        "MECH"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": true,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": true,
+      "raw_text": "Magnetic. The first time this is played or Magnetized, your Volumizers have +3 Health this game."
+    },
+    "briarback_bookie": {
+      "name": "Briarback Bookie",
+      "tier": 2,
+      "base_atk": 3,
+      "base_hp": 3,
+      "tribes": [
+        "QUILBOAR"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "end_of_turn",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "At the end of your turn, get a Blood Gem."
+    },
+    "defiant_shipwright": {
+      "name": "Defiant Shipwright",
+      "tier": 2,
+      "base_atk": 2,
+      "base_hp": 5,
+      "tribes": [
+        "PIRATE"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Whenever this gains Attack from other sources, gain +1 Health."
+    },
+    "embalming_expert": {
+      "name": "Embalming Expert",
+      "tier": 2,
+      "base_atk": 3,
+      "base_hp": 2,
+      "tribes": [
+        "UNDEAD"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": true,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "After the Tavern is Refreshed, give its right-most minion +2 Attack and Reborn."
+    },
+    "eternal_knight": {
+      "name": "Eternal Knight",
+      "tier": 2,
+      "base_atk": 4,
+      "base_hp": 1,
+      "tribes": [
+        "UNDEAD"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "this_game",
+      "scales_with_board": true,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Has +4/+1 for each friendly Eternal Knight that died this game."
+    },
+    "expert_aviator": {
+      "name": "Expert Aviator",
+      "tier": 2,
+      "base_atk": 3,
+      "base_hp": 4,
+      "tribes": [
+        "MURLOC"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "rally",
+      "effect_target": "self",
+      "effect_duration": "this_combat",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Rally: Give the left-most minion in your hand +1/+1 and summon it for this combat only."
+    },
+    "fire_baller": {
+      "name": "Fire Baller",
+      "tier": 2,
+      "base_atk": 4,
+      "base_hp": 3,
+      "tribes": [
+        "ELEMENTAL"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "on_sell",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "When you sell this, give your minions +1 Attack. Improve your future Ballers."
+    },
+    "forest_rover": {
+      "name": "Forest Rover",
+      "tier": 2,
+      "base_atk": 1,
+      "base_hp": 1,
+      "tribes": [
+        "BEAST"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "tribe",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Your Beetles have +2/+1 this game. Deathrattle: Summon a 2/2 Beetle."
+    },
+    "freedealing_gambler": {
+      "name": "Freedealing Gambler",
+      "tier": 2,
+      "base_atk": 3,
+      "base_hp": 3,
+      "tribes": [
+        "PIRATE"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "This minion sells for 3 Gold."
+    },
+    "friendly_saloonkeeper": {
+      "name": "Friendly Saloonkeeper",
+      "tier": 2,
+      "base_atk": 3,
+      "base_hp": 4,
+      "tribes": [],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Your teammate gets a Tavern Coin."
+    },
+    "gathering_stormer": {
+      "name": "Gathering Stormer",
+      "tier": 2,
+      "base_atk": 5,
+      "base_hp": 1,
+      "tribes": [
+        "ELEMENTAL"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "on_sell",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "When you sell this, your teammate gains 1 Gold. (Improves each turn!)"
+    },
+    "generous_geomancer": {
+      "name": "Generous Geomancer",
+      "tier": 2,
+      "base_atk": 1,
+      "base_hp": 1,
+      "tribes": [
+        "QUILBOAR"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: You and your teammate each get a Blood Gem."
+    },
+    "green_volumizer": {
+      "name": "Green Volumizer",
+      "tier": 2,
+      "base_atk": 3,
+      "base_hp": 3,
+      "tribes": [
+        "MECH"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": true,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": true,
+      "raw_text": "Magnetic. The first time this is played or Magnetized, your Volumizers have +1/+1 this game."
+    },
+    "humming_bird": {
+      "name": "Humming Bird",
+      "tier": 2,
+      "base_atk": 1,
+      "base_hp": 4,
+      "tribes": [
+        "BEAST"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "start_of_combat",
+      "effect_target": "tribe",
+      "effect_duration": "this_combat",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Start of Combat: For the rest of this combat, your Beasts have +1 Attack."
+    },
+    "intrepid_botanist": {
+      "name": "Intrepid Botanist",
+      "tier": 2,
+      "base_atk": 3,
+      "base_hp": 4,
+      "tribes": [],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "tavern",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Choose One - Your Tavern spells give an extra +1 Attack this game; or +1 Health."
+    },
+    "irate_rooster": {
+      "name": "Irate Rooster",
+      "tier": 2,
+      "base_atk": 3,
+      "base_hp": 4,
+      "tribes": [
+        "BEAST"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "start_of_combat",
+      "effect_target": "adjacent",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Start of Combat: Deal 1 damage to adjacent minions and give them +4 Attack."
+    },
+    "lava_lurker": {
+      "name": "Lava Lurker",
+      "tier": 2,
+      "base_atk": 2,
+      "base_hp": 5,
+      "tribes": [
+        "NAGA"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "The first Spellcraft spell played from hand on this each turn is permanent. (1 left!)"
+    },
+    "mechagnome_interpreter": {
+      "name": "Mechagnome Interpreter",
+      "tier": 2,
+      "base_atk": 2,
+      "base_hp": 3,
+      "tribes": [
+        "MECH"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": true,
+      "has_magnetic": false,
+      "raw_text": "Whenever you play or Magnetize a Mech, give it +2/+1."
+    },
+    "mind_muck": {
+      "name": "Mind Muck",
+      "tier": 2,
+      "base_atk": 3,
+      "base_hp": 2,
+      "tribes": [
+        "DEMON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Choose a friendly Demon. It consumes a minion in the Tavern to gain its stats."
+    },
+    "moon-bacon_jazzer": {
+      "name": "Moon-Bacon Jazzer",
+      "tier": 2,
+      "base_atk": 1,
+      "base_hp": 3,
+      "tribes": [
+        "QUILBOAR"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "self",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Your Blood Gems give an extra +1 Health this game."
+    },
+    "nerubian_deathswarmer": {
+      "name": "Nerubian Deathswarmer",
+      "tier": 2,
+      "base_atk": 1,
+      "base_hp": 4,
+      "tribes": [
+        "UNDEAD"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "tribe",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Your Undead have +1 Attack this game (wherever they are)."
+    },
+    "oozeling_gladiator": {
+      "name": "Oozeling Gladiator",
+      "tier": 2,
+      "base_atk": 2,
+      "base_hp": 2,
+      "tribes": [],
+      "keywords": {
+        "taunt": true,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Get two Slimy Shields that give +1/+1 and Taunt."
+    },
+    "patient_scout": {
+      "name": "Patient Scout",
+      "tier": 2,
+      "base_atk": 1,
+      "base_hp": 1,
+      "tribes": [],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "on_sell",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "When you sell this, Discover a Tier 1 minion. (Improves each turn!)"
+    },
+    "prophet_of_the_boar": {
+      "name": "Prophet of the Boar",
+      "tier": 2,
+      "base_atk": 2,
+      "base_hp": 3,
+      "tribes": [],
+      "keywords": {
+        "taunt": true,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Taunt. After you play a Quilboar, get a Blood Gem."
+    },
+    "red_volumizer": {
+      "name": "Red Volumizer",
+      "tier": 2,
+      "base_atk": 3,
+      "base_hp": 1,
+      "tribes": [
+        "MECH"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": true,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": true,
+      "raw_text": "Magnetic. The first time this is played or Magnetized, your Volumizers have +3 Attack this game."
+    },
+    "reef_riffer": {
+      "name": "Reef Riffer",
+      "tier": 2,
+      "base_atk": 3,
+      "base_hp": 2,
+      "tribes": [
+        "NAGA"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "spellcraft",
+      "effect_target": "single_target",
+      "effect_duration": "this_combat",
+      "scales_with_board": true,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Spellcraft: Give a minion stats equal to your Tier until next turn."
+    },
+    "saltscale_honcho": {
+      "name": "Saltscale Honcho",
+      "tier": 2,
+      "base_atk": 5,
+      "base_hp": 2,
+      "tribes": [
+        "MURLOC"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "After you summon a Murloc, give a friendly Murloc other than it +2 Health."
+    },
+    "sellemental": {
+      "name": "Sellemental",
+      "tier": 2,
+      "base_atk": 3,
+      "base_hp": 3,
+      "tribes": [
+        "ELEMENTAL"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "on_sell",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "When you sell this, get a 3/3 Elemental."
+    },
+    "shell_collector": {
+      "name": "Shell Collector",
+      "tier": 2,
+      "base_atk": 4,
+      "base_hp": 3,
+      "tribes": [
+        "NAGA"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Get a Tavern Coin."
+    },
+    "sleepy_supporter": {
+      "name": "Sleepy Supporter",
+      "tier": 2,
+      "base_atk": 3,
+      "base_hp": 4,
+      "tribes": [
+        "DRAGON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "rally",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Rally: Give another random friendly Dragon +2/+3."
+    },
+    "snow_baller": {
+      "name": "Snow Baller",
+      "tier": 2,
+      "base_atk": 3,
+      "base_hp": 4,
+      "tribes": [
+        "ELEMENTAL"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "on_sell",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "When you sell this, give your minions +1 Health. Improve your future Ballers."
+    },
+    "soul_rewinder": {
+      "name": "Soul Rewinder",
+      "tier": 2,
+      "base_atk": 4,
+      "base_hp": 1,
+      "tribes": [
+        "DEMON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "After your hero takes damage, rewind it and give this +1 Health."
+    },
+    "surfing_sylvar": {
+      "name": "Surfing Sylvar",
+      "tier": 2,
+      "base_atk": 1,
+      "base_hp": 2,
+      "tribes": [
+        "PIRATE"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "end_of_turn",
+      "effect_target": "adjacent",
+      "effect_duration": "instant",
+      "scales_with_board": true,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "At the end of your turn, give adjacent minions +1 Attack. Repeat for each friendly Golden minion."
+    },
+    "tad": {
+      "name": "Tad",
+      "tier": 2,
+      "base_atk": 2,
+      "base_hp": 2,
+      "tribes": [
+        "MURLOC"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "on_sell",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "When you sell this, get a random Murloc."
+    },
+    "tarecgosa": {
+      "name": "Tarecgosa",
+      "tier": 2,
+      "base_atk": 3,
+      "base_hp": 3,
+      "tribes": [
+        "DRAGON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "permanent",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "This permanently keeps Bonus Keywords and stats gained in combat."
+    },
+    "wanderer_cho": {
+      "name": "Wanderer Cho",
+      "tier": 2,
+      "base_atk": 4,
+      "base_hp": 3,
+      "tribes": [],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "One Pass each turn is free. (1 left!)"
+    },
+    "whelp_watcher": {
+      "name": "Whelp Watcher",
+      "tier": 2,
+      "base_atk": 1,
+      "base_hp": 4,
+      "tribes": [
+        "DRAGON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "rally",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Rally: Summon a 3/3 Whelp to attack the target first."
+    },
+    "worgen_executive": {
+      "name": "Worgen Executive",
+      "tier": 2,
+      "base_atk": 2,
+      "base_hp": 5,
+      "tribes": [],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "rally",
+      "effect_target": "tavern",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Rally: After the Tavern is Refreshed this game, give its right-most minion +1/+1."
+    },
+    "amber_guardian": {
+      "name": "Amber Guardian",
+      "tier": 3,
+      "base_atk": 3,
+      "base_hp": 2,
+      "tribes": [
+        "DRAGON"
+      ],
+      "keywords": {
+        "taunt": true,
+        "divine_shield": true,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "start_of_combat",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Taunt. Start of Combat: Give another friendly Dragon +2/+2 and Divine Shield."
+    },
+    "annoy-o-module": {
+      "name": "Annoy-o-Module",
+      "tier": 3,
+      "base_atk": 2,
+      "base_hp": 4,
+      "tribes": [
+        "MECH"
+      ],
+      "keywords": {
+        "taunt": true,
+        "divine_shield": true,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": true,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": true,
+      "raw_text": "Magnetic. Divine Shield. Taunt."
+    },
+    "anubarak_nerubian_king": {
+      "name": "Anubarak Nerubian King",
+      "tier": 3,
+      "base_atk": 3,
+      "base_hp": 2,
+      "tribes": [
+        "UNDEAD"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "tribe",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: Your Undead have +1 Attack this game (wherever they are)."
+    },
+    "aranasi_alchemist": {
+      "name": "Aranasi Alchemist",
+      "tier": 3,
+      "base_atk": 1,
+      "base_hp": 2,
+      "tribes": [
+        "DEMON"
+      ],
+      "keywords": {
+        "taunt": true,
+        "divine_shield": false,
+        "reborn": true,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "tavern",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Taunt. Reborn. Deathrattle: Give minions in the Tavern +1 Health this game."
+    },
+    "auto_accelerator": {
+      "name": "Auto Accelerator",
+      "tier": 3,
+      "base_atk": 3,
+      "base_hp": 3,
+      "tribes": [
+        "MECH"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": true,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": true,
+      "raw_text": "Battlecry: Get a random Magnetic Volumizer."
+    },
+    "bassgill": {
+      "name": "Bassgill",
+      "tier": 3,
+      "base_atk": 5,
+      "base_hp": 2,
+      "tribes": [
+        "MURLOC"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "this_combat",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: Summon the highest-Health Murloc from your hand for this combat only."
+    },
+    "bird_buddy": {
+      "name": "Bird Buddy",
+      "tier": 3,
+      "base_atk": 2,
+      "base_hp": 4,
+      "tribes": [],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "avenge",
+      "effect_target": "tribe",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": 1,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Avenge (1): Give your Beasts +1/+1."
+    },
+    "blue_whelp": {
+      "name": "Blue Whelp",
+      "tier": 3,
+      "base_atk": 1,
+      "base_hp": 5,
+      "tribes": [
+        "DRAGON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "rally",
+      "effect_target": "tavern",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Rally: Your Tavern spells give an extra +1 Health this game."
+    },
+    "bottom_feeder": {
+      "name": "Bottom Feeder",
+      "tier": 3,
+      "base_atk": 3,
+      "base_hp": 4,
+      "tribes": [
+        "MURLOC"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "end_of_turn",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "At the end of your turn, you and your teammate each get a random Tier 1 card."
+    },
+    "bountiful_bedrock": {
+      "name": "Bountiful Bedrock",
+      "tier": 3,
+      "base_atk": 3,
+      "base_hp": 4,
+      "tribes": [
+        "ELEMENTAL"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "At the end of every 2 turns, get a random Elemental. (2 turns left!)"
+    },
+    "briarback_drummer": {
+      "name": "Briarback Drummer",
+      "tier": 3,
+      "base_atk": 5,
+      "base_hp": 2,
+      "tribes": [
+        "QUILBOAR"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Get a Blood Gem Barrage."
+    },
+    "briny_bootlegger": {
+      "name": "Briny Bootlegger",
+      "tier": 3,
+      "base_atk": 4,
+      "base_hp": 2,
+      "tribes": [
+        "PIRATE"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: Get a Tavern Coin."
+    },
+    "budding_greenthumb": {
+      "name": "Budding Greenthumb",
+      "tier": 3,
+      "base_atk": 1,
+      "base_hp": 5,
+      "tribes": [],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "avenge",
+      "effect_target": "adjacent",
+      "effect_duration": "permanent",
+      "scales_with_board": false,
+      "avenge_count": 3,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Avenge (3): Give adjacent minions +2/+2 permanently."
+    },
+    "cadaver_caretaker": {
+      "name": "Cadaver Caretaker",
+      "tier": 3,
+      "base_atk": 3,
+      "base_hp": 3,
+      "tribes": [
+        "UNDEAD"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: Summon three 1/1 Skeletons."
+    },
+    "coldlight_diver": {
+      "name": "Coldlight Diver",
+      "tier": 3,
+      "base_atk": 1,
+      "base_hp": 1,
+      "tribes": [
+        "MURLOC"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry and Deathrattle: Get a random Tier 1 Tavern spell."
+    },
+    "deadly_spore": {
+      "name": "Deadly Spore",
+      "tier": 3,
+      "base_atk": 1,
+      "base_hp": 1,
+      "tribes": [],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": true,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Venomous."
+    },
+    "deep-sea_angler": {
+      "name": "Deep-Sea Angler",
+      "tier": 3,
+      "base_atk": 2,
+      "base_hp": 3,
+      "tribes": [
+        "NAGA"
+      ],
+      "keywords": {
+        "taunt": true,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "spellcraft",
+      "effect_target": "single_target",
+      "effect_duration": "this_combat",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Spellcraft: Give a minion +2/+6 and Taunt until next turn."
+    },
+    "doting_dracthyr": {
+      "name": "Doting Dracthyr",
+      "tier": 3,
+      "base_atk": 4,
+      "base_hp": 3,
+      "tribes": [
+        "DRAGON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "end_of_turn",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "At the end of your turn, give your teammate's minions +1 Attack."
+    },
+    "felemental": {
+      "name": "Felemental",
+      "tier": 3,
+      "base_atk": 3,
+      "base_hp": 3,
+      "tribes": [
+        "ELEMENTAL",
+        "DEMON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "tavern",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Give minions in the Tavern +2/+1 this game."
+    },
+    "felhorn": {
+      "name": "Felhorn",
+      "tier": 3,
+      "base_atk": 2,
+      "base_hp": 4,
+      "tribes": [
+        "DEMON",
+        "BEAST"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Give your other Demons and Beasts +1/+2 and deal 1 damage to them, twice."
+    },
+    "gemsplitter": {
+      "name": "Gemsplitter",
+      "tier": 3,
+      "base_atk": 2,
+      "base_hp": 1,
+      "tribes": [
+        "QUILBOAR"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": true,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Divine Shield. After a friendly minion loses Divine Shield, get a Blood Gem."
+    },
+    "goldgrubber": {
+      "name": "Goldgrubber",
+      "tier": 3,
+      "base_atk": 3,
+      "base_hp": 2,
+      "tribes": [
+        "PIRATE"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "end_of_turn",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": true,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "At the end of your turn, gain +3/+2 for each friendly Golden minion."
+    },
+    "handless_forsaken": {
+      "name": "Handless Forsaken",
+      "tier": 3,
+      "base_atk": 2,
+      "base_hp": 1,
+      "tribes": [
+        "UNDEAD"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": true,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: Summon a 2/1 Hand with Reborn."
+    },
+    "hardy_orca": {
+      "name": "Hardy Orca",
+      "tier": 3,
+      "base_atk": 1,
+      "base_hp": 6,
+      "tribes": [
+        "BEAST"
+      ],
+      "keywords": {
+        "taunt": true,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": true,
+      "has_magnetic": false,
+      "raw_text": "Taunt. Whenever this takes damage, give your other minions +1/+1."
+    },
+    "jelly_belly": {
+      "name": "Jelly Belly",
+      "tier": 3,
+      "base_atk": 2,
+      "base_hp": 3,
+      "tribes": [
+        "UNDEAD"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": true,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "all_friendly",
+      "effect_duration": "permanent",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "After a friendly minion is Reborn, gain +2/+3 permanently."
+    },
+    "jumping_jack": {
+      "name": "Jumping Jack",
+      "tier": 3,
+      "base_atk": 3,
+      "base_hp": 4,
+      "tribes": [
+        "ALL"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "After the first time this is sold, Pass it."
+    },
+    "orc-estra_conductor": {
+      "name": "Orc-estra Conductor",
+      "tier": 3,
+      "base_atk": 4,
+      "base_hp": 4,
+      "tribes": [],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "single_target",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Give a minion +2/+2 (Improved by each Orc-estra your team has played this game)."
+    },
+    "peggy_sturdybone": {
+      "name": "Peggy Sturdybone",
+      "tier": 3,
+      "base_atk": 2,
+      "base_hp": 1,
+      "tribes": [
+        "PIRATE"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": true,
+      "has_magnetic": false,
+      "raw_text": "Whenever a card is added to your hand, give another friendly Pirate +2/+1."
+    },
+    "plunder_pal": {
+      "name": "Plunder Pal",
+      "tier": 3,
+      "base_atk": 2,
+      "base_hp": 2,
+      "tribes": [
+        "PIRATE"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "At the start of your turn, you and your teammate each gain 1 Gold."
+    },
+    "prickly_piper": {
+      "name": "Prickly Piper",
+      "tier": 3,
+      "base_atk": 5,
+      "base_hp": 1,
+      "tribes": [
+        "QUILBOAR"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: Your Blood Gems give an extra +1 Attack this game."
+    },
+    "profound_thinker": {
+      "name": "Profound Thinker",
+      "tier": 3,
+      "base_atk": 2,
+      "base_hp": 3,
+      "tribes": [
+        "NAGA"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "rally",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Rally: Get a random Spellcraft spell. This casts a copy of it (targets this if possible)."
+    },
+    "puddle_prancer": {
+      "name": "Puddle Prancer",
+      "tier": 3,
+      "base_atk": 4,
+      "base_hp": 4,
+      "tribes": [
+        "MURLOC"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "After this is Passed, gain +4/+4."
+    },
+    "rampager": {
+      "name": "Rampager",
+      "tier": 3,
+      "base_atk": 8,
+      "base_hp": 8,
+      "tribes": [
+        "BEAST"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "rally",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Rally: Deal 1 damage to your other minions."
+    },
+    "relentless_deflector": {
+      "name": "Relentless Deflector",
+      "tier": 3,
+      "base_atk": 5,
+      "base_hp": 4,
+      "tribes": [
+        "MECH"
+      ],
+      "keywords": {
+        "taunt": true,
+        "divine_shield": true,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "avenge",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": 3,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Has Taunt while this has Divine Shield. Avenge (3): Gain Divine Shield."
+    },
+    "roadboar": {
+      "name": "Roadboar",
+      "tier": 3,
+      "base_atk": 3,
+      "base_hp": 4,
+      "tribes": [
+        "QUILBOAR"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "rally",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Rally: Get 2 Blood Gems."
+    },
+    "roaring_recruiter": {
+      "name": "Roaring Recruiter",
+      "tier": 3,
+      "base_atk": 2,
+      "base_hp": 8,
+      "tribes": [
+        "DRAGON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": true,
+      "has_magnetic": false,
+      "raw_text": "Whenever another friendly Dragon attacks, give it +3/+1."
+    },
+    "scourfin": {
+      "name": "Scourfin",
+      "tier": 3,
+      "base_atk": 3,
+      "base_hp": 3,
+      "tribes": [
+        "MURLOC"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: Give a random minion in your hand +5/+5."
+    },
+    "shoalfin_mystic": {
+      "name": "Shoalfin Mystic",
+      "tier": 3,
+      "base_atk": 4,
+      "base_hp": 4,
+      "tribes": [
+        "MURLOC"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "on_sell",
+      "effect_target": "tavern",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "When you sell this, your Tavern spells give an extra +1/+1 this game."
+    },
+    "sprightly_scarab": {
+      "name": "Sprightly Scarab",
+      "tier": 3,
+      "base_atk": 3,
+      "base_hp": 1,
+      "tribes": [
+        "BEAST"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": true,
+        "windfury": true,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Choose One - Give a Beast +1/+1 and Reborn; or +4 Attack and Windfury."
+    },
+    "technical_element": {
+      "name": "Technical Element",
+      "tier": 3,
+      "base_atk": 5,
+      "base_hp": 6,
+      "tribes": [
+        "ELEMENTAL",
+        "MECH"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": true,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": true,
+      "raw_text": "Magnetic. Can Magnetize to both Mechs and Elementals."
+    },
+    "the_glad-iator": {
+      "name": "The Glad-iator",
+      "tier": 3,
+      "base_atk": 3,
+      "base_hp": 3,
+      "tribes": [
+        "NAGA"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": true,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Divine Shield. Whenever you cast a spell, gain +1 Attack."
+    },
+    "timecapn_hooktail": {
+      "name": "Timecapn Hooktail",
+      "tier": 3,
+      "base_atk": 1,
+      "base_hp": 4,
+      "tribes": [
+        "DRAGON",
+        "PIRATE"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": true,
+      "has_magnetic": false,
+      "raw_text": "Whenever you cast a Tavern spell, give your minions +1 Attack."
+    },
+    "underhanded_dealer": {
+      "name": "Underhanded Dealer",
+      "tier": 3,
+      "base_atk": 3,
+      "base_hp": 3,
+      "tribes": [
+        "PIRATE"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "After you gain Gold, gain +1/+2."
+    },
+    "waveling": {
+      "name": "Waveling",
+      "tier": 3,
+      "base_atk": 6,
+      "base_hp": 1,
+      "tribes": [
+        "ELEMENTAL"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "tavern",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: After the Tavern is Refreshed this game, give its right-most minion +3/+3."
+    },
+    "wheeled_crewmate": {
+      "name": "Wheeled Crewmate",
+      "tier": 3,
+      "base_atk": 6,
+      "base_hp": 3,
+      "tribes": [
+        "PIRATE"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: Reduce the Cost of upgrading your team's Taverns by (1)."
+    },
+    "wildfire_elemental": {
+      "name": "Wildfire Elemental",
+      "tier": 3,
+      "base_atk": 6,
+      "base_hp": 3,
+      "tribes": [
+        "ELEMENTAL"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "adjacent",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "After this attacks and kills a minion, deal excess damage to an adjacent minion."
+    },
+    "zesty_shaker": {
+      "name": "Zesty Shaker",
+      "tier": 3,
+      "base_atk": 5,
+      "base_hp": 6,
+      "tribes": [
+        "NAGA"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Once per turn, when a Spellcraft spell is played on this, get a new copy of it."
+    },
+    "accord-o-tron": {
+      "name": "Accord-o-Tron",
+      "tier": 4,
+      "base_atk": 5,
+      "base_hp": 5,
+      "tribes": [
+        "MECH"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": true,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": true,
+      "raw_text": "Magnetic. At the start of your turn, gain 1 Gold."
+    },
+    "apprentice_of_sefin": {
+      "name": "Apprentice of Sefin",
+      "tier": 4,
+      "base_atk": 4,
+      "base_hp": 4,
+      "tribes": [
+        "MURLOC"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "end_of_turn",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "At the end of your turn, gain +2/+2 and a random Bonus Keyword."
+    },
+    "blade_collector": {
+      "name": "Blade Collector",
+      "tier": 4,
+      "base_atk": 3,
+      "base_hp": 2,
+      "tribes": [
+        "PIRATE"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Also damages the minions next to whomever this attacks."
+    },
+    "bonker": {
+      "name": "Bonker",
+      "tier": 4,
+      "base_atk": 2,
+      "base_hp": 7,
+      "tribes": [
+        "QUILBOAR"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "rally",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Rally: This plays 2 Blood Gems on all your other minions."
+    },
+    "bream_counter": {
+      "name": "Bream Counter",
+      "tier": 4,
+      "base_atk": 4,
+      "base_hp": 4,
+      "tribes": [
+        "MURLOC"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "While this is in your hand, after you play a Murloc, gain +4/+4."
+    },
+    "conveyor_construct": {
+      "name": "Conveyor Construct",
+      "tier": 4,
+      "base_atk": 5,
+      "base_hp": 2,
+      "tribes": [
+        "MECH"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": true,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": true,
+      "raw_text": "Deathrattle: Get a random Magnetic Volumizer."
+    },
+    "daggerspine_thrasher": {
+      "name": "Daggerspine Thrasher",
+      "tier": 4,
+      "base_atk": 3,
+      "base_hp": 5,
+      "tribes": [
+        "NAGA"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": true,
+        "reborn": false,
+        "windfury": true,
+        "venomous": true,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "this_combat",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Whenever you cast a spell, gain Divine Shield, Windfury, or Venomous until next turn."
+    },
+    "deep_blue_crooner": {
+      "name": "Deep Blue Crooner",
+      "tier": 4,
+      "base_atk": 2,
+      "base_hp": 3,
+      "tribes": [
+        "NAGA"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "spellcraft",
+      "effect_target": "single_target",
+      "effect_duration": "this_combat",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Spellcraft: Give a minion +2/+3 until next turn. Improve your future Deep Blues."
+    },
+    "devout_hellcaller": {
+      "name": "Devout Hellcaller",
+      "tier": 4,
+      "base_atk": 2,
+      "base_hp": 2,
+      "tribes": [
+        "DEMON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "all_friendly",
+      "effect_duration": "permanent",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "After another friendly Demon deals damage, gain +1/+2 permanently."
+    },
+    "en-djinn_blazer": {
+      "name": "En-Djinn Blazer",
+      "tier": 4,
+      "base_atk": 4,
+      "base_hp": 4,
+      "tribes": [
+        "ELEMENTAL"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "tavern",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: After the Tavern is Refreshed this game, give its right-most minion +7/+7."
+    },
+    "fearless_foodie": {
+      "name": "Fearless Foodie",
+      "tier": 4,
+      "base_atk": 2,
+      "base_hp": 4,
+      "tribes": [
+        "QUILBOAR"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Choose One - Your Blood Gems give an extra +1/+1 this game; or Get 4 Blood Gems."
+    },
+    "feisty_freshwater": {
+      "name": "Feisty Freshwater",
+      "tier": 4,
+      "base_atk": 6,
+      "base_hp": 4,
+      "tribes": [
+        "ELEMENTAL"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: You and your teammate each gain two free Refreshes."
+    },
+    "flaming_enforcer": {
+      "name": "Flaming Enforcer",
+      "tier": 4,
+      "base_atk": 4,
+      "base_hp": 5,
+      "tribes": [
+        "ELEMENTAL",
+        "DEMON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "end_of_turn",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "At the end of your turn, consume the highest-Health minion in the Tavern to gain its stats."
+    },
+    "friendly_geist": {
+      "name": "Friendly Geist",
+      "tier": 4,
+      "base_atk": 6,
+      "base_hp": 3,
+      "tribes": [
+        "UNDEAD"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "tavern",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: Your Tavern spells give an extra +1 Attack this game."
+    },
+    "geomagus_roogug": {
+      "name": "Geomagus Roogug",
+      "tier": 4,
+      "base_atk": 4,
+      "base_hp": 6,
+      "tribes": [
+        "QUILBOAR"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": true,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": true,
+      "has_magnetic": false,
+      "raw_text": "Divine Shield. Whenever a Blood Gem is played on this, this plays a Blood Gem on a different friendly minion."
+    },
+    "gormling_gourmet": {
+      "name": "Gormling Gourmet",
+      "tier": 4,
+      "base_atk": 4,
+      "base_hp": 3,
+      "tribes": [
+        "MURLOC"
+      ],
+      "keywords": {
+        "taunt": true,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Taunt. Battlecry and Deathrattle: Get a Seafood Stew."
+    },
+    "grave_narrator": {
+      "name": "Grave Narrator",
+      "tier": 4,
+      "base_atk": 2,
+      "base_hp": 7,
+      "tribes": [
+        "UNDEAD"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "avenge",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": 3,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Avenge (3): Your teammate gets a random minion of their most common type."
+    },
+    "grease_bot": {
+      "name": "Grease Bot",
+      "tier": 4,
+      "base_atk": 2,
+      "base_hp": 4,
+      "tribes": [
+        "MECH"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": true,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "all_friendly",
+      "effect_duration": "permanent",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Divine Shield. After a friendly minion loses Divine Shield, give it +2/+2 permanently."
+    },
+    "gunpowder_courier": {
+      "name": "Gunpowder Courier",
+      "tier": 4,
+      "base_atk": 2,
+      "base_hp": 6,
+      "tribes": [
+        "PIRATE"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "tribe",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": true,
+      "has_magnetic": false,
+      "raw_text": "Whenever you spend 6 Gold, give your Pirates +2 Attack. (6 Gold left!)"
+    },
+    "heroic_underdog": {
+      "name": "Heroic Underdog",
+      "tier": 4,
+      "base_atk": 1,
+      "base_hp": 10,
+      "tribes": [],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": true
+      },
+      "trigger_type": "rally",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Stealth. Rally: Gain the target's Attack."
+    },
+    "humongozz": {
+      "name": "Humongozz",
+      "tier": 4,
+      "base_atk": 5,
+      "base_hp": 5,
+      "tribes": [],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": true,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Divine Shield. Your Tavern spells give an extra +1/+2."
+    },
+    "hunting_tiger_shark": {
+      "name": "Hunting Tiger Shark",
+      "tier": 4,
+      "base_atk": 3,
+      "base_hp": 5,
+      "tribes": [
+        "BEAST"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Discover a Beast."
+    },
+    "ichoron_the_protector": {
+      "name": "Ichoron the Protector",
+      "tier": 4,
+      "base_atk": 3,
+      "base_hp": 1,
+      "tribes": [
+        "ELEMENTAL"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": true,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "this_combat",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Divine Shield. Whenever you play an Elemental, give it Divine Shield until next turn."
+    },
+    "imposing_percussionist": {
+      "name": "Imposing Percussionist",
+      "tier": 4,
+      "base_atk": 4,
+      "base_hp": 4,
+      "tribes": [
+        "DEMON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Discover a Demon. Deal damage to your hero equal to its Tier."
+    },
+    "industrious_deckhand": {
+      "name": "Industrious Deckhand",
+      "tier": 4,
+      "base_atk": 3,
+      "base_hp": 5,
+      "tribes": [
+        "PIRATE"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "At the start of your turn, get 2 Tavern Coins."
+    },
+    "lovesick_balladist": {
+      "name": "Lovesick Balladist",
+      "tier": 4,
+      "base_atk": 3,
+      "base_hp": 2,
+      "tribes": [
+        "PIRATE"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Give a Pirate +1 Health. (Improved by each Gold you spent this turn!)"
+    },
+    "malchezaar_prince_of_dance": {
+      "name": "Malchezaar Prince of Dance",
+      "tier": 4,
+      "base_atk": 5,
+      "base_hp": 4,
+      "tribes": [
+        "DEMON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Two Refreshes each turn cost Health instead of Gold. (2 left!)"
+    },
+    "mantid_king": {
+      "name": "Mantid King",
+      "tier": 4,
+      "base_atk": 3,
+      "base_hp": 3,
+      "tribes": [],
+      "keywords": {
+        "taunt": true,
+        "divine_shield": true,
+        "reborn": false,
+        "windfury": false,
+        "venomous": true,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "this_combat",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "After your team Passes, randomly gain Venomous, Taunt, or Divine Shield until next turn."
+    },
+    "marquee_ticker": {
+      "name": "Marquee Ticker",
+      "tier": 4,
+      "base_atk": 1,
+      "base_hp": 5,
+      "tribes": [
+        "MECH"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "end_of_turn",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "At the end of your turn, get a random Tavern spell."
+    },
+    "mirror_monster": {
+      "name": "Mirror Monster",
+      "tier": 4,
+      "base_atk": 4,
+      "base_hp": 4,
+      "tribes": [
+        "ALL"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "on_buy",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "When you buy or Discover this, get an extra copy and Pass it."
+    },
+    "monstrous_macaw": {
+      "name": "Monstrous Macaw",
+      "tier": 4,
+      "base_atk": 5,
+      "base_hp": 4,
+      "tribes": [
+        "BEAST"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Rally: Trigger your left-most Deathrattle (except this minion's)."
+    },
+    "persistent_poet": {
+      "name": "Persistent Poet",
+      "tier": 4,
+      "base_atk": 2,
+      "base_hp": 3,
+      "tribes": [
+        "DRAGON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": true,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "adjacent",
+      "effect_duration": "permanent",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Divine Shield. Adjacent Dragons permanently keep Bonus Keywords and stats gained in combat."
+    },
+    "plankwalker": {
+      "name": "Plankwalker",
+      "tier": 4,
+      "base_atk": 6,
+      "base_hp": 4,
+      "tribes": [
+        "UNDEAD",
+        "PIRATE"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": true,
+      "has_magnetic": false,
+      "raw_text": "Whenever you cast a Tavern spell, give three random friendly minions +2/+1."
+    },
+    "private_chef": {
+      "name": "Private Chef",
+      "tier": 4,
+      "base_atk": 5,
+      "base_hp": 4,
+      "tribes": [
+        "NAGA"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "spellcraft",
+      "effect_target": "single_target",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Spellcraft: Choose a minion. Get a different random minion of its type, then Pass it."
+    },
+    "prized_promo-drake": {
+      "name": "Prized Promo-Drake",
+      "tier": 4,
+      "base_atk": 1,
+      "base_hp": 1,
+      "tribes": [
+        "DRAGON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "start_of_combat",
+      "effect_target": "tribe",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Start of Combat: Give your Dragons +4/+4."
+    },
+    "prosthetic_hand": {
+      "name": "Prosthetic Hand",
+      "tier": 4,
+      "base_atk": 3,
+      "base_hp": 1,
+      "tribes": [
+        "UNDEAD",
+        "MECH"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": true,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": true,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": true,
+      "raw_text": "Magnetic. Reborn. Can Magnetize to Mechs or Undead."
+    },
+    "razorfen_flapper": {
+      "name": "Razorfen Flapper",
+      "tier": 4,
+      "base_atk": 5,
+      "base_hp": 3,
+      "tribes": [
+        "QUILBOAR"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: Get a Blood Gem Barrage."
+    },
+    "refreshing_anomaly": {
+      "name": "Refreshing Anomaly",
+      "tier": 4,
+      "base_atk": 4,
+      "base_hp": 5,
+      "tribes": [
+        "ELEMENTAL"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Gain 2 free Refreshes."
+    },
+    "runed_progenitor": {
+      "name": "Runed Progenitor",
+      "tier": 4,
+      "base_atk": 2,
+      "base_hp": 8,
+      "tribes": [
+        "BEAST"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "tribe",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": 3,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Avenge (3): Your Beetles have +2/+2 this game. Deathrattle: Summon a 2/2 Beetle."
+    },
+    "rylak_metalhead": {
+      "name": "Rylak Metalhead",
+      "tier": 4,
+      "base_atk": 5,
+      "base_hp": 3,
+      "tribes": [
+        "BEAST"
+      ],
+      "keywords": {
+        "taunt": true,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "adjacent",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Taunt. Deathrattle: Trigger the Battlecry of an adjacent minion."
+    },
+    "sanlayn_scribe": {
+      "name": "Sanlayn Scribe",
+      "tier": 4,
+      "base_atk": 4,
+      "base_hp": 4,
+      "tribes": [
+        "UNDEAD"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "this_game",
+      "scales_with_board": true,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Has +4/+4 for each of your team's San'layn Scribes that died this game (wherever this is)."
+    },
+    "shifty_snake": {
+      "name": "Shifty Snake",
+      "tier": 4,
+      "base_atk": 6,
+      "base_hp": 1,
+      "tribes": [
+        "BEAST"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: Your teammate gets a random Deathrattle minion."
+    },
+    "silent_enforcer": {
+      "name": "Silent Enforcer",
+      "tier": 4,
+      "base_atk": 6,
+      "base_hp": 2,
+      "tribes": [
+        "DEMON"
+      ],
+      "keywords": {
+        "taunt": true,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Taunt. Deathrattle: Deal 2 damage to all minions (except friendly Demons)."
+    },
+    "sindorei_straight_shot": {
+      "name": "Sindorei Straight Shot",
+      "tier": 4,
+      "base_atk": 3,
+      "base_hp": 4,
+      "tribes": [],
+      "keywords": {
+        "taunt": true,
+        "divine_shield": true,
+        "reborn": true,
+        "windfury": true,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "rally",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Divine Shield. Windfury. Rally: Remove Reborn and Taunt from the target."
+    },
+    "soulsplitter": {
+      "name": "Soulsplitter",
+      "tier": 4,
+      "base_atk": 4,
+      "base_hp": 2,
+      "tribes": [
+        "UNDEAD"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": true,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "start_of_combat",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Reborn. Start of Combat: Give a friendly Undead Reborn."
+    },
+    "spirit_drake": {
+      "name": "Spirit Drake",
+      "tier": 4,
+      "base_atk": 1,
+      "base_hp": 8,
+      "tribes": [
+        "UNDEAD",
+        "DRAGON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "avenge",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": 3,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Avenge (3): Get a random Tavern spell."
+    },
+    "stellar_freebooter": {
+      "name": "Stellar Freebooter",
+      "tier": 4,
+      "base_atk": 8,
+      "base_hp": 4,
+      "tribes": [
+        "PIRATE"
+      ],
+      "keywords": {
+        "taunt": true,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Taunt. Deathrattle: Give a friendly minion Health equal to this minion's Attack."
+    },
+    "tavern_tempest": {
+      "name": "Tavern Tempest",
+      "tier": 4,
+      "base_atk": 2,
+      "base_hp": 2,
+      "tribes": [
+        "ELEMENTAL"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Get a random Elemental."
+    },
+    "tortollan_blue_shell": {
+      "name": "Tortollan Blue Shell",
+      "tier": 4,
+      "base_atk": 3,
+      "base_hp": 6,
+      "tribes": [],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "If you lost your last combat, this minion sells for 5 Gold."
+    },
+    "trench_fighter": {
+      "name": "Trench Fighter",
+      "tier": 4,
+      "base_atk": 6,
+      "base_hp": 6,
+      "tribes": [
+        "QUILBOAR"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "end_of_turn",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "At the end of your turn, get a Gem Confiscation."
+    },
+    "trigore_the_lasher": {
+      "name": "Trigore the Lasher",
+      "tier": 4,
+      "base_atk": 9,
+      "base_hp": 3,
+      "tribes": [
+        "BEAST"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "all_friendly",
+      "effect_duration": "permanent",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": true,
+      "has_magnetic": false,
+      "raw_text": "Whenever another friendly Beast takes damage, gain +2 Health permanently."
+    },
+    "tunnel_blaster": {
+      "name": "Tunnel Blaster",
+      "tier": 4,
+      "base_atk": 3,
+      "base_hp": 7,
+      "tribes": [],
+      "keywords": {
+        "taunt": true,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Taunt. Deathrattle: Deal 3 damage to all minions."
+    },
+    "wannabe_gargoyle": {
+      "name": "Wannabe Gargoyle",
+      "tier": 4,
+      "base_atk": 9,
+      "base_hp": 1,
+      "tribes": [
+        "DRAGON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": true,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Reborn. This is Reborn with full Attack."
+    },
+    "waverider": {
+      "name": "Waverider",
+      "tier": 4,
+      "base_atk": 2,
+      "base_hp": 8,
+      "tribes": [
+        "NAGA"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": true,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "spellcraft",
+      "effect_target": "single_target",
+      "effect_duration": "this_combat",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Spellcraft: Give a minion +2/+2. If it's a Naga, also give it Windfury until next turn."
+    },
+    "weary_mage": {
+      "name": "Weary Mage",
+      "tier": 4,
+      "base_atk": 5,
+      "base_hp": 1,
+      "tribes": [
+        "NAGA"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": true,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "spellcraft",
+      "effect_target": "single_target",
+      "effect_duration": "this_combat",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Spellcraft: Give a minion +2/+2. If it's a Naga, also give it Reborn until next turn."
+    },
+    "witchwing_nestmatron": {
+      "name": "Witchwing Nestmatron",
+      "tier": 4,
+      "base_atk": 3,
+      "base_hp": 5,
+      "tribes": [],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": 3,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Avenge (3): Get a random Battlecry minion."
+    },
+    "air_revenant": {
+      "name": "Air Revenant",
+      "tier": 5,
+      "base_atk": 3,
+      "base_hp": 6,
+      "tribes": [
+        "ELEMENTAL"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "After you spend 7 Gold, get Easterly Winds. (7 left!)"
+    },
+    "ashen_corruptor": {
+      "name": "Ashen Corruptor",
+      "tier": 5,
+      "base_atk": 6,
+      "base_hp": 6,
+      "tribes": [
+        "DEMON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "After your hero takes damage, rewind it and give minions in the Tavern +1/+1 this turn."
+    },
+    "azsharan_veteran": {
+      "name": "Azsharan Veteran",
+      "tier": 5,
+      "base_atk": 4,
+      "base_hp": 5,
+      "tribes": [
+        "NAGA"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "spellcraft",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": true,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Spellcraft: Give your minions +2/+1 for each different Bonus Keyword in your warband."
+    },
+    "bile_spitter": {
+      "name": "Bile Spitter",
+      "tier": 5,
+      "base_atk": 1,
+      "base_hp": 10,
+      "tribes": [
+        "MURLOC"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": true,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "rally",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Venomous. Rally: Give another friendly Murloc Venomous."
+    },
+    "brann_bronzebeard": {
+      "name": "Brann Bronzebeard",
+      "tier": 5,
+      "base_atk": 2,
+      "base_hp": 4,
+      "tribes": [],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": true,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Your Battlecries trigger twice."
+    },
+    "burgeoning_whelp": {
+      "name": "Burgeoning Whelp",
+      "tier": 5,
+      "base_atk": 5,
+      "base_hp": 5,
+      "tribes": [
+        "DRAGON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "tribe",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry and Deathrattle: Your Whelps have +3/+3 this game."
+    },
+    "cannon_corsair": {
+      "name": "Cannon Corsair",
+      "tier": 5,
+      "base_atk": 3,
+      "base_hp": 7,
+      "tribes": [
+        "PIRATE"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "tribe",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "After you gain Gold, give your Pirates +1/+1."
+    },
+    "carapace_raiser": {
+      "name": "Carapace Raiser",
+      "tier": 5,
+      "base_atk": 6,
+      "base_hp": 3,
+      "tribes": [
+        "UNDEAD"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: Get a Haunted Carapace."
+    },
+    "catacomb_crasher": {
+      "name": "Catacomb Crasher",
+      "tier": 5,
+      "base_atk": 6,
+      "base_hp": 10,
+      "tribes": [
+        "UNDEAD"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "all_friendly",
+      "effect_duration": "permanent",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": true,
+      "has_magnetic": false,
+      "raw_text": "Whenever you would summon a minion that doesn't fit in your warband, give your minions +2/+1 permanently."
+    },
+    "champion_of_the_primus": {
+      "name": "Champion of the Primus",
+      "tier": 5,
+      "base_atk": 2,
+      "base_hp": 10,
+      "tribes": [
+        "UNDEAD"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "avenge",
+      "effect_target": "tribe",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": 2,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Avenge (2): Your Undead have +1 Attack this game (wherever they are)."
+    },
+    "charging_czarina": {
+      "name": "Charging Czarina",
+      "tier": 5,
+      "base_atk": 4,
+      "base_hp": 2,
+      "tribes": [
+        "MECH"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": true,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": true,
+      "has_magnetic": false,
+      "raw_text": "Divine Shield. Whenever you cast a Tavern spell, give your minions with Divine Shield +4 Attack."
+    },
+    "costume_enthusiast": {
+      "name": "Costume Enthusiast",
+      "tier": 5,
+      "base_atk": 4,
+      "base_hp": 5,
+      "tribes": [
+        "MURLOC"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": true,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "start_of_combat",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Divine Shield. Start of Combat: Gain the Attack of the highest-Attack minion in your hand."
+    },
+    "drakkari_enchanter": {
+      "name": "Drakkari Enchanter",
+      "tier": 5,
+      "base_atk": 1,
+      "base_hp": 5,
+      "tribes": [],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": true,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Your end of turn effects trigger twice."
+    },
+    "eternal_tycoon": {
+      "name": "Eternal Tycoon",
+      "tier": 5,
+      "base_atk": 2,
+      "base_hp": 9,
+      "tribes": [
+        "UNDEAD"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "avenge",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": 5,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Avenge (5): Summon an Eternal Knight. It attacks immediately."
+    },
+    "felboar": {
+      "name": "Felboar",
+      "tier": 5,
+      "base_atk": 2,
+      "base_hp": 6,
+      "tribes": [
+        "DEMON",
+        "QUILBOAR"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "After you cast 3 spells, consume a minion in the Tavern to gain its stats. (3 left!)"
+    },
+    "firescale_hoarder": {
+      "name": "Firescale Hoarder",
+      "tier": 5,
+      "base_atk": 5,
+      "base_hp": 5,
+      "tribes": [
+        "NAGA",
+        "DRAGON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry and Deathrattle: Get a Shiny Ring."
+    },
+    "furious_driver": {
+      "name": "Furious Driver",
+      "tier": 5,
+      "base_atk": 3,
+      "base_hp": 3,
+      "tribes": [
+        "DEMON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Your other Demons each consume a minion in the Tavern to gain its stats."
+    },
+    "gentle_djinni": {
+      "name": "Gentle Djinni",
+      "tier": 5,
+      "base_atk": 4,
+      "base_hp": 5,
+      "tribes": [
+        "ELEMENTAL"
+      ],
+      "keywords": {
+        "taunt": true,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Taunt. Deathrattle: Get a random Elemental."
+    },
+    "glowscale": {
+      "name": "Glowscale",
+      "tier": 5,
+      "base_atk": 4,
+      "base_hp": 6,
+      "tribes": [
+        "NAGA"
+      ],
+      "keywords": {
+        "taunt": true,
+        "divine_shield": true,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "spellcraft",
+      "effect_target": "single_target",
+      "effect_duration": "this_combat",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Taunt. Spellcraft: Give a minion Divine Shield until next turn."
+    },
+    "hackerfin": {
+      "name": "Hackerfin",
+      "tier": 5,
+      "base_atk": 5,
+      "base_hp": 3,
+      "tribes": [
+        "MURLOC"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Give your other minions +1/+2. (Improved by each different Bonus Keyword in your warband!)"
+    },
+    "insatiable_urzul": {
+      "name": "Insatiable Urzul",
+      "tier": 5,
+      "base_atk": 4,
+      "base_hp": 6,
+      "tribes": [
+        "DEMON"
+      ],
+      "keywords": {
+        "taunt": true,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Taunt. After you play a Demon, consume a random minion in the Tavern to gain its stats."
+    },
+    "iridescent_skyblazer": {
+      "name": "Iridescent Skyblazer",
+      "tier": 5,
+      "base_atk": 3,
+      "base_hp": 8,
+      "tribes": [
+        "BEAST"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "permanent",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": true,
+      "has_magnetic": false,
+      "raw_text": "Whenever a friendly Beast takes damage, give a friendly Beast other than it +3/+1 permanently."
+    },
+    "junk_jouster": {
+      "name": "Junk Jouster",
+      "tier": 5,
+      "base_atk": 6,
+      "base_hp": 5,
+      "tribes": [
+        "MECH"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": true,
+      "has_magnetic": false,
+      "raw_text": "Whenever a minion is Magnetized to this, give your minions +3/+2."
+    },
+    "leeroy_the_reckless": {
+      "name": "Leeroy the Reckless",
+      "tier": 5,
+      "base_atk": 6,
+      "base_hp": 2,
+      "tribes": [],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: Destroy the minion that killed this."
+    },
+    "magnanimoose": {
+      "name": "Magnanimoose",
+      "tier": 5,
+      "base_atk": 5,
+      "base_hp": 2,
+      "tribes": [
+        "BEAST"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "single_target",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: Summon a copy of a minion from your teammate's warband. Set its Health to 1 (except Magnanimoose)."
+    },
+    "manari_messenger": {
+      "name": "Manari Messenger",
+      "tier": 5,
+      "base_atk": 9,
+      "base_hp": 6,
+      "tribes": [
+        "DEMON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "tavern",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Minions in your team's Taverns have +1/+1 this game."
+    },
+    "metal_dispenser": {
+      "name": "Metal Dispenser",
+      "tier": 5,
+      "base_atk": 2,
+      "base_hp": 8,
+      "tribes": [
+        "MECH"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": true,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "avenge",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": 3,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Divine Shield. Avenge (3): Magnetize a random Volumizer to this. Get a copy of it."
+    },
+    "mrglin_burglar": {
+      "name": "Mrglin Burglar",
+      "tier": 5,
+      "base_atk": 8,
+      "base_hp": 6,
+      "tribes": [
+        "MURLOC"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "After you play a Murloc, give a friendly minion and a minion in your hand +4/+4."
+    },
+    "nalaa_the_redeemer": {
+      "name": "Nalaa the Redeemer",
+      "tier": 5,
+      "base_atk": 5,
+      "base_hp": 7,
+      "tribes": [],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": true,
+      "has_magnetic": false,
+      "raw_text": "Whenever you cast a Tavern spell, give a friendly minion of each type +3/+2."
+    },
+    "niuzao": {
+      "name": "Niuzao",
+      "tier": 5,
+      "base_atk": 7,
+      "base_hp": 6,
+      "tribes": [
+        "BEAST"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "rally",
+      "effect_target": "random_enemy",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Rally: Deal damage equal to this minion's Attack to a random enemy minion other than the target."
+    },
+    "nomi_kitchen_nightmare": {
+      "name": "Nomi Kitchen Nightmare",
+      "tier": 5,
+      "base_atk": 4,
+      "base_hp": 4,
+      "tribes": [],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "tavern",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "After you play an Elemental, give Elementals in the Tavern +2/+2 this game."
+    },
+    "photobomber": {
+      "name": "Photobomber",
+      "tier": 5,
+      "base_atk": 6,
+      "base_hp": 6,
+      "tribes": [
+        "MECH"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "random_enemy",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: Deal 2 damage to the highest-Health enemy minion. (Improved by Tavern spells you've cast this game!)"
+    },
+    "primalfin_lookout": {
+      "name": "Primalfin Lookout",
+      "tier": 5,
+      "base_atk": 3,
+      "base_hp": 2,
+      "tribes": [
+        "MURLOC"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: If you control another Murloc, Discover a Murloc."
+    },
+    "razorfen_vineweaver": {
+      "name": "Razorfen Vineweaver",
+      "tier": 5,
+      "base_atk": 5,
+      "base_hp": 5,
+      "tribes": [
+        "QUILBOAR"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "rally",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Rally: This plays 3 permanent Blood Gems on itself."
+    },
+    "rodeo_performer": {
+      "name": "Rodeo Performer",
+      "tier": 5,
+      "base_atk": 3,
+      "base_hp": 4,
+      "tribes": [],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Discover a Tavern spell."
+    },
+    "selfless_sightseer": {
+      "name": "Selfless Sightseer",
+      "tier": 5,
+      "base_atk": 6,
+      "base_hp": 2,
+      "tribes": [
+        "DRAGON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Increase your team's maximum Gold by (1)."
+    },
+    "shadowdancer": {
+      "name": "Shadowdancer",
+      "tier": 5,
+      "base_atk": 5,
+      "base_hp": 4,
+      "tribes": [
+        "DEMON"
+      ],
+      "keywords": {
+        "taunt": true,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Taunt. Deathrattle: Get a Staff of Enrichment."
+    },
+    "showy_cyclist": {
+      "name": "Showy Cyclist",
+      "tier": 5,
+      "base_atk": 4,
+      "base_hp": 3,
+      "tribes": [
+        "NAGA"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "tribe",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: Give your Naga +2/+2. (Improved by every 4 spells you've cast this game!)"
+    },
+    "silithid_burrower": {
+      "name": "Silithid Burrower",
+      "tier": 5,
+      "base_atk": 5,
+      "base_hp": 4,
+      "tribes": [
+        "BEAST"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "tribe",
+      "effect_duration": "permanent",
+      "scales_with_board": false,
+      "avenge_count": 1,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: Give your Beasts +1/+1. Avenge (1): Improve this by +1/+1 permanently."
+    },
+    "spiked_savior": {
+      "name": "Spiked Savior",
+      "tier": 5,
+      "base_atk": 8,
+      "base_hp": 2,
+      "tribes": [
+        "BEAST"
+      ],
+      "keywords": {
+        "taunt": true,
+        "divine_shield": false,
+        "reborn": true,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Taunt. Reborn. Deathrattle: Give your minions +1 Health and deal 1 damage to them."
+    },
+    "storm_splitter": {
+      "name": "Storm Splitter",
+      "tier": 5,
+      "base_atk": 5,
+      "base_hp": 5,
+      "tribes": [
+        "NAGA"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Once per turn, after you Pass a Tavern spell, get a new copy of it."
+    },
+    "stuntdrake": {
+      "name": "Stuntdrake",
+      "tier": 5,
+      "base_atk": 14,
+      "base_hp": 5,
+      "tribes": [
+        "DRAGON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "avenge",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": 3,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Avenge (3): Give this minion's Attack to two different friendly minions."
+    },
+    "support_system": {
+      "name": "Support System",
+      "tier": 5,
+      "base_atk": 4,
+      "base_hp": 5,
+      "tribes": [
+        "MECH"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": true,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "end_of_turn",
+      "effect_target": "single_target",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "At the end of your turn, give a minion in your teammate's warband Divine Shield."
+    },
+    "thieving_rascal": {
+      "name": "Thieving Rascal",
+      "tier": 5,
+      "base_atk": 5,
+      "base_hp": 6,
+      "tribes": [
+        "PIRATE"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": true,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "At the start of your turn, gain 1 Gold. Repeat for each friendly Golden minion."
+    },
+    "three_lil_quilboar": {
+      "name": "Three Lil Quilboar",
+      "tier": 5,
+      "base_atk": 3,
+      "base_hp": 3,
+      "tribes": [
+        "QUILBOAR"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "tribe",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: This plays 3 Blood Gems on all your Quilboar."
+    },
+    "titus_rivendare": {
+      "name": "Titus Rivendare",
+      "tier": 5,
+      "base_atk": 1,
+      "base_hp": 7,
+      "tribes": [],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": true,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Your Deathrattles trigger an extra time."
+    },
+    "tranquil_meditative": {
+      "name": "Tranquil Meditative",
+      "tier": 5,
+      "base_atk": 3,
+      "base_hp": 8,
+      "tribes": [
+        "NAGA"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "spellcraft",
+      "effect_target": "tavern",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Spellcraft: Your Tavern spells give an extra +1/+1 this game."
+    },
+    "turquoise_skitterer": {
+      "name": "Turquoise Skitterer",
+      "tier": 5,
+      "base_atk": 4,
+      "base_hp": 4,
+      "tribes": [
+        "BEAST"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "tribe",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: Your Beetles have +4/+4 this game. Summon a 2/2 Beetle."
+    },
+    "twilight_broodmother": {
+      "name": "Twilight Broodmother",
+      "tier": 5,
+      "base_atk": 7,
+      "base_hp": 4,
+      "tribes": [
+        "DRAGON"
+      ],
+      "keywords": {
+        "taunt": true,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: Summon 2 Twilight Hatchlings. Give them Taunt."
+    },
+    "twilight_watcher": {
+      "name": "Twilight Watcher",
+      "tier": 5,
+      "base_atk": 3,
+      "base_hp": 7,
+      "tribes": [
+        "DRAGON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "tribe",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": true,
+      "has_magnetic": false,
+      "raw_text": "Whenever a friendly Dragon attacks, give your Dragons +1/+3."
+    },
+    "unforgiving_treant": {
+      "name": "Unforgiving Treant",
+      "tier": 5,
+      "base_atk": 3,
+      "base_hp": 12,
+      "tribes": [],
+      "keywords": {
+        "taunt": true,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "all_friendly",
+      "effect_duration": "permanent",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": true,
+      "has_magnetic": false,
+      "raw_text": "Taunt. Whenever this takes damage, give your minions +2 Attack permanently."
+    },
+    "unleashed_mana_surge": {
+      "name": "Unleashed Mana Surge",
+      "tier": 5,
+      "base_atk": 5,
+      "base_hp": 4,
+      "tribes": [
+        "ELEMENTAL"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "tribe",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "After you play an Elemental, give your Elementals +2/+2."
+    },
+    "visionary_shipman": {
+      "name": "Visionary Shipman",
+      "tier": 5,
+      "base_atk": 5,
+      "base_hp": 5,
+      "tribes": [
+        "PIRATE"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "After you gain Gold 5 times, get a random Tavern spell. (5 left!)"
+    },
+    "well_wisher": {
+      "name": "Well Wisher",
+      "tier": 5,
+      "base_atk": 6,
+      "base_hp": 6,
+      "tribes": [],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "spellcraft",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Spellcraft: Pass a different non-Golden minion."
+    },
+    "wintergrasp_ghoul": {
+      "name": "Wintergrasp Ghoul",
+      "tier": 5,
+      "base_atk": 5,
+      "base_hp": 3,
+      "tribes": [
+        "UNDEAD"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: Get a Tomb Turning."
+    },
+    "acid_rainfall": {
+      "name": "Acid Rainfall",
+      "tier": 6,
+      "base_atk": 8,
+      "base_hp": 8,
+      "tribes": [
+        "ELEMENTAL"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "After you Refresh 5 times, gain the stats of the right-most minion in the Tavern. (5 left!)"
+    },
+    "apexis_guardian": {
+      "name": "Apexis Guardian",
+      "tier": 6,
+      "base_atk": 7,
+      "base_hp": 5,
+      "tribes": [
+        "MECH"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": true,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": true,
+      "raw_text": "Deathrattle and Rally: Magnetize a random Magnetic Volumizer to another friendly Mech."
+    },
+    "archaedas": {
+      "name": "Archaedas",
+      "tier": 6,
+      "base_atk": 10,
+      "base_hp": 10,
+      "tribes": [],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Get a random Tier 5 minion."
+    },
+    "arid_atrocity": {
+      "name": "Arid Atrocity",
+      "tier": 6,
+      "base_atk": 6,
+      "base_hp": 6,
+      "tribes": [
+        "ALL"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "all_friendly",
+      "effect_duration": "this_combat",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: Summon a 6/6 Golem. (Improved by each friendly minion type that died this combat!)"
+    },
+    "avalanche_caller": {
+      "name": "Avalanche Caller",
+      "tier": 6,
+      "base_atk": 6,
+      "base_hp": 5,
+      "tribes": [
+        "ELEMENTAL"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "end_of_turn",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "At the end of your turn, get a Mounting Avalanche."
+    },
+    "bluesy_siren": {
+      "name": "Bluesy Siren",
+      "tier": 6,
+      "base_atk": 8,
+      "base_hp": 8,
+      "tribes": [
+        "NAGA"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Whenever a friendly Naga attacks, this casts Deep Blues for +2/+3 on it. (3 times per combat.)"
+    },
+    "charlga": {
+      "name": "Charlga",
+      "tier": 6,
+      "base_atk": 3,
+      "base_hp": 3,
+      "tribes": [
+        "QUILBOAR"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "end_of_turn",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "At the end of your turn, this plays 2 Blood Gems on all your other minions."
+    },
+    "dark_dazzler": {
+      "name": "Dark Dazzler",
+      "tier": 6,
+      "base_atk": 4,
+      "base_hp": 7,
+      "tribes": [
+        "DEMON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "single_target",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "After your teammate sells a minion, gain its stats. (Once per turn.)"
+    },
+    "deathly_striker": {
+      "name": "Deathly Striker",
+      "tier": 6,
+      "base_atk": 8,
+      "base_hp": 8,
+      "tribes": [
+        "UNDEAD"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "this_combat",
+      "scales_with_board": false,
+      "avenge_count": 4,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Avenge (4): Get a random Undead. Deathrattle: Summon it from your hand for this combat only."
+    },
+    "dramaloc": {
+      "name": "Dramaloc",
+      "tier": 6,
+      "base_atk": 10,
+      "base_hp": 2,
+      "tribes": [
+        "MURLOC"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Deathrattle: Give 2 other friendly Murlocs the Attack of the highest-Attack minion in your hand."
+    },
+    "eternal_summoner": {
+      "name": "Eternal Summoner",
+      "tier": 6,
+      "base_atk": 8,
+      "base_hp": 1,
+      "tribes": [
+        "UNDEAD"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": true,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Reborn. Deathrattle: Summon 1 Eternal Knight."
+    },
+    "famished_felbat": {
+      "name": "Famished Felbat",
+      "tier": 6,
+      "base_atk": 9,
+      "base_hp": 5,
+      "tribes": [
+        "DEMON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "end_of_turn",
+      "effect_target": "tribe",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "At the end of your turn, your Demons each consume a minion in the Tavern to gain its stats."
+    },
+    "fauna_whisperer": {
+      "name": "Fauna Whisperer",
+      "tier": 6,
+      "base_atk": 4,
+      "base_hp": 9,
+      "tribes": [
+        "NAGA"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "end_of_turn",
+      "effect_target": "adjacent",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "At the end of your turn, cast Natural Blessing on adjacent minions."
+    },
+    "felfire_conjurer": {
+      "name": "Felfire Conjurer",
+      "tier": 6,
+      "base_atk": 7,
+      "base_hp": 6,
+      "tribes": [
+        "DEMON",
+        "DRAGON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "end_of_turn",
+      "effect_target": "tavern",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "At the end of your turn, your Tavern spells give an extra +1/+1 this game."
+    },
+    "fire-forged_evoker": {
+      "name": "Fire-forged Evoker",
+      "tier": 6,
+      "base_atk": 8,
+      "base_hp": 5,
+      "tribes": [
+        "DRAGON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "start_of_combat",
+      "effect_target": "tribe",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Start of Combat: Give your Dragons +2/+1. After you cast a Tavern spell, improve this."
+    },
+    "fleet_admiral_tethys": {
+      "name": "Fleet Admiral Tethys",
+      "tier": 6,
+      "base_atk": 5,
+      "base_hp": 6,
+      "tribes": [
+        "PIRATE"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "After you spend 10 Gold, get a random Pirate. (10 Gold left!)"
+    },
+    "forsaken_weaver": {
+      "name": "Forsaken Weaver",
+      "tier": 6,
+      "base_atk": 3,
+      "base_hp": 8,
+      "tribes": [
+        "UNDEAD"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "tribe",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "After you cast a Tavern spell, your Undead have +2 Attack this game (wherever they are)."
+    },
+    "ignition_specialist": {
+      "name": "Ignition Specialist",
+      "tier": 6,
+      "base_atk": 8,
+      "base_hp": 8,
+      "tribes": [
+        "DRAGON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "end_of_turn",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "At the end of your turn, get 2 random Tavern spells."
+    },
+    "lord_of_the_ruins": {
+      "name": "Lord of the Ruins",
+      "tier": 6,
+      "base_atk": 5,
+      "base_hp": 6,
+      "tribes": [
+        "DEMON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": true,
+      "has_magnetic": false,
+      "raw_text": "After a friendly Demon deals damage, give friendly minions other than it +2/+1."
+    },
+    "loyal_mobster": {
+      "name": "Loyal Mobster",
+      "tier": 6,
+      "base_atk": 6,
+      "base_hp": 5,
+      "tribes": [
+        "QUILBOAR"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "end_of_turn",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "At the end of your turn, this plays a Blood Gem on all your teammate's minions."
+    },
+    "magicfin_mycologist": {
+      "name": "Magicfin Mycologist",
+      "tier": 6,
+      "base_atk": 4,
+      "base_hp": 8,
+      "tribes": [
+        "MURLOC"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Once per turn, after you buy a Tavern spell, get a 1/1 Murloc and teach it that spell. (1 left!)"
+    },
+    "needling_crone": {
+      "name": "Needling Crone",
+      "tier": 6,
+      "base_atk": 5,
+      "base_hp": 4,
+      "tribes": [
+        "QUILBOAR"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Your Blood Gems give twice their stats during combat."
+    },
+    "nightmare_par-tea_guest": {
+      "name": "Nightmare Par-tea Guest",
+      "tier": 6,
+      "base_atk": 6,
+      "base_hp": 6,
+      "tribes": [
+        "ALL"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry and Deathrattle: Get a Misplaced Tea Set."
+    },
+    "paint_smudger": {
+      "name": "Paint Smudger",
+      "tier": 6,
+      "base_atk": 5,
+      "base_hp": 5,
+      "tribes": [
+        "QUILBOAR"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Whenever you cast a Tavern spell, this plays a Blood Gem on 3 friendly minions."
+    },
+    "rabid_panther": {
+      "name": "Rabid Panther",
+      "tier": 6,
+      "base_atk": 4,
+      "base_hp": 8,
+      "tribes": [
+        "BEAST"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "tribe",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "After you play a Beast, give your Beasts +3/+3 and deal 1 damage to them."
+    },
+    "sanguine_refiner": {
+      "name": "Sanguine Refiner",
+      "tier": 6,
+      "base_atk": 3,
+      "base_hp": 10,
+      "tribes": [
+        "QUILBOAR"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "rally",
+      "effect_target": "self",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Rally: Your Blood Gems give an extra +1/+1 this game."
+    },
+    "shore_marauder": {
+      "name": "Shore Marauder",
+      "tier": 6,
+      "base_atk": 8,
+      "base_hp": 10,
+      "tribes": [
+        "ELEMENTAL",
+        "PIRATE"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "tribe",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": true,
+      "has_magnetic": false,
+      "raw_text": "Your Pirates and Elementals give an extra +1/+1."
+    },
+    "silky_shimmermoth": {
+      "name": "Silky Shimmermoth",
+      "tier": 6,
+      "base_atk": 3,
+      "base_hp": 8,
+      "tribes": [
+        "BEAST"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "tribe",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Whenever this takes damage, your Beetles have +2/+2 this game. Deathrattle: Summon a 2/2 Beetle."
+    },
+    "sundered_matriarch": {
+      "name": "Sundered Matriarch",
+      "tier": 6,
+      "base_atk": 7,
+      "base_hp": 4,
+      "tribes": [
+        "NAGA"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": true,
+      "has_magnetic": false,
+      "raw_text": "Whenever you cast a spell, give your minions +3 Health."
+    },
+    "transport_reactor": {
+      "name": "Transport Reactor",
+      "tier": 6,
+      "base_atk": 1,
+      "base_hp": 1,
+      "tribes": [
+        "MECH"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": true,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "this_game",
+      "scales_with_board": true,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": true,
+      "raw_text": "Magnetic. Has +1/+1 for each time your team has Passed this game (wherever this is)."
+    },
+    "utility_drone": {
+      "name": "Utility Drone",
+      "tier": 6,
+      "base_atk": 4,
+      "base_hp": 6,
+      "tribes": [
+        "MECH"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "end_of_turn",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": true,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "At the end of your turn, give your minions +4/+4 for each Magnetization they have."
+    },
+    "whirling_lass-o-matic": {
+      "name": "Whirling Lass-o-Matic",
+      "tier": 6,
+      "base_atk": 6,
+      "base_hp": 3,
+      "tribes": [
+        "MECH"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": true,
+        "reborn": false,
+        "windfury": true,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "rally",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Divine Shield. Windfury. Rally: Get a random Tavern spell."
+    },
+    "young_murk-eye": {
+      "name": "Young Murk-Eye",
+      "tier": 6,
+      "base_atk": 9,
+      "base_hp": 6,
+      "tribes": [
+        "MURLOC"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "adjacent",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": true,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "At the end of your turn, trigger the Battlecry of an adjacent minion."
+    },
+    "captain_sanders": {
+      "name": "Captain Sanders",
+      "tier": 7,
+      "base_atk": 9,
+      "base_hp": 9,
+      "tribes": [
+        "PIRATE"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "all_friendly",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry: Make a friendly minion from Tier 6 or below Golden."
+    },
+    "champion_of_sargeras": {
+      "name": "Champion of Sargeras",
+      "tier": 7,
+      "base_atk": 10,
+      "base_hp": 10,
+      "tribes": [
+        "DEMON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "tavern",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry and Deathrattle: Minions in the Tavern have +5/+5 this game."
+    },
+    "futurefin": {
+      "name": "Futurefin",
+      "tier": 7,
+      "base_atk": 7,
+      "base_hp": 13,
+      "tribes": [
+        "MURLOC"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "end_of_turn",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "At the end of your turn, give this minion's stats to the left-most minion in your hand."
+    },
+    "highkeeper_ra": {
+      "name": "Highkeeper Ra",
+      "tier": 7,
+      "base_atk": 6,
+      "base_hp": 6,
+      "tribes": [],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry, Deathrattle and Rally: Get a random Tier 6 minion."
+    },
+    "obsidian_ravager": {
+      "name": "Obsidian Ravager",
+      "tier": 7,
+      "base_atk": 7,
+      "base_hp": 7,
+      "tribes": [
+        "DRAGON"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "rally",
+      "effect_target": "adjacent",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Rally: Deal damage equal to this minion's Attack to the target and an adjacent minion."
+    },
+    "polarizing_beatboxer": {
+      "name": "Polarizing Beatboxer",
+      "tier": 7,
+      "base_atk": 5,
+      "base_hp": 10,
+      "tribes": [
+        "MECH"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Whenever you Magnetize another minion, it also Magnetizes to this."
+    },
+    "sandy": {
+      "name": "Sandy",
+      "tier": 7,
+      "base_atk": 1,
+      "base_hp": 1,
+      "tribes": [],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "start_of_combat",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Start of Combat: Transform into a copy of your teammate's highest-Health minion."
+    },
+    "sanguine_champion": {
+      "name": "Sanguine Champion",
+      "tier": 7,
+      "base_atk": 18,
+      "base_hp": 3,
+      "tribes": [
+        "QUILBOAR"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "battlecry",
+      "effect_target": "self",
+      "effect_duration": "this_game",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Battlecry and Deathrattle: Your Blood Gems give an extra +1/+1 this game."
+    },
+    "sea_witch_zarjira": {
+      "name": "Sea Witch Zarjira",
+      "tier": 7,
+      "base_atk": 4,
+      "base_hp": 5,
+      "tribes": [
+        "NAGA"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "spellcraft",
+      "effect_target": "tavern",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Spellcraft: Choose a different minion in the Tavern to get a copy of."
+    },
+    "stalwart_kodo": {
+      "name": "Stalwart Kodo",
+      "tier": 7,
+      "base_atk": 16,
+      "base_hp": 32,
+      "tribes": [
+        "BEAST"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "single_target",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "After you summon a minion in combat, give it this minion's maximum stats. (3 times per combat.)"
+    },
+    "stitched_salvager": {
+      "name": "Stitched Salvager",
+      "tier": 7,
+      "base_atk": 16,
+      "base_hp": 4,
+      "tribes": [
+        "UNDEAD"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "deathrattle",
+      "effect_target": "self",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Start of Combat: Destroy the minion to the left. Deathrattle: Summon an exact copy of it. (Except Stitched Salvager.)"
+    },
+    "stone_age_slab": {
+      "name": "Stone Age Slab",
+      "tier": 7,
+      "base_atk": 5,
+      "base_hp": 10,
+      "tribes": [
+        "ELEMENTAL"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "passive",
+      "effect_target": "single_target",
+      "effect_duration": "instant",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "After you buy a minion, give it +10/+10 and double its stats. (Once per turn.)"
+    },
+    "the_last_one_standing": {
+      "name": "The Last One Standing",
+      "tier": 7,
+      "base_atk": 12,
+      "base_hp": 12,
+      "tribes": [
+        "ALL"
+      ],
+      "keywords": {
+        "taunt": false,
+        "divine_shield": false,
+        "reborn": false,
+        "windfury": false,
+        "venomous": false,
+        "magnetic": false,
+        "stealth": false
+      },
+      "trigger_type": "rally",
+      "effect_target": "all_friendly",
+      "effect_duration": "permanent",
+      "scales_with_board": false,
+      "avenge_count": null,
+      "is_multiplier": false,
+      "is_aura": false,
+      "has_magnetic": false,
+      "raw_text": "Rally: Give a friendly minion of each type +12/+12 permanently."
+    }
+  }
+}
