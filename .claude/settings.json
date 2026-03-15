@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /sessions/clever-adoring-newton/mnt/bg-dataset/.claude/check_context_log.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

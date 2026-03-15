@@ -6,6 +6,57 @@ feature layer, and card definitions the agent uses.
 
 ---
 
+## ⚠️ MANDATORY END-OF-SESSION CHECKLIST
+
+**These steps are REQUIRED at the end of every session in which any file is changed.
+Do not consider a session complete until all four steps are done.**
+
+### Step 1 — Append to CONTEXT.md
+
+Append a new entry to `CONTEXT.md` in the project root. Use this exact format:
+
+```
+---
+### [DATE] — [SHORT SESSION TITLE]
+**Files changed:** `list/of/files.py`
+**What was done:** 2–4 sentences summarizing the changes made and why.
+**Current state:** One sentence on where things stand now.
+**Open questions / next steps:** Bullet list of unresolved issues or planned next actions.
+---
+```
+
+- Do NOT overwrite previous entries. Always append.
+- If `CONTEXT.md` does not exist, create it with the header `# bg_agent — Development Context Log`.
+
+### Step 2 — Stage source files
+
+```bash
+git add <specific changed files>
+```
+
+Do **not** stage: `*.pt` model weights, `data/` logs, `__pycache__/`, or `.env` files.
+
+### Step 3 — Commit
+
+```bash
+git commit -m "Session YYYY-MM-DD — <short title matching CONTEXT.md entry>"
+```
+
+### Step 4 — Push
+
+```bash
+git push origin master
+```
+
+If no remote exists yet:
+
+```bash
+git remote add origin <your-github-repo-url>
+git push -u origin master
+```
+
+---
+
 ## Architecture Overview
 
 The agent uses a **neurosymbolic** design: a hand-coded symbolic layer computes
@@ -485,43 +536,6 @@ Then update `CLAUDE.md` card tables by re-running the HearthstoneJSON scraper
 and filtering on `isBattlegroundsPoolMinion: true`. Cards without this flag
 are retired and should not appear in the symbolic layer.
 
-## Context Logging
+## Context Logging & Git Commits
 
-After every session, append a new entry to `CONTEXT.md` in the project root.
-Each entry should follow this format:
-
----
-### [DATE] — [SHORT SESSION TITLE]
-**Files changed:** `list/of/files.py`
-**What was done:** 2–4 sentences summarizing the changes made and why.
-**Current state:** One sentence on where things stand now.
-**Open questions / next steps:** Bullet list of unresolved issues or planned next actions.
----
-
-Do not overwrite previous entries. Always append. If `CONTEXT.md` does not exist, create it with a header:
-# bg_agent — Development Context Log
-
-## Git Commit After Every Session
-
-At the end of every session, after updating `CONTEXT.md`, commit all changed files to git:
-
-```bash
-git add -p                      # stage changes interactively, or use specific file paths
-git commit -m "Session YYYY-MM-DD — <short title matching CONTEXT.md entry>"
-```
-
-- Stage only source files. Do not commit `*.pt` model weights, `data/` logs, or `__pycache__/`.
-- The commit message should match the session title used in `CONTEXT.md`.
-- Do not force-push or amend previous commits.
-- After committing, push to the remote:
-
-```bash
-git push origin master
-```
-
-If no remote exists yet, set one up first:
-
-```bash
-git remote add origin <your-github-repo-url>
-git push -u origin master
-```
+See the **MANDATORY END-OF-SESSION CHECKLIST** at the top of this file.
