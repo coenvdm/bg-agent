@@ -54,7 +54,7 @@ class Transition:
     shop_tokens:    np.ndarray   # [7,  44]
     hand_tokens:    np.ndarray   # [10, 44]
     opp_tokens:     np.ndarray   # [7,  44] last seen opponent board
-    scalar_context: np.ndarray   # [24]
+    scalar_context: np.ndarray   # [38]
     action_mask:    np.ndarray   # [N_ACTIONS] bool
     action:         int
     reward:         float

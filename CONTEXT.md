@@ -60,3 +60,18 @@
 - Portability: the absolute path will break again if the repo is cloned elsewhere; consider switching to a path relative to `REPO_ROOT` derived inside the script (already done) but the `settings.json` command itself still needs a stable anchor
 - All previous open questions from the initial scaffold still apply (end-to-end run, Firestone sim, PPO training)
 ---
+
+---
+### 2026-03-15 — Expand scalar context and add gold-efficiency reward
+
+**Files changed:** `agent/policy.py`, `agent/ppo.py`, `env/game_loop.py`, `env/player_state.py`, `train.py`
+
+**What was done:** Expanded `SCALAR_DIM` from 30 to 38 by adding 8 next-opponent features (tier, health, armor, board_size, dominant_tribe_count, is_synergistic, rounds_since_seen, health_delta) and 6 lobby-wide features (num_alive, mean_opp_tier, mean_opp_health, num_synergistic_boards, health_rank, tier_rank) with a full layout comment in `policy.py`. Added `prev_health` and `last_seen_round` fields to `OpponentSnapshot` in `player_state.py` to support the health_delta and rounds_since_seen features. Added a decaying gold-efficiency penalty (`-0.05 * gold * scale`) at END_TURN in `game_loop.py`, scaling from 1.0 on round 1 down to 0.2 by round 16+.
+
+**Current state:** Policy and PPO types reflect the new 38-dim scalar context. There is a known bug: `train.py` still passes `scalar_dim=30` to `BGPolicyNetwork` instead of 38 — this will cause a shape mismatch at training time and must be fixed before running.
+
+**Open questions / next steps:**
+- **Bug**: fix `scalar_dim=30` → `scalar_dim=38` in `train.py` `build_components()`
+- Implement `SymbolicBoardComputer.to_scalar_vector()` to actually populate all 38 dims from live game state
+- Run a short self-play episode to confirm reward signals (including gold penalty) are sensible
+---

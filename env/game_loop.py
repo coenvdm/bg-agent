@@ -72,6 +72,9 @@ def compute_round_reward(
     Rank delta     : (prev_rank - cur_rank) * 0.15  — positive when rank improves;
                      fires both on combat health changes AND opponent eliminations
     Survival bonus : +0.1 flat for being alive this round
+
+    Note: gold efficiency (-0.05 * unspent_gold) is applied in step_shopping
+    at END_TURN, not here, since it fires mid-round before combat.
     """
     r  =  0.5  if result == "win"  else 0.0
     r += -0.3  if result == "loss" else 0.0
@@ -378,7 +381,11 @@ class BattlegroundsGame:
             pass
 
         elif action == 88:
-            # end_turn
+            # end_turn — penalize unspent gold (gold efficiency signal).
+            # Scale by round: full penalty early (gold efficiency critical),
+            # fades to 20% by round 16+ (full board / maxed tier = hard to spend).
+            gold_scale = max(0.2, 1.0 - (ps.round_num - 1) / 15.0)
+            reward -= 0.05 * ps.gold * gold_scale
             done = True
 
         elif 89 <= action <= 94:

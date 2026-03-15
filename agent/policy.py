@@ -8,6 +8,16 @@ Architecture:
   - Single Transformer encoder over [CLS + 7 board + 7 shop + 10 hand + 7 opp] = 32 tokens
   - Policy head: CLS + scalar_context → action logits
   - Value head: CLS + scalar_context → scalar value
+
+scalar_context layout (38 dims):
+  [0:24]  own board features (SymbolicBoardComputer.to_scalar_vector)
+  [24:32] next-opponent features:
+            24 tier/7, 25 health/40, 26 armor/10, 27 board_size/7,
+            28 dominant_tribe_count/7, 29 is_synergistic,
+            30 rounds_since_seen/10, 31 health_delta/40
+  [32:38] lobby-wide features:
+            32 num_alive/8, 33 mean_opp_tier/7, 34 mean_opp_health/40,
+            35 num_synergistic_boards/7, 36 health_rank/8, 37 tier_rank/8
 """
 
 from __future__ import annotations
@@ -24,7 +34,7 @@ import torch.nn.functional as F
 logger = logging.getLogger(__name__)
 
 CARD_DIM = 44
-SCALAR_DIM = 30  # 24 own-board features + 6 opponent features
+SCALAR_DIM = 38  # 24 own-board + 8 next-opponent + 6 lobby features
 
 # PLAY action layout:  play_h{hand_idx}_p{board_pos}
 #   hand_idx  : 0-9   (up to 10 hand slots)
@@ -155,7 +165,7 @@ class BGPolicyNetwork(nn.Module):
         board_tokens: torch.Tensor,             # [B, 7,  44]
         shop_tokens: torch.Tensor,              # [B, 7,  44]
         hand_tokens: torch.Tensor,              # [B, 10, 44]
-        scalar_context: torch.Tensor,           # [B, 30]
+        scalar_context: torch.Tensor,           # [B, 38]
         action_mask: Optional[torch.Tensor] = None,  # [B, N_ACTIONS] True=valid
         opp_tokens: Optional[torch.Tensor] = None,   # [B, 7, 44] last seen opponent board
     ) -> Tuple[torch.Tensor, torch.Tensor]:

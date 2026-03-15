@@ -18,11 +18,13 @@ class OpponentSnapshot:
     board: List["MinionState"] = field(default_factory=list)  # last seen board (max 7)
     tavern_tier: int = 1
     health: int = 40
+    prev_health: int = 40  # health at the snapshot before this one (for delta)
     armor: int = 0
     board_size: int = 0
     dominant_tribe: Optional[str] = None
     dominant_tribe_count: int = 0
     is_synergistic: bool = False  # dominant tribe count >= 4
+    last_seen_round: int = 0      # round number when this snapshot was recorded
 
 
 @dataclass
