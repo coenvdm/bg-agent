@@ -18,6 +18,22 @@
 ---
 
 ---
+### 2026-03-15 — Pure-Python BG combat simulator
+
+**Files changed:** `symbolic/combat_sim.py` (new), `symbolic/firestone_client.py`, `env/game_loop.py`
+
+**What was done:** Built a pure-Python Monte Carlo BG combat simulator (`BGCombatSim`) in `symbolic/combat_sim.py`, replacing the heuristic estimator as the default backend in `FirestoneClient`. The simulator implements the full BG combat loop: round-robin attack pointer with taunt targeting, divine shield, venomous (including DS interaction), windfury (two attacks before pointer advances), reborn (one resurrection per minion), cleave (Blade Collector), and Titus Rivendare (cached flag, DRs trigger twice). ~20 deathrattles are handled (token summons: Bonehead, Cord Puller, Beetle summons, Cadaver Caretaker, Twilight Hatchling, Eternal Summoner; AoE: Tunnel Blaster, Silent Enforcer; buffs: Silithid Burrower, Showy Cyclist, Stellar Freebooter). Seven start-of-combat triggers fire before the loop (Amber Guardian, Humming Bird, Prized Promo-Drake, Misfit Dragonling, Fire-forged Evoker, Irate Rooster, Soulsplitter). Deaths are resolved iteratively (up to 10 waves) to handle AoE DR chains. Performance-optimized with `__dict__` cloning instead of `copy.copy`, a cached `_titus` flag on `CombatSide`, and a two-level DR dispatch (O(1) exact dict + substring fallback). `game_loop.py` updated to pass `player_tier`/`opp_tier` to `simulate()` for accurate win-damage calculation.
+
+**Current state:** BGCombatSim runs at ~17 ms/call (200 trials, typical mid-game boards) and ~34 ms on stress boards with Titus+golden deathrattle chains. FirestoneClient defaults to BGCombatSim; the real Firestone subprocess path remains intact if a `firestone_path` is provided.
+
+**Open questions / next steps:**
+- Run a full 8-player self-play episode in `game_loop.py` and confirm no errors
+- Benchmark combat sim during actual training (4 combats/round × N rounds) to assess if 17 ms is acceptable or if trials should be reduced to 50–100 for training
+- Add venomous + cleave cross-minion damage tests for correctness validation
+- Consider adding Avenge triggers (Bird Buddy, Budding Greenthumb) once training begins, if they appear frequently in high-tier boards
+---
+
+---
 ### 2026-03-15 — Add stop hook and restructure CLAUDE.md for session discipline
 
 **Files changed:** `.claude/settings.json`, `.claude/check_context_log.sh`, `CLAUDE.md`

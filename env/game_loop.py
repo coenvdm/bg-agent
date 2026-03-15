@@ -57,16 +57,28 @@ def shop_size(tier: int) -> int:
 def compute_round_reward(
     damage_taken: int,
     damage_dealt: float,
-    current_rank: int,
+    prev_rank: int,
+    cur_rank: int,
     result: str,           # "win" | "loss" | "tie"
     max_health: int = 40,
 ) -> float:
-    """CLAUDE.md reward-shaping formula."""
-    r  =  0.5 if result == "win"  else 0.0
-    r += -0.3 if result == "loss" else 0.0
+    """Dense reward shaping for one shopping+combat round.
+
+    Components
+    ----------
+    Combat outcome : +0.5 win / -0.3 loss
+    Damage taken   : -0.05 * (damage / max_health)  — penalise health loss
+    Damage dealt   : +0.05 * (damage / max_health)  — reward hurting opponents
+    Rank delta     : (prev_rank - cur_rank) * 0.15  — positive when rank improves;
+                     fires both on combat health changes AND opponent eliminations
+    Survival bonus : +0.1 flat for being alive this round
+    """
+    r  =  0.5  if result == "win"  else 0.0
+    r += -0.3  if result == "loss" else 0.0
     r += -0.05 * (damage_taken / max_health)
     r +=  0.05 * (damage_dealt  / max_health)
-    r += (4 - current_rank) * 0.1
+    r += (prev_rank - cur_rank) * 0.15
+    r +=  0.1   # survival bonus
     return r
 
 
@@ -422,7 +434,11 @@ class BattlegroundsGame:
         opp = self.players[opponent_id]
         opp_board = [_minion_to_dict(m) for m in opp.board]
 
-        sim = self.firestone.simulate(player_board, opp_board)
+        sim = self.firestone.simulate(
+            player_board, opp_board,
+            player_tier=ps.tavern_tier,
+            opp_tier=opp.tavern_tier,
+        )
 
         # Determine concrete outcome by sampling from win probability
         roll = self._rng.random()
@@ -459,15 +475,19 @@ class BattlegroundsGame:
 
         # Update per-opponent snapshot with everything we now know about them
         dom_tribe, dom_count = _board_dominant_tribe(opp.board)
+        prev_snap = ps.opponent_snapshots.get(opponent_id)
+        prev_health = prev_snap.health if prev_snap is not None else opp.health
         ps.opponent_snapshots[opponent_id] = OpponentSnapshot(
             board=list(opp.board),
             tavern_tier=opp.tavern_tier,
             health=opp.health,
+            prev_health=prev_health,
             armor=opp.armor,
             board_size=len(opp.board),
             dominant_tribe=dom_tribe,
             dominant_tribe_count=dom_count,
             is_synergistic=dom_count >= 4,
+            last_seen_round=self.round_num,
         )
 
         # Unfreeze at end of combat (unless player froze shop)
@@ -568,7 +588,11 @@ class BattlegroundsGame:
                         break
 
             # ---- Combat phase (uses same pairings already announced) ----
-            dead_players = [p for p in self.players if not p.alive]
+            # Snapshot ranks BEFORE combat so the delta includes any kills.
+            pre_ranks = {ps.player_id: ps.get_rank(self.players)
+                         for ps in self.players if ps.alive}
+
+            combat_results: List[Tuple[int, int, dict, dict]] = []
 
             for (pid_a, pid_b) in pairings:
                 if not self.players[pid_a].alive:
@@ -577,6 +601,7 @@ class BattlegroundsGame:
                 if pid_b == -1:
                     result = self.step_combat(pid_a, -1)
                     round_summary["combats"].append(result)
+                    combat_results.append((pid_a, -1, result, {}))
                     continue
 
                 if not self.players[pid_b].alive:
@@ -585,24 +610,29 @@ class BattlegroundsGame:
                 result_a = self.step_combat(pid_a, pid_b)
                 result_b = self.step_combat(pid_b, pid_a)
                 round_summary["combats"].append(result_a)
+                combat_results.append((pid_a, pid_b, result_a, result_b))
 
-                # Round rewards
-                all_alive = [p for p in self.players if p.alive]
-                for pid, result_info in [(pid_a, result_a), (pid_b, result_b)]:
+            # ---- Elimination check (before rewards so rank delta includes kills)
+            new_dead = self._eliminate_players(round_num)
+            round_summary["eliminations"] = new_dead
+
+            # ---- Round rewards (computed post-elimination) ----------------
+            for (pid_a, pid_b, result_a, result_b) in combat_results:
+                pairs = [(pid_a, result_a)]
+                if pid_b != -1:
+                    pairs.append((pid_b, result_b))
+                for pid, result_info in pairs:
                     ps = self.players[pid]
-                    rank = ps.get_rank(self.players)
+                    cur_rank = ps.get_rank(self.players)
                     r = compute_round_reward(
                         damage_taken=result_info["damage_taken"],
                         damage_dealt=result_info["damage_dealt"],
-                        current_rank=rank,
+                        prev_rank=pre_ranks.get(pid, cur_rank),
+                        cur_rank=cur_rank,
                         result=result_info["result"],
                         max_health=ps.max_health,
                     )
                     cumulative_rewards[pid] += r
-
-            # ---- Elimination check ------------------------------------
-            new_dead = self._eliminate_players(round_num)
-            round_summary["eliminations"] = new_dead
             round_history.append(round_summary)
 
             alive_after = [p for p in self.players if p.alive]
@@ -727,9 +757,18 @@ class BattlegroundsGame:
         opp_board  = opp_snap.board if opp_snap is not None else []
         opp_tokens = _encode_zone(opp_board, self.encoder, 7, **ctx)
 
-        # Own board scalar (24 dims) + opponent scalar (6 dims) = 30 dims total
+        # Own board scalar (24 dims)
+        # + opponent scalar (8 dims: tier, health, armor, board_size,
+        #                    dominant_tribe_count, is_synergistic,
+        #                    rounds_since_seen, health_delta)
+        # + lobby scalar (6 dims: num_alive, mean_tier, mean_health,
+        #                         num_synergistic, health_rank, tier_rank)
+        # = 38 dims total
         own_scalar = features.to_scalar_vector()  # [24]
+
         if opp_snap is not None:
+            rounds_since_seen = (ps.round_num - opp_snap.last_seen_round) / 10.0
+            health_delta = (opp_snap.health - opp_snap.prev_health) / 40.0
             opp_scalar = np.array([
                 opp_snap.tavern_tier / 7.0,           # 24
                 opp_snap.health / 40.0,               # 25
@@ -737,17 +776,54 @@ class BattlegroundsGame:
                 opp_snap.board_size / 7.0,            # 27
                 opp_snap.dominant_tribe_count / 7.0,  # 28
                 float(opp_snap.is_synergistic),       # 29
+                rounds_since_seen,                    # 30
+                health_delta,                         # 31
             ], dtype=np.float32)
         else:
-            opp_scalar = np.zeros(6, dtype=np.float32)
-        scalar_ctx = np.concatenate([own_scalar, opp_scalar])  # [30]
+            opp_scalar = np.zeros(8, dtype=np.float32)
+
+        # Lobby-wide summary over all known opponent snapshots
+        all_players = self.players
+        alive_players = [p for p in all_players if p.alive]
+        n_alive = len(alive_players)
+
+        all_snaps = list(ps.opponent_snapshots.values())
+        if all_snaps:
+            mean_opp_tier   = sum(s.tavern_tier for s in all_snaps) / len(all_snaps)
+            mean_opp_health = sum(s.health for s in all_snaps) / len(all_snaps)
+            num_synergistic = sum(1 for s in all_snaps if s.is_synergistic)
+        else:
+            mean_opp_tier   = ps.tavern_tier
+            mean_opp_health = 40.0
+            num_synergistic = 0
+
+        # Rank among alive players by total health and tavern tier (1 = best)
+        alive_sorted_health = sorted(alive_players,
+                                     key=lambda p: p.total_health, reverse=True)
+        alive_sorted_tier   = sorted(alive_players,
+                                     key=lambda p: p.tavern_tier, reverse=True)
+        health_rank = next((i + 1 for i, p in enumerate(alive_sorted_health)
+                            if p.player_id == player_id), n_alive)
+        tier_rank   = next((i + 1 for i, p in enumerate(alive_sorted_tier)
+                            if p.player_id == player_id), n_alive)
+
+        lobby_scalar = np.array([
+            n_alive / 8.0,                        # 32
+            mean_opp_tier / 7.0,                  # 33
+            mean_opp_health / 40.0,               # 34
+            num_synergistic / 7.0,                # 35
+            health_rank / 8.0,                    # 36
+            tier_rank / 8.0,                      # 37
+        ], dtype=np.float32)
+
+        scalar_ctx = np.concatenate([own_scalar, opp_scalar, lobby_scalar])  # [38]
 
         return {
             "board_tokens":   board_tokens,   # [7, 44]
             "shop_tokens":    shop_tokens,    # [7, 44]
             "hand_tokens":    hand_tokens,    # [2, 44]
             "opp_tokens":     opp_tokens,     # [7, 44]  next opponent's last board
-            "scalar_context": scalar_ctx,     # [30]
+            "scalar_context": scalar_ctx,     # [38]
             "player_id":      player_id,
             "player_state":   ps,
         }
