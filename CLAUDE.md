@@ -500,3 +500,28 @@ Each entry should follow this format:
 
 Do not overwrite previous entries. Always append. If `CONTEXT.md` does not exist, create it with a header:
 # bg_agent — Development Context Log
+
+## Git Commit After Every Session
+
+At the end of every session, after updating `CONTEXT.md`, commit all changed files to git:
+
+```bash
+git add -p                      # stage changes interactively, or use specific file paths
+git commit -m "Session YYYY-MM-DD — <short title matching CONTEXT.md entry>"
+```
+
+- Stage only source files. Do not commit `*.pt` model weights, `data/` logs, or `__pycache__/`.
+- The commit message should match the session title used in `CONTEXT.md`.
+- Do not force-push or amend previous commits.
+- After committing, push to the remote:
+
+```bash
+git push origin master
+```
+
+If no remote exists yet, set one up first:
+
+```bash
+git remote add origin <your-github-repo-url>
+git push -u origin master
+```
