@@ -43,7 +43,20 @@
 **Current state:** Session discipline infrastructure is in place. The stop hook will enforce CONTEXT.md updates going forward.
 
 **Open questions / next steps:**
-- Verify the stop hook fires correctly inside Claude Code by making a test file change
 - Consider whether the hook path should use a relative path instead of an absolute one for portability
+- All previous open questions from the initial scaffold still apply (end-to-end run, Firestone sim, PPO training)
+---
+
+---
+### 2026-03-15 — Fix stop hook path after environment change
+
+**Files changed:** `.claude/settings.json`
+
+**What was done:** The stop hook command in `.claude/settings.json` pointed to a stale Docker/container path (`/sessions/clever-adoring-newton/mnt/bg-dataset/...`) from the session in which it was created. Updated to the correct Git Bash path (`/c/Users/coenv/bg-dataset/...`). Verified the hook fires correctly: it detects the 5 dirty source files, prints the wrap-up warning banner, and exits with code 2 to block the agent from stopping.
+
+**Current state:** Stop hook is confirmed working in the current environment.
+
+**Open questions / next steps:**
+- Portability: the absolute path will break again if the repo is cloned elsewhere; consider switching to a path relative to `REPO_ROOT` derived inside the script (already done) but the `settings.json` command itself still needs a stable anchor
 - All previous open questions from the initial scaffold still apply (end-to-end run, Firestone sim, PPO training)
 ---

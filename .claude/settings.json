@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash /sessions/clever-adoring-newton/mnt/bg-dataset/.claude/check_context_log.sh"
+            "command": "bash /c/Users/coenv/bg-dataset/.claude/check_context_log.sh"
           }
         ]
       }
