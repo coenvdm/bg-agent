@@ -88,3 +88,17 @@
 - Implement `SymbolicBoardComputer.to_scalar_vector()` to populate all 38 dims from live game state
 - Run a short self-play episode to confirm reward signals are sensible
 ---
+
+---
+### 2026-03-18 — Fix InconsistentPlayerIdError in dataset parser
+
+**Files changed:** `parse_bg.py`, `collect_dataset.py`
+
+**What was done:** `collect_dataset.py` was only printing `str(exc)` on parse failures, hiding the real traceback. Added `traceback.print_exc()` temporarily to expose the root cause: `hslog.player.InconsistentPlayerIdError` was raised when a BG log reassigned a player's `player_id` mid-session (entity_id=5 appeared first as player_id=2, then as player_id=6). Fixed by catching `InconsistentPlayerIdError` (and `CorruptLogError`) around `parser.read()` in `parse_power_log`, then calling `parser.flush()` on the partial parse. The temporary debug traceback was removed.
+
+**Current state:** All 4 log sessions now parse cleanly — 5 BG games collected total. The previously-failing session (`Hearthstone_2026_03_15_19_19_02`) yields 2 games.
+
+**Open questions / next steps:**
+- Implement `SymbolicBoardComputer.to_scalar_vector()` to populate all 38 dims from live game state
+- Run a short self-play episode to confirm reward signals are sensible
+---

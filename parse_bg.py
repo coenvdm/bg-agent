@@ -67,7 +67,16 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from hslog import LogParser
+from hslog.exceptions import CorruptLogError
 from hearthstone.enums import BlockType, CardType, GameTag, PlayState, Step, Zone
+
+try:
+    from hslog.player import InconsistentPlayerIdError
+except ImportError:
+    # Older hslog versions may not expose this; define a placeholder so the
+    # except clause below still compiles but never matches.
+    class InconsistentPlayerIdError(Exception):  # type: ignore
+        pass
 from hearthstone.cardxml import load_dbf
 
 # TEMP_RESOURCES (tag 137) holds bonus coins from hero powers; not present in all
@@ -783,7 +792,12 @@ def parse_power_log(log_path, session_name: str = "") -> List[dict]:
 
     parser = LogParser()
     with log_path.open("r", encoding="utf-8", errors="replace") as fh:
-        parser.read(fh)
+        try:
+            parser.read(fh)
+        except (InconsistentPlayerIdError, CorruptLogError):
+            # BG logs sometimes re-assign player IDs mid-session; flush
+            # whatever was parsed before the bad line and continue.
+            pass
     parser.flush()
 
     records: List[dict] = []
