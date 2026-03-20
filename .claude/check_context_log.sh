@@ -33,17 +33,8 @@ if [ -n "$DIRTY_FILES" ]; then
   echo "Changed files this session:" >&2
   echo "$DIRTY_FILES" >&2
 else
-  echo "" >&2
-  echo "╔══════════════════════════════════════════════════════════════════╗" >&2
-  echo "║  📝 SESSION LOG REQUIRED — No file changes detected             ║" >&2
-  echo "╠══════════════════════════════════════════════════════════════════╣" >&2
-  echo "║  No source files were changed, but a session log is still       ║" >&2
-  echo "║  required so the conversation is not lost.                      ║" >&2
-  echo "╚══════════════════════════════════════════════════════════════════╝" >&2
-  echo "" >&2
-  echo "ACTION REQUIRED: Briefly describe what was discussed or requested" >&2
-  echo "this session and append a short entry to CONTEXT.md. Use today's" >&2
-  echo "date and a short title. Mark 'Files changed: none'." >&2
+  # No source files changed — nothing to block on, exit cleanly.
+  exit 0
 fi
 
 # Exit 2 = Claude Code blocks session exit and must respond to this output.
