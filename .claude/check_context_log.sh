@@ -19,31 +19,31 @@ fi
 DIRTY_FILES=$(git status --porcelain 2>/dev/null | grep -v '^\?' | grep -v 'CONTEXT.md')
 
 if [ -n "$DIRTY_FILES" ]; then
-  echo ""
-  echo "╔══════════════════════════════════════════════════════════════════╗"
-  echo "║  🚫 SESSION BLOCKED — CONTEXT.md not updated                    ║"
-  echo "╠══════════════════════════════════════════════════════════════════╣"
-  echo "║  Source files were changed but CONTEXT.md has not been updated. ║"
-  echo "╚══════════════════════════════════════════════════════════════════╝"
-  echo ""
-  echo "ACTION REQUIRED: Append a new entry to CONTEXT.md using the format"
-  echo "defined in CLAUDE.md (date, files changed, what was done, current"
-  echo "state, open questions). Then stage, commit, and push."
-  echo ""
-  echo "Changed files this session:"
-  echo "$DIRTY_FILES"
+  echo "" >&2
+  echo "╔══════════════════════════════════════════════════════════════════╗" >&2
+  echo "║  🚫 SESSION BLOCKED — CONTEXT.md not updated                    ║" >&2
+  echo "╠══════════════════════════════════════════════════════════════════╣" >&2
+  echo "║  Source files were changed but CONTEXT.md has not been updated. ║" >&2
+  echo "╚══════════════════════════════════════════════════════════════════╝" >&2
+  echo "" >&2
+  echo "ACTION REQUIRED: Append a new entry to CONTEXT.md using the format" >&2
+  echo "defined in CLAUDE.md (date, files changed, what was done, current" >&2
+  echo "state, open questions). Then stage, commit, and push." >&2
+  echo "" >&2
+  echo "Changed files this session:" >&2
+  echo "$DIRTY_FILES" >&2
 else
-  echo ""
-  echo "╔══════════════════════════════════════════════════════════════════╗"
-  echo "║  📝 SESSION LOG REQUIRED — No file changes detected             ║"
-  echo "╠══════════════════════════════════════════════════════════════════╣"
-  echo "║  No source files were changed, but a session log is still       ║"
-  echo "║  required so the conversation is not lost.                      ║"
-  echo "╚══════════════════════════════════════════════════════════════════╝"
-  echo ""
-  echo "ACTION REQUIRED: Briefly describe what was discussed or requested"
-  echo "this session and append a short entry to CONTEXT.md. Use today's"
-  echo "date and a short title. Mark 'Files changed: none'."
+  echo "" >&2
+  echo "╔══════════════════════════════════════════════════════════════════╗" >&2
+  echo "║  📝 SESSION LOG REQUIRED — No file changes detected             ║" >&2
+  echo "╠══════════════════════════════════════════════════════════════════╣" >&2
+  echo "║  No source files were changed, but a session log is still       ║" >&2
+  echo "║  required so the conversation is not lost.                      ║" >&2
+  echo "╚══════════════════════════════════════════════════════════════════╝" >&2
+  echo "" >&2
+  echo "ACTION REQUIRED: Briefly describe what was discussed or requested" >&2
+  echo "this session and append a short entry to CONTEXT.md. Use today's" >&2
+  echo "date and a short title. Mark 'Files changed: none'." >&2
 fi
 
 # Exit 2 = Claude Code blocks session exit and must respond to this output.

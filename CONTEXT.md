@@ -127,3 +127,12 @@
 - Verify exit code 2 behaviour in the installed Claude Code version
 - Consider whether the hook should also enforce `git commit` completion before allowing exit
 ---
+
+---
+### 2026-03-20 — Fix stop hook output: redirect echo to stderr
+**Files changed:** `.claude/check_context_log.sh`
+**What was done:** Claude Code's hook feedback system surfaces stderr, not stdout. All `echo` statements in the stop hook were redirected to stderr (`>&2`) so the blocking message is actually visible when the hook fires.
+**Current state:** Stop hook should now surface its warning banners correctly when exit code 2 is returned.
+**Open questions / next steps:**
+- Confirm the stderr output appears in the next session where CONTEXT.md is not pre-updated
+---
