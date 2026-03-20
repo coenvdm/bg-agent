@@ -276,6 +276,7 @@ class BGGameTracker:
         self._combat_opponent_hero:  Optional[dict] = None
         self._combat_opponent_board: List[dict]     = []
         self._combat_result:         Optional[str]  = None  # "win"|"loss"|"tie"
+        self._combat_health_before:  int            = 0     # hp+armor going into combat
 
         # Discover / choice tracking
         self._pending_choices: Dict[int, dict] = {}  # choice_id → pending discover
@@ -430,6 +431,10 @@ class BGGameTracker:
             if self.game_turn % 2 == 0:           # even turn = combat
                 self._in_combat      = True
                 self._combat_result  = None
+                hero = self.player_hero()
+                self._combat_health_before = (
+                    (hero["health"] + hero["armor"]) if hero else 0
+                )
                 self._combat_player_board   = self.player_board()
                 self._capture_combat_opponent()
 
@@ -538,13 +543,26 @@ class BGGameTracker:
         if self._cur_round is None:
             return
         hero = self.player_hero()
+        hp_after    = (hero["health"] if hero else 0)
+        armor_after = (hero["armor"]  if hero else 0)
+        # Fallback result via health delta when BACON_WON_LAST_COMBAT didn't
+        # fire or only told us "not won" (value=0).
+        if self._combat_result is None:
+            if (hp_after + armor_after) < self._combat_health_before:
+                self._combat_result = "loss"
+            # Cannot distinguish win from tie without the tag; leave as None.
+        elif self._combat_result == "win":
+            pass  # tag confirmed win
+        # If BACON_WON_LAST_COMBAT fired with 0 (not won), use health delta to
+        # distinguish loss from tie.
+        # (If value was 0 we left _combat_result as None above, so no extra branch needed.)
         self._cur_round["combat"] = {
             "opponent_hero":     self._combat_opponent_hero,
             "opponent_board":    self._combat_opponent_board,
             "player_board":      self._combat_player_board,
             "result":            self._combat_result,
-            "hero_health_after": hero["health"] if hero else 0,
-            "hero_armor_after":  hero["armor"]  if hero else 0,
+            "hero_health_after": hp_after,
+            "hero_armor_after":  armor_after,
         }
         self._cur_round["discovers"] = list(self._round_discovers)
         self.rounds.append(deepcopy(self._cur_round))
@@ -632,18 +650,25 @@ class BGGameTracker:
                 self._on_step(int(value))
             return
 
-        # Detect per-round combat result from PLAYSTATE on the player entity.
-        # BG uses WINNING/LOSING/TIED for per-round results (not WON/LOST, which
-        # only fire at game end). Guard with _in_combat to avoid false positives.
-        if (tag == GameTag.PLAYSTATE
-                and eid == self.player_entity_eid
-                and self._in_combat):
-            if value == PlayState.WINNING:
-                self._combat_result = "win"
-            elif value == PlayState.LOSING:
-                self._combat_result = "loss"
-            elif value == PlayState.TIED:
-                self._combat_result = "tie"
+        # Detect per-round combat result.
+        # Primary: BACON_WON_LAST_COMBAT fires on the hero or player entity
+        # at the end of each combat (1 = won, 0 = did not win).
+        # Secondary: PLAYSTATE WINNING/LOSING/TIED (older log format).
+        _BACON_WON = getattr(GameTag, "BACON_WON_LAST_COMBAT", 1422)
+        if self._in_combat:
+            if tag == _BACON_WON and eid in (
+                    self.player_entity_eid, self.player_hero_eid):
+                if int(value) == 1:
+                    self._combat_result = "win"
+                # value==0 means loss or tie; resolved in _flush_combat via health delta
+            elif (tag == GameTag.PLAYSTATE
+                    and eid == self.player_entity_eid):
+                if value == PlayState.WINNING:
+                    self._combat_result = "win"
+                elif value == PlayState.LOSING:
+                    self._combat_result = "loss"
+                elif value == PlayState.TIED:
+                    self._combat_result = "tie"
 
         # Track non-zero COST on any player-owned entity.
         # CARDTYPE is intentionally not checked here: the COST TagChange often
