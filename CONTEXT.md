@@ -208,3 +208,18 @@
 - Re-parse existing JSON files to populate correct hero health values
 - Add `CARDS.md` to git (still untracked)
 ---
+
+---
+### 2026-03-20 — Combat result, reorder, shop frozen, discovers
+
+**Files changed:** `parse_bg.py`
+
+**What was done:** Implemented all 4 parser improvements. (1) **Combat result**: Added `BACON_WON_LAST_COMBAT` tag detection in `handle_tag_change` as the primary signal (tag 1422), plus health-delta fallback in `_flush_combat` (hp+armor decreased = loss). `PlayState.WINNING/LOSING/TIED` kept as secondary. Result now populated in 76/128 rounds (47 win, 29 loss); 52 remain None (ties or rounds where tag didn't fire). (2) **Reorder**: `handle_block` restructured to capture `from_pos` via `ZONE_POSITION` before dispatching children for `BlockType.MOVE_MINION` blocks, then computes `to_pos` after. Emits `{action: reorder, card_id, from_pos, to_pos, gold_remaining}`. Fixed guard to use `entities.get(eid)` returning None instead of `{}` to avoid KeyError in `_is_minion`. (3) **Shop frozen**: `BACON_FREEZE_TOOLTIP` tag read from player entity at MAIN_ACTION start; stored as `shop_frozen: bool` in shopping dict. (4) **Discovers**: Added `handle_choices` and `handle_chosen_entities` packet handlers. Choices stored by id with option entity_ids; ChosenEntities finalizes the event after ShowEntity has revealed card_ids. Emitted as `discovers` list on each round dict with source card, options, chosen, and phase.
+
+**Current state:** 9 games, 45 reorder actions, 134 discover events, combat results now populated for ~60% of rounds. 3 stale JSON files backfilled with `shop_frozen: false` and `discovers: []` defaults.
+
+**Open questions / next steps:**
+- Investigate the 9 None-result rounds where health decreased (likely hero_eid not set at MAIN_START for round 1 combats)
+- shop_frozen never fires — verify BACON_FREEZE_TOOLTIP is the right tag by checking a session where freeze was used
+- Add CARDS.md to git (still untracked)
+---
