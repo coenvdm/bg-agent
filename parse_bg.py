@@ -272,11 +272,13 @@ class BGGameTracker:
         self.player_hero_power_eid: Optional[int] = None
 
         # Combat snapshots
-        self._combat_player_board:   List[dict]     = []
+        self._combat_player_board:    List[dict]     = []
         self._combat_opponent_hero:  Optional[dict] = None
         self._combat_opponent_board: List[dict]     = []
         self._combat_result:         Optional[str]  = None  # "win"|"loss"|"tie"
-        self._combat_health_before:  int            = 0     # hp+armor going into combat
+        self._combat_health_before:  int            = 0     # player hp+armor going into combat
+        self._combat_opp_hero_eid:   Optional[int]  = None  # opponent hero entity id
+        self._combat_opp_health_before: int         = 0     # opponent hp+armor going into combat
 
         # Discover / choice tracking
         self._pending_choices: Dict[int, dict] = {}  # choice_id → pending discover
@@ -519,6 +521,14 @@ class BGGameTracker:
         self._combat_opponent_hero  = opp_hero
         self._combat_opponent_board = opp_board
 
+        # Save opponent hero entity_id + health snapshot for win/tie detection.
+        if opp_hero is not None:
+            self._combat_opp_hero_eid      = opp_hero["entity_id"]
+            self._combat_opp_health_before = opp_hero["health"] + opp_hero["armor"]
+        else:
+            self._combat_opp_hero_eid      = None
+            self._combat_opp_health_before = 0
+
     def _flush_shopping(self):
         if self._cur_round is None:
             return
@@ -545,17 +555,14 @@ class BGGameTracker:
         hero = self.player_hero()
         hp_after    = (hero["health"] if hero else 0)
         armor_after = (hero["armor"]  if hero else 0)
-        # Fallback result via health delta when BACON_WON_LAST_COMBAT didn't
-        # fire or only told us "not won" (value=0).
+        # If win was not flagged by a DAMAGE tag on an opponent hero,
+        # use player health delta to distinguish loss from tie.
+        # (Wins are detected eagerly in handle_tag_change via opponent DAMAGE tag.)
         if self._combat_result is None:
             if (hp_after + armor_after) < self._combat_health_before:
                 self._combat_result = "loss"
-            # Cannot distinguish win from tie without the tag; leave as None.
-        elif self._combat_result == "win":
-            pass  # tag confirmed win
-        # If BACON_WON_LAST_COMBAT fired with 0 (not won), use health delta to
-        # distinguish loss from tie.
-        # (If value was 0 we left _combat_result as None above, so no extra branch needed.)
+            else:
+                self._combat_result = "tie"
         self._cur_round["combat"] = {
             "opponent_hero":     self._combat_opponent_hero,
             "opponent_board":    self._combat_opponent_board,
@@ -650,25 +657,23 @@ class BGGameTracker:
                 self._on_step(int(value))
             return
 
-        # Detect per-round combat result.
-        # Primary: BACON_WON_LAST_COMBAT fires on the hero or player entity
-        # at the end of each combat (1 = won, 0 = did not win).
-        # Secondary: PLAYSTATE WINNING/LOSING/TIED (older log format).
-        _BACON_WON = getattr(GameTag, "BACON_WON_LAST_COMBAT", 1422)
-        if self._in_combat:
-            if tag == _BACON_WON and eid in (
-                    self.player_entity_eid, self.player_hero_eid):
-                if int(value) == 1:
-                    self._combat_result = "win"
-                # value==0 means loss or tie; resolved in _flush_combat via health delta
-            elif (tag == GameTag.PLAYSTATE
-                    and eid == self.player_entity_eid):
-                if value == PlayState.WINNING:
-                    self._combat_result = "win"
-                elif value == PlayState.LOSING:
-                    self._combat_result = "loss"
-                elif value == PlayState.TIED:
-                    self._combat_result = "tie"
+        # PLAYSTATE WINNING/LOSING/TIED fires only at game end, not per-round.
+        # BACON_WON_LAST_COMBAT (tag 1422) fires for *all* entities every round
+        # regardless of who won, so it cannot be used as a win signal.
+        #
+        # Win detection: if a DAMAGE tag fires on an opponent hero entity during
+        # combat, our minions hit them → that round is a win.
+        # Loss detection falls back to player health delta in _flush_combat.
+        if (self._in_combat
+                and self._combat_result is None
+                and tag == GameTag.DAMAGE
+                and int(value) > 0):
+            cid = entity.get("card_id", "")
+            ctrl = entity["tags"].get(GameTag.CONTROLLER, 0)
+            if (_is_hero_card(cid, entity["tags"])
+                    and ctrl != self.friendly_player_id
+                    and ctrl != 0):
+                self._combat_result = "win"
 
         # Track non-zero COST on any player-owned entity.
         # CARDTYPE is intentionally not checked here: the COST TagChange often

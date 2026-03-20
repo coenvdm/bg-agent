@@ -223,3 +223,10 @@
 - shop_frozen never fires — verify BACON_FREEZE_TOOLTIP is the right tag by checking a session where freeze was used
 - Add CARDS.md to git (still untracked)
 ---
+---
+### 2026-03-20 — Win/Loss/Tie Detection via Opponent DAMAGE Tag
+**Files changed:** `parse_bg.py`
+**What was done:** Implemented per-round combat result detection using two signals: (1) a DAMAGE tag change on any non-player hero entity during combat fires in handle_tag_change to set result="win" immediately, and (2) player health delta at flush_combat distinguishes loss from tie. Removed the faulty BACON_WON_LAST_COMBAT detection that fired for all entities every round. Also wired up _capture_combat_opponent to save opponent entity id and pre-combat health snapshot (used for the entity-delta fallback approach, later superseded by the tag-change approach).
+**Current state:** All 6 fresh games now have proper win/loss/tie on every round. Stale files (no source logs) retain nulls on rounds where player health was stable (cannot distinguish win/tie without stored opponent post-combat state).
+**Open questions / next steps:** Some rounds show ghost opponents (dead players) — these will never fire a DAMAGE tag, so non-loss ghost rounds remain "tie". Acceptable for ML since neither result affects player health. Consider storing opponent post-combat health in the schema for future backfill capability.
+---
