@@ -852,11 +852,17 @@ def parse_power_log(log_path, session_name: str = "") -> List[dict]:
         tracker = BGGameTracker(friendly_pid, dummy_pid)
         tracker.process_tree(packet_tree)
 
+        result = tracker.finalize()
+        # Skip ghost records: BG game tree detected but no gameplay captured
+        # (lobby abandon, client crash before shopping started, etc.)
+        if not result["rounds"] and not (result.get("hero") or {}).get("card_id"):
+            continue
+
         records.append({
             "session":    session_name or log_path.parent.name,
             "game_index": bg_index,
             "is_bg":      True,
-            **tracker.finalize(),
+            **result,
         })
         bg_index += 1
 
