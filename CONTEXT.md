@@ -262,3 +262,17 @@
 
 **Open questions / next steps:** (see parser fix entry above)
 ---
+---
+### 2026-03-20 — Fix SubSpell packet dispatch; resolve anonymous sell entities
+
+**Files changed:** `parse_bg.py`, `data/*.json` (re-parsed)
+
+**What was done:** Diagnosed root cause of anonymous sell entities: `FULL_ENTITY` packets for hero-battlecry-created tokens (e.g. Timewarped Festergut creating Putricide's Creation) are emitted inside `SUB_SPELL_START` blocks. The parser's `_dispatch` only handled `Block`; `SubSpell` packets were silently dropped, so their child `FullEntity`s — which carry the card_id — were never processed. Fix: added a `SubSpell` branch in `_dispatch` that iterates and dispatches the packet's children. All sessions that could be re-parsed now show 0 anonymous sells. The remaining 104 anonymous sells are in stale JSON files whose raw logs are no longer available.
+
+**Current state:** Fresh-parsed sessions have 100% sell resolution. Stale files (`03_06`, `03_08`, `03_12`, `03_13`) were parsed with the old code and still have anonymous entries but cannot be re-parsed.
+
+**Open questions / next steps:**
+- Delete or exclude stale JSON files (`03_06`, `03_08`, `03_12`, `03_13_17_24_20`) from training since they contain anonymized sell entries and old bug artifacts
+- Check whether `SubSpell` packets also wrap other entity creation events we care about (discovers, spell effects) — the same fix covers those too
+- Board > 7 edge case (2/77 rounds) still unresolved
+---

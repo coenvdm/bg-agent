@@ -941,6 +941,13 @@ class BGGameTracker:
             self.handle_tag_change(packet)
         elif ptype == "Block":
             self.handle_block(packet)
+        elif ptype == "SubSpell":
+            # SUB_SPELL_START blocks wrap visual-effects packets.  They can
+            # contain FullEntity / ShowEntity / TagChange children (e.g. a
+            # hero-power trigger that creates a token directly into HAND).
+            # We don't need any special logic — just dispatch their children.
+            for child in (packet.packets or []):
+                self._dispatch(child)
         elif ptype == "Choices":
             self.handle_choices(packet)
         elif ptype == "ChosenEntities":
