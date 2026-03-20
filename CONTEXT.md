@@ -165,3 +165,18 @@
 **Open questions / next steps:**
 - Add `CARDS.md` to git (still untracked)
 ---
+
+---
+### 2026-03-20 — Hero power action tracking + BC action space expansion
+
+**Files changed:** `parse_bg.py`, `explore.ipynb`
+
+**What was done:** Added `hero_power` as a tracked action in the parser: `handle_block` now detects `CARDTYPE=HERO_POWER` blocks owned by the friendly player and emits `{"action": "hero_power", "card_id", "name", "gold_remaining", "hero_power_cost"}`. Two new helpers (`_hero_power_entity`, `_hero_power_card_id`) were added alongside the existing `_hero_power_cost`. The shopping dict now includes `hero_power_card_id` and `hero_power_cost` every round. In the notebook the BC action space grew from 19 to 20 classes (`hero_power` = index 18, `end_turn` = 19), the state vector grew from 181 to 183 dims by adding `hero_power_cost` and `hero_power_available` to the context block, `valid_action_mask` gained a hero-power rule (gold >= hp_cost AND not yet used this turn), and `extract_transitions` tracks `hp_used` per round. Dataset re-collected with `--force`: 8 sessions parsed, 11 games, 35 hero_power actions captured.
+
+**Current state:** Parser and notebook BC pipeline are consistent with the expanded 20-class action space. Re-parsed JSON files contain `hero_power_card_id` and `hero_power_cost` in every shopping dict. Three oldest JSON files (pre-2026-03-13) are stale — their source logs no longer exist so they lack the new fields, but `.get()` defaults handle them gracefully.
+
+**Open questions / next steps:**
+- Delete the 3 stale pre-March-13 JSON files that can't be re-parsed
+- Add a hero-power usage rate chart to the notebook grouped by `hero_power_card_id`
+- Add `CARDS.md` to git (still untracked)
+---
