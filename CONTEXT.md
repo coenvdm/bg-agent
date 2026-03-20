@@ -147,3 +147,12 @@
 - Re-run `collect_dataset.py` to regenerate JSON files with the new `hero_power_*` fields
 - Verify hero power actions appear correctly in a re-parsed game log
 ---
+
+---
+### 2026-03-20 — Stop hook verified working (no-change session)
+**Files changed:** none
+**What was done:** Session confirmed the stop hook's "no file changes" path fires correctly. The hook blocked exit and surfaced the session log reminder via stderr as intended. No source files were modified.
+**Current state:** Stop hook is fully operational on both code-change and no-change paths.
+**Open questions / next steps:**
+- Add `CARDS.md` to git (still untracked)
+---
