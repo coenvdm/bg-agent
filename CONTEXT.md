@@ -156,3 +156,12 @@
 **Open questions / next steps:**
 - Add `CARDS.md` to git (still untracked)
 ---
+
+---
+### 2026-03-20 — No-change session log (stop hook confirmation)
+**Files changed:** none
+**What was done:** No source files were modified. Session consisted only of receiving and acknowledging the stop hook's no-change path output.
+**Current state:** No changes pending.
+**Open questions / next steps:**
+- Add `CARDS.md` to git (still untracked)
+---
