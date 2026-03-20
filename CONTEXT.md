@@ -180,3 +180,17 @@
 - Add a hero-power usage rate chart to the notebook grouped by `hero_power_card_id`
 - Add `CARDS.md` to git (still untracked)
 ---
+
+---
+### 2026-03-20 — Filter ghost game records + backfill hero power fields
+
+**Files changed:** `parse_bg.py`
+
+**What was done:** Fixed two issues. (1) Ghost records: sessions with 2+ BG game trees sometimes produced records with no rounds and no hero card_id (lobby abandons / client crashes before shopping started). Added a guard in `parse_power_log` to skip any record where rounds is empty AND hero card_id is absent. The two affected sessions (2026-03-15, 2026-03-18) now correctly report 1 game each instead of 2. (2) Backfilled the 3 stale JSON files (pre-2026-03-13, whose source logs no longer exist) with `hero_power_card_id` and `hero_power_cost` using `card.hero_power` from the card DB, resolving skin suffixes automatically.
+
+**Current state:** 9 clean games across 9 JSON files, all with `hero_power_card_id` and `hero_power_cost` populated in every shopping round.
+
+**Open questions / next steps:**
+- Add a hero-power usage rate chart to the notebook grouped by `hero_power_card_id`
+- Add `CARDS.md` to git (still untracked)
+---
