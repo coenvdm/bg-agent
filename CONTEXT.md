@@ -237,3 +237,17 @@
 **Current state:** 17 ghost rounds detected across 6 fresh games. Field is present in schema docstring. Stale files do not have this field.
 **Open questions / next steps:** encode opponent_is_ghost as a feature in encode_state; stale files need backfill if used for training.
 ---
+---
+### 2026-03-20 — Fix 5 data correctness bugs in parser
+
+**Files changed:** `parse_bg.py`
+
+**What was done:** Fixed five data correctness issues identified by auditing the parsed JSON against actual game mechanics. (1) **Empty minion names**: `_minion_snap()` now falls back to `_card_db_name(card_id)` — all 1348 minion entries in fresh files now have names populated. (2) **tavern_tier captured post-shopping**: Added `_tavern_tier_at_start` snapshot at MAIN_ACTION (before any level_up actions), replacing the previous `hero["tech_level"]` read at MAIN_END. (3) **level_up new_tier stale**: `PLAYER_TECH_LEVEL` TagChange sometimes arrives after the TechUp block (or after MAIN_END); re-derived new_tier in `_flush_shopping` from the final hero tier with an arithmetic fallback when the tag hasn't updated. (4) **sold entities appearing in board_at_end**: Added `_sold_eids` set tracking entity IDs sold during shopping; `_flush_shopping` now filters these from `player_board()` when zone-change TagChanges arrive after MAIN_END. (5) **duplicate place actions**: Added `_placed_eids` set; place detection skips entities already recorded this shopping phase, preventing battlecry re-triggers from generating phantom extra place events. Lazy `_eid` resolution also added for sell/buy card_ids revealed after the action block but before MAIN_END.
+
+**Current state:** All 5 bugs fixed on fresh-parsed files (0 tier errors, 0 missing names, 0 duplicate places). Two known limitations remain: (a) 32% of sell actions target anonymous BG entities whose card_id is never set in the log — unresolvable; (b) 2/77 rounds have board_at_end > 7 due to zone-position TagChanges for minion placements arriving after MAIN_END. Stale JSON file `03_13_17_24_20` cannot be re-parsed (source log gone).
+
+**Open questions / next steps:**
+- Stale file `Hearthstone_2026_03_13_17_24_20.json` still has old (unfixed) data; delete or clearly mark it if used for training
+- Investigate anonymous sell entities (32%) — may correspond to specific BG hero powers or spell-created tokens whose card_ids are intentionally hidden in the log
+- The board > 7 edge case (2/77 rounds) could be fixed by tracking entity ZONE transitions explicitly and deferring the board_at_end snapshot
+---

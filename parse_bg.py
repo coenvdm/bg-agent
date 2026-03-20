@@ -183,11 +183,12 @@ def _resolve_entity(ref) -> Optional[int]:
 
 
 def _minion_snap(entity: dict) -> dict:
-    tags = entity.get("tags", {})
+    tags    = entity.get("tags", {})
+    card_id = entity.get("card_id", "")
     return {
         "entity_id":     entity["id"],
-        "card_id":       entity.get("card_id", ""),
-        "name":          entity.get("name", ""),
+        "card_id":       card_id,
+        "name":          entity.get("name", "") or _card_db_name(card_id),
         "attack":        tags.get(GameTag.ATK, 0),
         "health":        tags.get(GameTag.HEALTH, 0),
         "divine_shield": bool(tags.get(GameTag.DIVINE_SHIELD, 0)),
@@ -268,6 +269,9 @@ class BGGameTracker:
         self._board_at_start:      List[dict] = []
         self._gold_at_start:       int        = 0
         self._shop_frozen:         bool       = False  # shop carried over from a freeze
+        self._tavern_tier_at_start: int       = 0      # tier at MAIN_ACTION, before any level-up
+        self._sold_eids:           set        = set()  # entity IDs sold this shopping phase
+        self._placed_eids:         set        = set()  # entity IDs placed this shopping phase (dedup)
 
         # Hero power entity tracking
         self.player_hero_power_eid: Optional[int] = None
@@ -445,6 +449,8 @@ class BGGameTracker:
             if self.game_turn % 2 == 1:           # odd turn = shopping
                 self._in_shopping    = True
                 self._actions        = []
+                self._sold_eids      = set()
+                self._placed_eids    = set()
                 self._board_at_start = self.player_board()
                 self._shop_at_start  = self.shop_at_turn(self.game_turn)
                 self._gold_at_start       = self._available_gold()
@@ -452,6 +458,9 @@ class BGGameTracker:
                 # Capture whether the shop arrived pre-frozen from the previous turn
                 player_tags = self.entities.get(self.player_entity_eid or -1, {}).get("tags", {})
                 self._shop_frozen = bool(player_tags.get(_BACON_FREEZE_TAG, 0))
+                # Snapshot tavern tier NOW (before any level_up actions this turn)
+                hero = self.player_hero()
+                self._tavern_tier_at_start = hero["tech_level"] if hero else 0
 
         elif new_step == Step.MAIN_END:           # step = 12
             if self._in_shopping:
@@ -533,9 +542,37 @@ class BGGameTracker:
     def _flush_shopping(self):
         if self._cur_round is None:
             return
+        # Lazy card_id resolution: some sell/play_spell targets had their card_id
+        # revealed by a ShowEntity packet that arrived after the action block.
+        # By MAIN_END all packets for this turn have been processed, so resolve now.
+        for act in self._actions:
+            eid = act.pop("_eid", None)
+            if eid is not None and not act.get("card_id"):
+                e   = self.entities.get(eid, {})
+                cid = e.get("card_id", "")
+                act["card_id"] = cid
+                act["name"]    = act.get("name") or e.get("name", "") or _card_db_name(cid)
+        # Fix level_up new_tier: PLAYER_TECH_LEVEL TagChange sometimes arrives as a
+        # sibling of the TechUp block (not inside it), leaving new_tier == old tier.
+        # Re-derive from final hero tier, falling back to arithmetic when the tag
+        # still hasn't updated by MAIN_END (final_tier == tavern_tier_at_start).
         hero = self.player_hero()
+        final_tier  = hero["tech_level"] if hero else self._tavern_tier_at_start
+        lu_actions  = [a for a in self._actions if a["action"] == "level_up"]
+        n_lu        = len(lu_actions)
+        tag_updated = final_tier > self._tavern_tier_at_start
+        for i, act in enumerate(reversed(lu_actions)):
+            if tag_updated:
+                act["new_tier"] = final_tier - i
+            else:
+                # Tag arrived after MAIN_END; derive from start tier + offset
+                act["new_tier"] = self._tavern_tier_at_start + (n_lu - i)
+        # board_at_end: exclude entities that were sold this phase whose zone
+        # TagChange may arrive after the MAIN_END step that triggers this flush.
+        board_end = [m for m in self.player_board()
+                     if m["entity_id"] not in self._sold_eids]
         self._cur_round["shopping"] = {
-            "tavern_tier":   hero["tech_level"] if hero else 0,
+            "tavern_tier":   self._tavern_tier_at_start,  # tier at START of shopping
             "hero_health":   hero["health"]     if hero else 0,
             "hero_armor":    hero["armor"]       if hero else 0,
             "gold_at_start":       self._gold_at_start,
@@ -546,7 +583,7 @@ class BGGameTracker:
             "spell_shop_at_start": self._spell_shop_at_start,
             "board_at_start": self._board_at_start,
             "actions":        list(self._actions),
-            "board_at_end":   self.player_board(),
+            "board_at_end":   board_end,
             "hand_at_end":    self.player_hand(),
         }
 
@@ -769,17 +806,29 @@ class BGGameTracker:
             }
             if action_name == "play_spell":
                 action["spell_cost"] = gold_before - self._available_gold()
+            # If card_id is still blank, record entity ID for lazy resolution at flush.
+            if not t_card_id:
+                action["_eid"] = target
             self._actions.append(action)
 
         # ── Sell ─────────────────────────────────────────────────────────────
         elif _card_matches(card_id, _SELL_CARDS) and target:
             t_entity = self.entities.get(target, {})
-            self._actions.append({
+            t_card_id = t_entity.get("card_id", "")
+            action = {
                 "action":         "sell",
-                "card_id":        t_entity.get("card_id", ""),
+                "card_id":        t_card_id,
                 "name":           t_entity.get("name", ""),
                 "gold_remaining": gold_before,
-            })
+            }
+            # Card_id may be blank if the entity's ShowEntity arrives after this
+            # block — store the entity ID for lazy resolution in _flush_shopping.
+            if not t_card_id:
+                action["_eid"] = target
+            # Track this entity ID so _flush_shopping can exclude it from
+            # board_at_end if its zone TagChange arrives after MAIN_END.
+            self._sold_eids.add(target)
+            self._actions.append(action)
 
         # ── Level up ─────────────────────────────────────────────────────────
         elif _card_matches(card_id, _LEVEL_CARDS):
@@ -818,15 +867,19 @@ class BGGameTracker:
             })
 
         # ── Place minion on board ─────────────────────────────────────────────
-        # A MINION-type entity "playing" itself (target=0) = placed on board
+        # A MINION-type entity "playing" itself (target=0) = placed on board.
+        # Guard against duplicate PLAY blocks for the same entity (e.g. battlecry
+        # triggers that re-fire PLAY for the same minion).
         elif (self._is_minion(entity)
               and target == 0
               and self._ctrl(entity) == self.friendly_player_id
-              and self._zone(entity) == Zone.PLAY):
+              and self._zone(entity) == Zone.PLAY
+              and eid not in self._placed_eids):
+            self._placed_eids.add(eid)
             self._actions.append({
                 "action":         "place",
                 "card_id":        card_id,
-                "name":           entity.get("name", ""),
+                "name":           entity.get("name", "") or _card_db_name(card_id),
                 "gold_remaining": gold_before,
             })
 
