@@ -100,7 +100,8 @@ _BACON_FREEZE_TAG = getattr(GameTag, "BACON_FREEZE_TOOLTIP", 2455)
 
 # Card database for name and cost enrichment (spell costs aren't in the game-state tags)
 _db, _ = load_dbf()
-_CARD_DB: dict = {c.id: c for c in _db.values()}
+_CARD_DB: dict  = {c.id: c   for c in _db.values()}   # card_id  → card
+_DBID_DB: dict  = {k:   v    for k, v in _db.items()}  # int DBID → card
 del _db
 
 
@@ -642,10 +643,13 @@ class BGGameTracker:
             if eid not in self._entity_entered_play_turn:
                 self._entity_entered_play_turn[eid] = self.game_turn
 
-        # Detect anomaly
+        # Detect anomaly: BACON_GLOBAL_ANOMALY_DBID is a numeric DBID on the game
+        # entity, not a card_id string.  Convert via the DBID lookup table.
         if eid == self.game_entity_eid and GameTag.BACON_GLOBAL_ANOMALY_DBID in tags:
-            if not self.anomaly_card_id and card_id:
-                self.anomaly_card_id = card_id
+            dbid = tags[GameTag.BACON_GLOBAL_ANOMALY_DBID]
+            if dbid and not self.anomaly_card_id:
+                c = _DBID_DB.get(int(dbid))
+                self.anomaly_card_id = c.id if c else str(dbid)
 
     def handle_create_game(self, packet):
         eid = packet.entity if isinstance(packet.entity, int) else 1
@@ -705,6 +709,14 @@ class BGGameTracker:
         # BACON_WON_LAST_COMBAT (tag 1422) fires for *all* entities every round
         # regardless of who won, so it cannot be used as a win signal.
         #
+        # Anomaly via TagChange (fires if the tag wasn't in the CreateGame packet).
+        if (eid == self.game_entity_eid
+                and tag == GameTag.BACON_GLOBAL_ANOMALY_DBID
+                and int(value) > 0
+                and not self.anomaly_card_id):
+            c = _DBID_DB.get(int(value))
+            self.anomaly_card_id = c.id if c else str(value)
+
         # Win detection: if a DAMAGE tag fires on an opponent hero entity during
         # combat, our minions hit them → that round is a win.
         # Loss detection falls back to player health delta in _flush_combat.

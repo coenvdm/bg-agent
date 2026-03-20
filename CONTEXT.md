@@ -276,3 +276,19 @@
 - Check whether `SubSpell` packets also wrap other entity creation events we care about (discovers, spell effects) — the same fix covers those too
 - Board > 7 edge case (2/77 rounds) still unresolved
 ---
+
+---
+### 2026-03-21 — Fix anomaly detection; full data correctness audit
+
+**Files changed:** `parse_bg.py`
+
+**What was done:** Performed a full correctness audit of the collected dataset across all 6 games. Found and fixed the anomaly detection bug: `BACON_GLOBAL_ANOMALY_DBID` is a numeric DBID on the GameEntity, not a card_id string — the old check (`if card_id:`) always evaluated False because the GameEntity has no card_id. Added `_DBID_DB` (integer-keyed alias of the `load_dbf()` result) and rewrote the detection in both `_store_entity` and `handle_tag_change` to look up the DBID and store the correct card_id string. All 6 sessions now report correct anomalies (e.g. "Grapnel of the Titans", "Boon of Chronum").
+
+**Current state:** Anomaly field is populated correctly in all parsed games. Other known bugs (sell/hero names empty, round-1 shop empty, shop count inflated) are documented but not yet fixed.
+
+**Open questions / next steps:**
+- Fix sell and reorder action names: card_db_name fallback not applied when card_id is known but entity name is empty
+- Fix hero name field: `_hero_snap()` never calls `_card_db_name()` as fallback
+- Investigate round-1 `shop_at_start=0`: shop minions arrive via ShowEntity packets during MAIN_ACTION, after the snapshot fires
+- Reduce shop count inflation in later rounds: filter by `zone_pos > 0` to exclude stale SETASIDE entities
+---
