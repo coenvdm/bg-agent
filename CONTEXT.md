@@ -251,3 +251,14 @@
 - Investigate anonymous sell entities (32%) — may correspond to specific BG hero powers or spell-created tokens whose card_ids are intentionally hidden in the log
 - The board > 7 edge case (2/77 rounds) could be fixed by tracking entity ZONE transitions explicitly and deferring the board_at_end snapshot
 ---
+---
+### 2026-03-20 — Refresh explore.ipynb outputs after dataset growth
+
+**Files changed:** `explore.ipynb`
+
+**What was done:** Notebook outputs re-executed against the expanded dataset (5 → 9 games). No code changes; only cell execution counts and printed statistics updated.
+
+**Current state:** Notebook reflects current dataset state.
+
+**Open questions / next steps:** (see parser fix entry above)
+---
