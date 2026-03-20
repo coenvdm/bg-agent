@@ -16,13 +16,16 @@ Output schema (one JSON object per game):
       "round": int,
       "shopping": {
         "tavern_tier": int, "hero_health": int, "hero_armor": int,
-        "gold_at_start": int, "hero_power_card_id": str, "hero_power_cost": int,
+        "gold_at_start": int, "shop_frozen": bool,
+        "hero_power_card_id": str, "hero_power_cost": int,
         "shop_at_start":  [ {card_id, name, attack, health, …}, … ],
         "board_at_start": [ {card_id, name, attack, health, …}, … ],
         "spell_shop_at_start": [ {card_id, name, cost, tier, golden, zone_pos}, … ],
         "actions": [
           { "action": "buy"|"place"|"sell"|"reroll"|"freeze",
             "card_id": str, "name": str, "gold_remaining": int },
+          { "action": "reorder", "card_id": str, "name": str,
+            "from_pos": int, "to_pos": int, "gold_remaining": int },
           { "action": "play_spell", "card_id": str, "name": str,
             "gold_remaining": int, "spell_cost": int },
           { "action": "level_up", "new_tier": int,
@@ -40,7 +43,13 @@ Output schema (one JSON object per game):
         "result":            "win"|"loss"|"tie"|null,
         "hero_health_after": int,
         "hero_armor_after":  int,
-      }
+      },
+      "discovers": [
+        { "source_card_id": str, "source_name": str,
+          "options": [ {entity_id, card_id, name}, … ],
+          "chosen":  [ {entity_id, card_id, name} ],
+          "phase":   "shopping"|"combat"|"hero_select"|"unknown" }
+      ]
     }
   ]
 }
@@ -70,7 +79,7 @@ from typing import Dict, List, Optional
 
 from hslog import LogParser
 from hslog.exceptions import CorruptLogError
-from hearthstone.enums import BlockType, CardType, GameTag, PlayState, Step, Zone
+from hearthstone.enums import BlockType, CardType, ChoiceType, GameTag, PlayState, Step, Zone
 
 try:
     from hslog.player import InconsistentPlayerIdError
@@ -84,6 +93,9 @@ from hearthstone.cardxml import load_dbf
 # TEMP_RESOURCES (tag 137) holds bonus coins from hero powers; not present in all
 # library versions, so fall back to the raw numeric ID if the attribute is missing.
 _TEMP_RESOURCES_TAG = getattr(GameTag, "TEMP_RESOURCES", 137)
+
+# BACON_FREEZE_TOOLTIP is set on the player entity when their shop is frozen.
+_BACON_FREEZE_TAG = getattr(GameTag, "BACON_FREEZE_TOOLTIP", 2455)
 
 # Card database for name and cost enrichment (spell costs aren't in the game-state tags)
 _db, _ = load_dbf()
@@ -204,11 +216,13 @@ def _spell_snap(entity: dict) -> dict:
 
 def _hero_snap(entity: dict) -> dict:
     tags = entity.get("tags", {})
+    max_hp = tags.get(GameTag.HEALTH, 0)
+    damage = tags.get(GameTag.DAMAGE, 0)
     return {
         "entity_id":  entity["id"],
         "card_id":    entity.get("card_id", ""),
         "name":       entity.get("name", ""),
-        "health":     tags.get(GameTag.HEALTH, 0),
+        "health":     max(0, max_hp - damage),
         "armor":      tags.get(GameTag.ARMOR, 0),
         "tech_level": tags.get(GameTag.PLAYER_TECH_LEVEL, 0),
     }
@@ -252,6 +266,7 @@ class BGGameTracker:
         self._spell_shop_at_start: List[dict] = []
         self._board_at_start:      List[dict] = []
         self._gold_at_start:       int        = 0
+        self._shop_frozen:         bool       = False  # shop carried over from a freeze
 
         # Hero power entity tracking
         self.player_hero_power_eid: Optional[int] = None
@@ -260,6 +275,11 @@ class BGGameTracker:
         self._combat_player_board:   List[dict]     = []
         self._combat_opponent_hero:  Optional[dict] = None
         self._combat_opponent_board: List[dict]     = []
+        self._combat_result:         Optional[str]  = None  # "win"|"loss"|"tie"
+
+        # Discover / choice tracking
+        self._pending_choices: Dict[int, dict] = {}  # choice_id → pending discover
+        self._round_discovers: List[dict]      = []  # completed discovers this round
 
         # Track entity creation turn (for shop freshness)
         self._entity_created_turn: Dict[int, int] = {}
@@ -395,18 +415,21 @@ class BGGameTracker:
         self.game_turn = new_turn
         if new_turn % 2 == 1:                    # player's shopping turn
             self._cur_round = {
-                "round":    (new_turn + 1) // 2,
-                "shopping": None,
-                "combat":   None,
+                "round":     (new_turn + 1) // 2,
+                "shopping":  None,
+                "combat":    None,
+                "discovers": [],
             }
-            self._actions = []
+            self._actions        = []
+            self._round_discovers = []
 
     def _on_step(self, new_step: int):
         self.current_step = new_step
 
         if new_step == Step.MAIN_START:           # step = 9
             if self.game_turn % 2 == 0:           # even turn = combat
-                self._in_combat = True
+                self._in_combat      = True
+                self._combat_result  = None
                 self._combat_player_board   = self.player_board()
                 self._capture_combat_opponent()
 
@@ -418,6 +441,9 @@ class BGGameTracker:
                 self._shop_at_start  = self.shop_at_turn(self.game_turn)
                 self._gold_at_start       = self._available_gold()
                 self._spell_shop_at_start = self.spell_shop_at_turn(self.game_turn)
+                # Capture whether the shop arrived pre-frozen from the previous turn
+                player_tags = self.entities.get(self.player_entity_eid or -1, {}).get("tags", {})
+                self._shop_frozen = bool(player_tags.get(_BACON_FREEZE_TAG, 0))
 
         elif new_step == Step.MAIN_END:           # step = 12
             if self._in_shopping:
@@ -497,6 +523,7 @@ class BGGameTracker:
             "hero_health":   hero["health"]     if hero else 0,
             "hero_armor":    hero["armor"]       if hero else 0,
             "gold_at_start":       self._gold_at_start,
+            "shop_frozen":         self._shop_frozen,
             "hero_power_card_id":  self._hero_power_card_id(),
             "hero_power_cost":     self._hero_power_cost(),
             "shop_at_start":       self._shop_at_start,
@@ -515,11 +542,14 @@ class BGGameTracker:
             "opponent_hero":     self._combat_opponent_hero,
             "opponent_board":    self._combat_opponent_board,
             "player_board":      self._combat_player_board,
-            "result":            None,
+            "result":            self._combat_result,
             "hero_health_after": hero["health"] if hero else 0,
             "hero_armor_after":  hero["armor"]  if hero else 0,
         }
+        self._cur_round["discovers"] = list(self._round_discovers)
         self.rounds.append(deepcopy(self._cur_round))
+        self._combat_result  = None
+        self._round_discovers = []
 
     # ── packet handlers ───────────────────────────────────────────────────────
 
@@ -602,6 +632,19 @@ class BGGameTracker:
                 self._on_step(int(value))
             return
 
+        # Detect per-round combat result from PLAYSTATE on the player entity.
+        # BG uses WINNING/LOSING/TIED for per-round results (not WON/LOST, which
+        # only fire at game end). Guard with _in_combat to avoid false positives.
+        if (tag == GameTag.PLAYSTATE
+                and eid == self.player_entity_eid
+                and self._in_combat):
+            if value == PlayState.WINNING:
+                self._combat_result = "win"
+            elif value == PlayState.LOSING:
+                self._combat_result = "loss"
+            elif value == PlayState.TIED:
+                self._combat_result = "tie"
+
         # Track non-zero COST on any player-owned entity.
         # CARDTYPE is intentionally not checked here: the COST TagChange often
         # fires before CARDTYPE is set, so filtering by SPELL would miss entries.
@@ -629,12 +672,41 @@ class BGGameTracker:
         """
         gold_before = self._available_gold() if self._in_shopping else 0
 
+        # For reorder blocks, snapshot the minion's board position BEFORE children
+        # mutate the ZONE_POSITION tag.
+        move_eid      = -1
+        from_pos      = None
+        if self._in_shopping and packet.type == BlockType.MOVE_MINION:
+            move_eid  = packet.entity if isinstance(packet.entity, int) else -1
+            move_ent  = self.entities.get(move_eid)   # None if not yet registered
+            if (move_ent is not None
+                    and self._is_minion(move_ent)
+                    and self._ctrl(move_ent) == self.friendly_player_id
+                    and self._zone(move_ent) == Zone.PLAY):
+                from_pos = move_ent.get("tags", {}).get(GameTag.ZONE_POSITION, 0)
+
         for child in (packet.packets or []):
             self._dispatch(child)
 
-        # Only analyse PLAY blocks during the shopping phase
+        # Only analyse shopping-phase blocks
         if not self._in_shopping:
             return
+
+        # ── Reorder (MOVE_MINION) ─────────────────────────────────────────────
+        if packet.type == BlockType.MOVE_MINION and from_pos is not None:
+            move_ent = self.entities.get(move_eid) or {}
+            to_pos   = move_ent.get("tags", {}).get(GameTag.ZONE_POSITION, 0)
+            if from_pos != to_pos:
+                self._actions.append({
+                    "action":         "reorder",
+                    "card_id":        move_ent.get("card_id", ""),
+                    "name":           move_ent.get("name", ""),
+                    "from_pos":       from_pos,
+                    "to_pos":         to_pos,
+                    "gold_remaining": gold_before,
+                })
+            return
+
         if packet.type != BlockType.PLAY:
             return
 
@@ -721,6 +793,50 @@ class BGGameTracker:
                 "gold_remaining": gold_before,
             })
 
+    def handle_choices(self, packet):
+        """
+        Record a discover/choice event offered to the player.
+        Options are stored by entity_id and resolved to card_ids in
+        handle_chosen_entities (after ShowEntity reveals the cards).
+        """
+        if getattr(packet, "type", None) != ChoiceType.GENERAL:
+            return
+        phase = ("shopping"   if self._in_shopping
+                 else "combat" if self._in_combat
+                 else "hero_select" if self.game_turn == 0
+                 else "unknown")
+        self._pending_choices[packet.id] = {
+            "source_eid":  getattr(packet, "source", None),
+            "option_eids": list(getattr(packet, "choices", None) or []),
+            "phase":       phase,
+        }
+
+    def handle_chosen_entities(self, packet):
+        """
+        Finalize a discover event once the server confirms the player's pick.
+        At this point all option entities have been revealed via ShowEntity.
+        """
+        pending = self._pending_choices.pop(getattr(packet, "id", -1), None)
+        if pending is None:
+            return
+
+        def _snap(eid):
+            e   = self.entities.get(eid, {})
+            cid = e.get("card_id", "")
+            return {"entity_id": eid, "card_id": cid,
+                    "name": e.get("name", "") or _card_db_name(cid)}
+
+        source_eid = pending["source_eid"]
+        src_e      = self.entities.get(source_eid, {}) if source_eid else {}
+        src_cid    = src_e.get("card_id", "")
+        self._round_discovers.append({
+            "source_card_id": src_cid,
+            "source_name":    src_e.get("name", "") or _card_db_name(src_cid),
+            "options":        [_snap(e) for e in pending["option_eids"]],
+            "chosen":         [_snap(e) for e in (getattr(packet, "choices", None) or [])],
+            "phase":          pending["phase"],
+        })
+
     def _dispatch(self, packet):
         ptype = type(packet).__name__
         if ptype == "CreateGame":
@@ -735,7 +851,11 @@ class BGGameTracker:
             self.handle_tag_change(packet)
         elif ptype == "Block":
             self.handle_block(packet)
-        # Choices / SendChoices / ChosenEntities / MetaData / HideEntity → skipped
+        elif ptype == "Choices":
+            self.handle_choices(packet)
+        elif ptype == "ChosenEntities":
+            self.handle_chosen_entities(packet)
+        # SendChoices / MetaData / HideEntity → skipped
 
     def process_tree(self, packet_tree):
         for packet in packet_tree.packets:

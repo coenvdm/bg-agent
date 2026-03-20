@@ -194,3 +194,17 @@
 - Add a hero-power usage rate chart to the notebook grouped by `hero_power_card_id`
 - Add `CARDS.md` to git (still untracked)
 ---
+
+---
+### 2026-03-20 — Fix hero health always showing 30 in parsed data
+
+**Files changed:** `parse_bg.py`
+
+**What was done:** Fixed a bug in `_hero_snap` where `hero_health` was always 30. The code was reading `GameTag.HEALTH` directly, which is the hero's *max* health (always 30 for BG heroes, never changes). In Hearthstone's tag system, damage taken is accumulated in `GameTag.DAMAGE` separately, and current HP = `HEALTH - DAMAGE`. Fixed by computing `max(0, max_hp - damage)` using both tags.
+
+**Current state:** `hero_health` in `shopping` snapshots and `hero_health_after` in `combat` snapshots now correctly reflect actual current HP across all rounds.
+
+**Open questions / next steps:**
+- Re-parse existing JSON files to populate correct hero health values
+- Add `CARDS.md` to git (still untracked)
+---
