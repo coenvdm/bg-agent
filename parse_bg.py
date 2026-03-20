@@ -16,9 +16,9 @@ Output schema (one JSON object per game):
       "round": int,
       "shopping": {
         "tavern_tier": int, "hero_health": int, "hero_armor": int,
+        "gold_at_start": int, "hero_power_card_id": str, "hero_power_cost": int,
         "shop_at_start":  [ {card_id, name, attack, health, …}, … ],
         "board_at_start": [ {card_id, name, attack, health, …}, … ],
-        "gold_at_start": int,
         "spell_shop_at_start": [ {card_id, name, cost, tier, golden, zone_pos}, … ],
         "actions": [
           { "action": "buy"|"place"|"sell"|"reroll"|"freeze",
@@ -26,7 +26,9 @@ Output schema (one JSON object per game):
           { "action": "play_spell", "card_id": str, "name": str,
             "gold_remaining": int, "spell_cost": int },
           { "action": "level_up", "new_tier": int,
-            "gold_remaining": int, "upgrade_cost": int }
+            "gold_remaining": int, "upgrade_cost": int },
+          { "action": "hero_power", "card_id": str, "name": str,
+            "gold_remaining": int, "hero_power_cost": int }
         ],
         "board_at_end": [ … ],
         "hand_at_end":  [ … ],
@@ -251,6 +253,9 @@ class BGGameTracker:
         self._board_at_start:      List[dict] = []
         self._gold_at_start:       int        = 0
 
+        # Hero power entity tracking
+        self.player_hero_power_eid: Optional[int] = None
+
         # Combat snapshots
         self._combat_player_board:   List[dict]     = []
         self._combat_opponent_hero:  Optional[dict] = None
@@ -352,6 +357,28 @@ class BGGameTracker:
             return None
         e = self.entities.get(self.player_hero_eid)
         return _hero_snap(e) if e else None
+
+    def _hero_power_entity(self) -> Optional[dict]:
+        """Return the player's hero power entity, or None if not found."""
+        for e in self.entities.values():
+            if (e["tags"].get(GameTag.CARDTYPE) == CardType.HERO_POWER
+                    and self._ctrl(e) == self.friendly_player_id):
+                return e
+        return None
+
+    def _hero_power_cost(self) -> int:
+        """Return the gold cost of the player's hero power (0 if unknown)."""
+        e = self._hero_power_entity()
+        if e is None:
+            return 0
+        cid  = e.get("card_id", "")
+        cost = e["tags"].get(GameTag.COST, 0)
+        return cost if cost > 0 else _card_db_cost(cid)
+
+    def _hero_power_card_id(self) -> str:
+        """Return the card_id of the player's hero power ("" if unknown)."""
+        e = self._hero_power_entity()
+        return e.get("card_id", "") if e else ""
 
     def _available_gold(self) -> int:
         """Gold the player can still spend this turn (total allocated minus already used)."""
@@ -470,6 +497,8 @@ class BGGameTracker:
             "hero_health":   hero["health"]     if hero else 0,
             "hero_armor":    hero["armor"]       if hero else 0,
             "gold_at_start":       self._gold_at_start,
+            "hero_power_card_id":  self._hero_power_card_id(),
+            "hero_power_cost":     self._hero_power_cost(),
             "shop_at_start":       self._shop_at_start,
             "spell_shop_at_start": self._spell_shop_at_start,
             "board_at_start": self._board_at_start,
@@ -665,6 +694,18 @@ class BGGameTracker:
             self._actions.append({
                 "action":         "freeze",
                 "gold_remaining": gold_before,
+            })
+
+        # ── Hero power ───────────────────────────────────────────────────────
+        elif (entity.get("tags", {}).get(GameTag.CARDTYPE) == CardType.HERO_POWER
+              and self._ctrl(entity) == self.friendly_player_id):
+            hp_cost = gold_before - self._available_gold()
+            self._actions.append({
+                "action":          "hero_power",
+                "card_id":         card_id,
+                "name":            entity.get("name", "") or _card_db_name(card_id),
+                "gold_remaining":  gold_before,
+                "hero_power_cost": hp_cost,
             })
 
         # ── Place minion on board ─────────────────────────────────────────────

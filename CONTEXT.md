@@ -136,3 +136,14 @@
 **Open questions / next steps:**
 - Confirm the stderr output appears in the next session where CONTEXT.md is not pre-updated
 ---
+
+---
+### 2026-03-20 — Add hero power tracking and split card list to CARDS.md
+**Files changed:** `parse_bg.py`, `CLAUDE.md`, `explore.ipynb`
+**What was done:** Added hero power tracking to `parse_bg.py`: the shopping output now includes `hero_power_card_id` and `hero_power_cost` fields, and hero power activations are recorded as `{"action": "hero_power", ...}` entries in the actions list. The full 264-minion card list was extracted from `CLAUDE.md` into a dedicated `CARDS.md` file to keep `CLAUDE.md` concise; a reference link was added in its place. Notebook outputs were refreshed.
+**Current state:** Parser captures hero power usage per round; CARDS.md holds the canonical card pool.
+**Open questions / next steps:**
+- Add `CARDS.md` to git (currently untracked)
+- Re-run `collect_dataset.py` to regenerate JSON files with the new `hero_power_*` fields
+- Verify hero power actions appear correctly in a re-parsed game log
+---
