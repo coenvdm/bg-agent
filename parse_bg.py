@@ -38,6 +38,7 @@ Output schema (one JSON object per game):
       },
       "combat": {
         "opponent_hero":     { … } | null,
+        "opponent_is_ghost": bool,
         "opponent_board":    [ … ],
         "player_board":      [ … ],
         "result":            "win"|"loss"|"tie"|null,
@@ -563,8 +564,14 @@ class BGGameTracker:
                 self._combat_result = "loss"
             else:
                 self._combat_result = "tie"
+        # A ghost opponent is a dead player's board — their hero health is ≤ 0
+        # (or missing entirely). Winning against a ghost is easier and should
+        # be reflected in the model's state features.
+        opp_hero = self._combat_opponent_hero
+        opponent_is_ghost = (opp_hero is None or opp_hero.get("health", 0) <= 0)
         self._cur_round["combat"] = {
-            "opponent_hero":     self._combat_opponent_hero,
+            "opponent_hero":     opp_hero,
+            "opponent_is_ghost": opponent_is_ghost,
             "opponent_board":    self._combat_opponent_board,
             "player_board":      self._combat_player_board,
             "result":            self._combat_result,

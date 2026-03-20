@@ -230,3 +230,10 @@
 **Current state:** All 6 fresh games now have proper win/loss/tie on every round. Stale files (no source logs) retain nulls on rounds where player health was stable (cannot distinguish win/tie without stored opponent post-combat state).
 **Open questions / next steps:** Some rounds show ghost opponents (dead players) — these will never fire a DAMAGE tag, so non-loss ghost rounds remain "tie". Acceptable for ML since neither result affects player health. Consider storing opponent post-combat health in the schema for future backfill capability.
 ---
+---
+### 2026-03-20 — Add opponent_is_ghost to combat state
+**Files changed:** `parse_bg.py`
+**What was done:** Added opponent_is_ghost bool field to the combat dict. True when the opponent hero is missing (opp hero entity not found) or has health <= 0 (dead/eliminated player). Ghost boards are left from eliminated players and are generally easier to beat since they cannot adapt.
+**Current state:** 17 ghost rounds detected across 6 fresh games. Field is present in schema docstring. Stale files do not have this field.
+**Open questions / next steps:** encode opponent_is_ghost as a feature in encode_state; stale files need backfill if used for training.
+---
