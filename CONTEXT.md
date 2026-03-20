@@ -102,3 +102,28 @@
 - Implement `SymbolicBoardComputer.to_scalar_vector()` to populate all 38 dims from live game state
 - Run a short self-play episode to confirm reward signals are sensible
 ---
+
+---
+### 2026-03-20 — Hero power action tracking + BC action space expansion
+
+**Files changed:** `parse_bg.py`, `explore.ipynb`
+
+**What was done:** Added `hero_power` as a tracked action in the parser: `handle_block` now detects `CARDTYPE=HERO_POWER` blocks owned by the friendly player and emits `{"action": "hero_power", "card_id", "name", "gold_remaining", "hero_power_cost"}`. Two new helpers (`_hero_power_entity`, `_hero_power_card_id`) were added alongside the existing `_hero_power_cost`. The shopping dict now includes `hero_power_card_id` and `hero_power_cost` every round (populated from the hero power entity in PLAY, so always present regardless of whether the player used it). In the notebook the BC action space grew from 19 → 20 classes (`hero_power` = index 18, `end_turn` = 19), the state vector grew from 181 → 183 dims by adding `hero_power_cost` and `hero_power_available` to the context block, `valid_action_mask` gained a hero-power rule (gold ≥ hp_cost AND not yet used this turn), and `extract_transitions` tracks `hp_used` per round and passes both new context features into `encode_state`.
+
+**Current state:** Parser and notebook BC pipeline are consistent with the expanded action space. Existing JSON datasets do not yet contain `hero_power_card_id`/`hero_power_cost` fields — logs need to be re-parsed with the updated `parse_bg.py` to populate them.
+
+**Open questions / next steps:**
+- Re-run `collect_dataset.py` to regenerate JSON files with the new shopping fields
+- Verify `hero_power` actions are actually captured by checking a re-parsed game's action list
+- Consider adding a hero-power usage rate chart to the notebook grouped by `hero_power_card_id`
+---
+
+---
+### 2026-03-20 — Upgrade stop hook to blocking mode with auto-log requirement
+**Files changed:** `.claude/check_context_log.sh`
+**What was done:** Changed the stop hook exit code from 1 (advisory) to 2 (blocking) so Claude Code must respond before finishing a session. The hook now always fires unless CONTEXT.md was already updated — even when no source files were changed, it instructs Claude to write a short session description. Two message paths: one for sessions with dirty files (full entry required) and one for no-change sessions (brief description required).
+**Current state:** Stop hook is active and will block session exit until CONTEXT.md is appended.
+**Open questions / next steps:**
+- Verify exit code 2 behaviour in the installed Claude Code version
+- Consider whether the hook should also enforce `git commit` completion before allowing exit
+---
