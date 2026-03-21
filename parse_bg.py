@@ -346,8 +346,7 @@ class BGGameTracker:
         for e in self.entities.values():
             if (self._is_minion(e)
                     and self._ctrl(e) == self.friendly_player_id
-                    and self._zone(e) == Zone.SETASIDE
-                    and e["tags"].get(GameTag.ZONE_POSITION, 0) > 0):
+                    and self._zone(e) == Zone.SETASIDE):
                 created = self._entity_created_turn.get(e["id"], 0)
                 if created >= fresh_threshold:
                     result.append(_minion_snap(e))
@@ -364,8 +363,7 @@ class BGGameTracker:
         for e in self.entities.values():
             if (e["tags"].get(GameTag.CARDTYPE) == CardType.SPELL
                     and self._ctrl(e) == self.friendly_player_id
-                    and self._zone(e) == Zone.SETASIDE
-                    and e["tags"].get(GameTag.ZONE_POSITION, 0) > 0):
+                    and self._zone(e) == Zone.SETASIDE):
                 created = self._entity_created_turn.get(e["id"], 0)
                 if created >= fresh_threshold:
                     snap = _spell_snap(e)
@@ -768,12 +766,15 @@ class BGGameTracker:
         gold available to the player at the moment they made the decision,
         not after the cost has been deducted.
         """
-        # Lazy shop snapshot: take it on the first block during shopping so
-        # that ShowEntity packets (which precede any PLAY blocks in the log)
-        # have already been processed and the shop entities are fully populated.
+        # Lazy shop snapshot: deferred until the shop is non-empty.
+        # On turn 1, hero selection fires a PLAY block BEFORE ShowEntity packets
+        # for shop minions arrive.  We retry on each block until the shop is
+        # populated, then lock the snapshot in for the rest of the turn.
         if self._in_shopping and self._shop_at_start is None:
-            self._shop_at_start       = self.shop_at_turn(self.game_turn)
-            self._spell_shop_at_start = self.spell_shop_at_turn(self.game_turn)
+            snap = self.shop_at_turn(self.game_turn)
+            if snap:
+                self._shop_at_start       = snap
+                self._spell_shop_at_start = self.spell_shop_at_turn(self.game_turn)
 
         gold_before = self._available_gold() if self._in_shopping else 0
 

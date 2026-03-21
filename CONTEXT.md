@@ -307,3 +307,18 @@
 - Board > 7 edge case (2/77 rounds) still unresolved
 - Consider deleting/excluding stale JSON files (`03_06`, `03_08`, `03_12`, `03_13`) from training
 ---
+
+---
+### 2026-03-21 — Fix ZONE_POSITION guard and turn-1 shop snapshot race
+
+**Files changed:** `parse_bg.py`
+
+**What was done:** Removed the `ZONE_POSITION > 0` guard from the hand/spell-shop snapshot methods — the condition was incorrectly filtering out valid SETASIDE entities whose position tag is absent. Fixed a turn-1 shop snapshot race: hero selection fires a PLAY block before ShowEntity packets for shop minions arrive, so the lazy snapshot is now deferred until `shop_at_turn()` returns a non-empty list.
+
+**Current state:** Parser correctly captures shop state at turn 1 and does not drop hand/spell-shop entities that lack a ZONE_POSITION tag.
+
+**Open questions / next steps:**
+- Re-parse all games and verify round-1 `shop_at_start` is non-empty across the full dataset
+- Board > 7 edge case (2/77 rounds) still unresolved
+- Consider deleting/excluding stale JSON files (`03_06`, `03_08`, `03_12`, `03_13`) from training
+---
