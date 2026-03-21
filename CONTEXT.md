@@ -292,3 +292,18 @@
 - Investigate round-1 `shop_at_start=0`: shop minions arrive via ShowEntity packets during MAIN_ACTION, after the snapshot fires
 - Reduce shop count inflation in later rounds: filter by `zone_pos > 0` to exclude stale SETASIDE entities
 ---
+
+---
+### 2026-03-21 — Fix name fallbacks, round-1 shop, and shop count inflation
+
+**Files changed:** `parse_bg.py`
+
+**What was done:** Fixed all four open data-correctness bugs from the previous session. (1) Added `_card_db_name()` fallback to sell and reorder action name fields — previously the fallback was missing when `card_id` was known but the entity `name` was empty. (2) Added `_card_db_name()` fallback to `_hero_snap()`, which previously left the hero name blank. (3) Fixed round-1 `shop_at_start=0` by deferring the shop snapshot lazily to the first `handle_block` call during shopping (ShowEntity packets that build the shop on turn 1 arrive after the MAIN_ACTION step change fires, so the eager snapshot was always empty on round 1); a fallback in `_flush_shopping` handles turns with no player blocks. (4) Fixed shop count inflation by adding a `zone_pos > 0` guard in `shop_at_turn` and `spell_shop_at_turn` to exclude stale SETASIDE entities whose slot has been vacated (zone_pos resets to 0 when a minion leaves the shop).
+
+**Current state:** All four known parser bugs are resolved. Round-1 shop snapshot should now be populated, hero names should always resolve, sell/reorder names should always resolve, and shop counts should no longer be inflated by slot-less lingering entities.
+
+**Open questions / next steps:**
+- Re-parse all games and verify: round-1 `shop_at_start` is non-empty, hero names are set, sell/reorder names are non-blank, shop counts match observed shop size
+- Board > 7 edge case (2/77 rounds) still unresolved
+- Consider deleting/excluding stale JSON files (`03_06`, `03_08`, `03_12`, `03_13`) from training
+---

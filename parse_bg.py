@@ -224,7 +224,7 @@ def _hero_snap(entity: dict) -> dict:
     return {
         "entity_id":  entity["id"],
         "card_id":    entity.get("card_id", ""),
-        "name":       entity.get("name", ""),
+        "name":       entity.get("name", "") or _card_db_name(entity.get("card_id", "")),
         "health":     max(0, max_hp - damage),
         "armor":      tags.get(GameTag.ARMOR, 0),
         "tech_level": tags.get(GameTag.PLAYER_TECH_LEVEL, 0),
@@ -346,7 +346,8 @@ class BGGameTracker:
         for e in self.entities.values():
             if (self._is_minion(e)
                     and self._ctrl(e) == self.friendly_player_id
-                    and self._zone(e) == Zone.SETASIDE):
+                    and self._zone(e) == Zone.SETASIDE
+                    and e["tags"].get(GameTag.ZONE_POSITION, 0) > 0):
                 created = self._entity_created_turn.get(e["id"], 0)
                 if created >= fresh_threshold:
                     result.append(_minion_snap(e))
@@ -363,7 +364,8 @@ class BGGameTracker:
         for e in self.entities.values():
             if (e["tags"].get(GameTag.CARDTYPE) == CardType.SPELL
                     and self._ctrl(e) == self.friendly_player_id
-                    and self._zone(e) == Zone.SETASIDE):
+                    and self._zone(e) == Zone.SETASIDE
+                    and e["tags"].get(GameTag.ZONE_POSITION, 0) > 0):
                 created = self._entity_created_turn.get(e["id"], 0)
                 if created >= fresh_threshold:
                     snap = _spell_snap(e)
@@ -453,9 +455,14 @@ class BGGameTracker:
                 self._sold_eids      = set()
                 self._placed_eids    = set()
                 self._board_at_start = self.player_board()
-                self._shop_at_start  = self.shop_at_turn(self.game_turn)
+                # Shop snapshot is taken lazily in handle_block (the first block
+                # dispatched during shopping).  On round 1, shop minions arrive
+                # via ShowEntity packets that are processed *after* this step
+                # change fires but *before* any PLAY blocks, so deferring until
+                # the first handle_block call guarantees the shop is populated.
+                self._shop_at_start  = None
+                self._spell_shop_at_start = None
                 self._gold_at_start       = self._available_gold()
-                self._spell_shop_at_start = self.spell_shop_at_turn(self.game_turn)
                 # Capture whether the shop arrived pre-frozen from the previous turn
                 player_tags = self.entities.get(self.player_entity_eid or -1, {}).get("tags", {})
                 self._shop_frozen = bool(player_tags.get(_BACON_FREEZE_TAG, 0))
@@ -543,6 +550,11 @@ class BGGameTracker:
     def _flush_shopping(self):
         if self._cur_round is None:
             return
+        # Ensure shop snapshot exists even on turns where no block fired (e.g.
+        # player ended turn immediately without taking any action).
+        if self._shop_at_start is None:
+            self._shop_at_start       = self.shop_at_turn(self.game_turn)
+            self._spell_shop_at_start = self.spell_shop_at_turn(self.game_turn)
         # Lazy card_id resolution: some sell/play_spell targets had their card_id
         # revealed by a ShowEntity packet that arrived after the action block.
         # By MAIN_END all packets for this turn have been processed, so resolve now.
@@ -756,6 +768,13 @@ class BGGameTracker:
         gold available to the player at the moment they made the decision,
         not after the cost has been deducted.
         """
+        # Lazy shop snapshot: take it on the first block during shopping so
+        # that ShowEntity packets (which precede any PLAY blocks in the log)
+        # have already been processed and the shop entities are fully populated.
+        if self._in_shopping and self._shop_at_start is None:
+            self._shop_at_start       = self.shop_at_turn(self.game_turn)
+            self._spell_shop_at_start = self.spell_shop_at_turn(self.game_turn)
+
         gold_before = self._available_gold() if self._in_shopping else 0
 
         # For reorder blocks, snapshot the minion's board position BEFORE children
@@ -786,7 +805,7 @@ class BGGameTracker:
                 self._actions.append({
                     "action":         "reorder",
                     "card_id":        move_ent.get("card_id", ""),
-                    "name":           move_ent.get("name", ""),
+                    "name":           move_ent.get("name", "") or _card_db_name(move_ent.get("card_id", "")),
                     "from_pos":       from_pos,
                     "to_pos":         to_pos,
                     "gold_remaining": gold_before,
@@ -830,7 +849,7 @@ class BGGameTracker:
             action = {
                 "action":         "sell",
                 "card_id":        t_card_id,
-                "name":           t_entity.get("name", ""),
+                "name":           t_entity.get("name", "") or _card_db_name(t_card_id),
                 "gold_remaining": gold_before,
             }
             # Card_id may be blank if the entity's ShowEntity arrives after this
