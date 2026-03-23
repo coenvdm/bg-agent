@@ -1,6 +1,19 @@
 # bg_agent — Development Context Log
 
 ---
+### 2026-03-23 — Filter incomplete games from explore.ipynb
+
+**Files changed:** `explore.ipynb`
+
+**What was done:** Investigated why a placement=2 game showed non-zero final health. Traced it to a game quit after only 6 rounds — the placement was a mid-game leaderboard snapshot, not a true final result. Added a `MIN_ROUNDS = 8` filter in the notebook's data-loading cell to silently skip incomplete/quit games.
+
+**Current state:** Notebook loads 6 of 7 sessions, skipping the 6-round incomplete game. All analysis cells are unaffected.
+
+**Open questions / next steps:**
+- Consider adding a similar guard in `collect_dataset.py` so incomplete games are never written to the dataset in the first place.
+- Investigate whether Duos games need separate handling (partner death = elimination without personal health hitting 0).
+
+---
 ### 2026-03-15 — Initial project scaffold committed
 
 **Files changed:** `bg_card_pipeline.py`, `bg_card_definitions.json`, `train.py`, `env/game_loop.py`, `env/player_state.py`, `env/tavern_pool.py`, `env/matchmaker.py`, `symbolic/board_computer.py`, `symbolic/shop_analyzer.py`, `symbolic/firestone_client.py`, `agent/policy.py`, `agent/card_encoder.py`, `agent/ppo.py`
