@@ -1,6 +1,18 @@
 # bg_agent — Development Context Log
 
 ---
+### 2026-03-23 — Fix stale BC cell comments and hero_power in confusion matrix
+
+**Files changed:** `explore.ipynb`
+
+**What was done:** Updated two BC cells that were out of date after the 2026-03-20 hero_power action space expansion. Cell 29 (BGPolicy docstring) had stale dimensions (`STATE_DIM = 181`, `N_ACTIONS = 19`); corrected to 183/20. Cell 33 (confusion matrix) was missing `hero_power` in both `action_type()` (so index 18 fell through to `"end_turn"`) and `type_labels`; both fixed.
+
+**Current state:** All BC cells are consistent with the 20-class action space and 183-dim state vector.
+
+**Open questions / next steps:**
+- Re-run notebook end-to-end to refresh outputs after the MIN_ROUNDS filter and BC fixes.
+
+---
 ### 2026-03-23 — Filter incomplete games from explore.ipynb
 
 **Files changed:** `explore.ipynb`
