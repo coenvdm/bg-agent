@@ -1,6 +1,19 @@
 # bg_agent — Development Context Log
 
 ---
+### 2026-03-23 — Expand hand to 10 slots; rename MINION_FEATS/encode_minion to card-agnostic names
+
+**Files changed:** `explore.ipynb`
+
+**What was done:** `MAX_HAND` was 2, which is wrong — the BG hand holds up to 10 cards (minions and spells). Expanded to 10. Renamed `MINION_FEATS` → `CARD_FEATS`, `encode_minion` → `encode_card`, `_EMPTY_MINION` → `_EMPTY_CARD` to reflect that the encoding handles spells too (they simply encode as 0 for combat stats). Updated `STATE_DIM` inline comment (183 → 271) and `BGPolicy` docstring accordingly.
+
+**Current state:** State vector is now 271-dim (`7 + (7+7+10)*11`). Any previously saved `bg_policy.pt` is stale and must be retrained.
+
+**Open questions / next steps:**
+- Retrain the BC model — the saved checkpoint is now dimension-incompatible.
+- Consider adding an `is_spell` flag to the card encoding so the model can distinguish spells from minions.
+
+---
 ### 2026-03-23 — Fix stale BC cell comments and hero_power in confusion matrix
 
 **Files changed:** `explore.ipynb`
