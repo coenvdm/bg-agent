@@ -371,3 +371,13 @@
 - Confirm no legitimate board ever has fewer than expected minions after the cap (i.e., no false truncation).
 - Consider deleting/excluding stale JSON files (`03_06`, `03_08`, `03_12`, `03_13`) from training.
 ---
+
+---
+### 2026-03-25 — Fix parse_bg.py dropping games after first parse error
+**Files changed:** `parse_bg.py`
+**What was done:** Fixed a bug where `parse_power_log` silently dropped all games after the first `InconsistentPlayerIdError` or `CorruptLogError`. The single `try/except` caught the error and exited, leaving the rest of the log file unread. Changed to a `while True` loop that re-calls `parser.read(fh)` after each error, resuming from the current file cursor position until the entire file is consumed.
+**Current state:** Parser now processes all games in a multi-game log file even when player-ID reassignment errors occur mid-session.
+**Open questions / next steps:**
+- Verify fix with a real multi-game log that triggers `InconsistentPlayerIdError`
+- Check whether `CorruptLogError` also advances the file cursor (same assumption as `InconsistentPlayerIdError`)
+---

@@ -1085,12 +1085,14 @@ def parse_power_log(log_path, session_name: str = "") -> List[dict]:
 
     parser = LogParser()
     with log_path.open("r", encoding="utf-8", errors="replace") as fh:
-        try:
-            parser.read(fh)
-        except (InconsistentPlayerIdError, CorruptLogError):
-            # BG logs sometimes re-assign player IDs mid-session; flush
-            # whatever was parsed before the bad line and continue.
-            pass
+        while True:
+            try:
+                parser.read(fh)
+                break
+            except (InconsistentPlayerIdError, CorruptLogError):
+                # BG logs sometimes re-assign player IDs mid-session; skip
+                # the bad line and continue reading the rest of the file.
+                pass
     parser.flush()
 
     records: List[dict] = []
