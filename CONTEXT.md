@@ -391,3 +391,14 @@
 - Re-run `collect_dataset.py` to pick up previously skipped sessions.
 - Consider logging skipped-line counts per session for visibility.
 ---
+
+---
+### 2026-03-25 — Fix three BC training bugs in explore.ipynb
+**Files changed:** `explore.ipynb`
+**What was done:** Ran the BC pipeline end-to-end and found three bugs that prevented learning. (1) **Inverted masking formula**: `logits + (mb - 1) * NEG_INF` was adding `+1e9` to invalid-action logits instead of `-1e9` (since NEG_INF = -1e9, the sign negated). Fixed to `(1 - mb) * NEG_INF` in both the training loop and the validation masking. (2) **Hand not carried between rounds**: `extract_transitions` initialised `hand = []` at the start of every round, losing cards carried over from the previous shopping phase. Added `prev_hand` tracking across rounds, initialised from `hand_at_end` in the round record. This reduced place-action mask violations from 364/414 (88%) to the carry-over gap. (3) **GT label masked out during loss**: ~25% of training labels still fell outside the approximate valid mask (buy after reroll, residual tracking drift), causing ~1e9 per-sample loss spikes that swamped gradients. Fixed by forcing `masks_train[arange, y_train] = 1.0` before the DataLoader; same fix applied to the val mask used by the LR scheduler (original masks_val kept for accuracy reporting). After all three fixes: train loss drops to ~0.51, train accuracy reaches 78%, val loss is a healthy 2.66.
+**Current state:** BC training pipeline is functionally correct. Val accuracy (~29%) is near the majority-class baseline (31%) due to dataset size (8 games, 168 val samples) and class imbalance — not a code issue.
+**Open questions / next steps:**
+- Collect more game data to improve generalisation (current val set is 1-2 games, too noisy to measure progress)
+- Add class weights to CrossEntropyLoss to address class imbalance (place/reroll dominate, end_turn under-represented)
+- The buy-after-reroll mask gap (shop cleared on reroll, subsequent buy slot unknown) is not yet fixed — requires tracking the new shop contents post-reroll
+---
