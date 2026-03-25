@@ -333,7 +333,10 @@ class BGGameTracker:
             and self._zone(e) == Zone.PLAY
         ]
         result.sort(key=lambda x: x["zone_pos"])
-        return result
+        # BG boards are capped at 7. Zone-change TagChanges that arrive after
+        # MAIN_END can temporarily set extra entities to Zone.PLAY; truncate to
+        # prevent inflated boards from propagating into training data.
+        return result[:7]
 
     def shop_at_turn(self, turn: int) -> List[dict]:
         """

@@ -360,3 +360,14 @@
 - Board > 7 edge case (2/77 rounds) still unresolved
 - Consider deleting/excluding stale JSON files (`03_06`, `03_08`, `03_12`, `03_13`) from training
 ---
+
+---
+### 2026-03-25 — Fix board > 7 inflation from late Zone-change TagChanges
+**Files changed:** `parse_bg.py`
+**What was done:** Added a hard `[:7]` cap to `player_board()` after sorting by `zone_pos`. Zone-change TagChanges that arrive after `MAIN_END` can spuriously set extra entities to `Zone.PLAY`, inflating the board count beyond the legal maximum of 7. The truncation is safe because legitimate minions have lower `zone_pos` values and sort before any late-arriving interlopers. The existing `_sold_eids` exclusion in `_flush_shopping` already handles the opposite direction (sold minions whose zone-leave tag is delayed); this cap handles the zone-enter direction.
+**Current state:** Both directions of post-MAIN_END zone lag are now guarded: late zone-leave via `_sold_eids`, late zone-enter via the `[:7]` cap in `player_board()`.
+**Open questions / next steps:**
+- Re-parse full dataset and verify the 2/77 board-inflation rounds are resolved.
+- Confirm no legitimate board ever has fewer than expected minions after the cap (i.e., no false truncation).
+- Consider deleting/excluding stale JSON files (`03_06`, `03_08`, `03_12`, `03_13`) from training.
+---
