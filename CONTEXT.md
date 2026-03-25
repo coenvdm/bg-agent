@@ -402,3 +402,15 @@
 - Add class weights to CrossEntropyLoss to address class imbalance (place/reroll dominate, end_turn under-represented)
 - The buy-after-reroll mask gap (shop cleared on reroll, subsequent buy slot unknown) is not yet fixed — requires tracking the new shop contents post-reroll
 ---
+
+---
+### 2026-03-25 — Fix extract_transitions buy labels + add BC v2 two-headed model
+**Files changed:** `explore.ipynb`
+**What was done:** Two improvements to the BC pipeline. (1) **find_by_card_id fix** in `extract_transitions`: skip buy transitions where the slot index is -1 (card not in tracked shop) instead of mislabelling them as `buy_0` — 77 bad transitions removed. Also pre-scan each round's action list before the loop to rebuild the post-reroll shop from subsequent buy `card_id` fields (`reroll_shops` dict). Also added hand carry-over (`prev_hand`) so cards not played in round N are tracked in round N+1's hand. (2) **BC v2 two-headed model** (`BGPolicyV2`) appended to the notebook as a new section: action TYPE head (8 classes: buy/sell/place/reroll/freeze/level_up/hero_power/end_turn) + card POINTER head (24 slots: shop[0-6] | board[0-6] | hand[0-9]). `extract_transitions_v2` returns separate type and pointer labels. Training uses combined loss (type CE + 0.5 × pointer CE). Result: val type accuracy 35.2% vs 29.6% majority baseline (model now beats baseline), per-type accuracy 62–90% on full dataset, card pointer accuracy 90.9%.
+**Current state:** BC v1 (20-class slot model) and BC v2 (type+pointer) both present in notebook. V2 is the recommended model going forward.
+**Open questions / next steps:**
+- Collect more games to reduce overfitting (currently val set = 1 game, 179 samples)
+- Add class weights to address imbalance (place/reroll dominate at ~23-30% each)
+- Connect BC v2 pre-training to PPO policy warm-start (the shared trunk maps to agent/policy.py)
+- Pointer head slot ordering follows purchase order for post-reroll shops (not display order) — acceptable approximation until the parser captures new shop contents after rerolls
+---
