@@ -381,3 +381,13 @@
 - Verify fix with a real multi-game log that triggers `InconsistentPlayerIdError`
 - Check whether `CorruptLogError` also advances the file cursor (same assumption as `InconsistentPlayerIdError`)
 ---
+
+---
+### 2026-03-25 — Fix AssertionError from hslog player manager crashing parse
+**Files changed:** `parse_bg.py`
+**What was done:** The parse loop only caught `InconsistentPlayerIdError` and `CorruptLogError`, but `hslog/player.py` also raises a bare `AssertionError` from `create_or_update_player` on inconsistent player state. This caused `parse_power_log` to propagate the exception and `collect_dataset.py` to print `ERROR: ` (empty message) and skip the session entirely. Added `AssertionError` to the caught exception tuple so the loop skips the bad line and continues.
+**Current state:** Session `Hearthstone_2026_03_25_20_05_56` now parses successfully (2 games recovered).
+**Open questions / next steps:**
+- Re-run `collect_dataset.py` to pick up previously skipped sessions.
+- Consider logging skipped-line counts per session for visibility.
+---

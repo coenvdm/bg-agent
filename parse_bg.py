@@ -1089,9 +1089,11 @@ def parse_power_log(log_path, session_name: str = "") -> List[dict]:
             try:
                 parser.read(fh)
                 break
-            except (InconsistentPlayerIdError, CorruptLogError):
+            except (InconsistentPlayerIdError, CorruptLogError, AssertionError):
                 # BG logs sometimes re-assign player IDs mid-session; skip
                 # the bad line and continue reading the rest of the file.
+                # AssertionError is raised by hslog's player manager when it
+                # encounters an inconsistent player state (same root cause).
                 pass
     parser.flush()
 
