@@ -300,6 +300,68 @@ class BGPolicyNetwork(nn.Module):
     # Warm-start from BC checkpoint
     # ------------------------------------------------------------------
 
+    def load_bc_v2_weights(self, bc_path: str) -> None:
+        """Warm-start from a BC v2 two-headed checkpoint (bc_v2.pt).
+
+        Two things are transferred:
+
+        1. **Type-head → policy_head final layer**
+           The BC type_head (Linear 128→8) learned a weight vector per action
+           type (buy/sell/place/…).  Each row is copied to the corresponding
+           group of PPO output actions so the policy starts with a calibrated
+           prior over action types rather than random noise.
+
+        2. **BC shared[4] → policy_head[0] scalar half**
+           policy_head[0] is Linear(256→128); its input is [CLS ‖ scalar_emb].
+           The BC second trunk layer (Linear 128→128) learned to compress a
+           128-dim game representation into policy-relevant features.  We copy
+           its weights into columns 128:256 of policy_head[0].weight — the half
+           that processes the scalar embedding — leaving the CLS half at its
+           Xavier-initialised values.
+        """
+        try:
+            ckpt = torch.load(bc_path, map_location="cpu")
+            sd   = ckpt["state_dict"]
+            groups: dict = ckpt.get("ppo_action_groups", {})
+
+            # ── 1. type_head weights/bias → policy_head[-1] ──────────────────
+            ph_w = self.policy_head[-1].weight.data.clone()   # [95, 128]
+            ph_b = self.policy_head[-1].bias.data.clone()     # [95]
+            th_w = sd["type_head.weight"]                     # [8, 128]
+            th_b = sd["type_head.bias"]                       # [8]
+
+            n_mapped = 0
+            for bc_type_idx, ppo_indices in groups.items():
+                bc_type_idx = int(bc_type_idx)
+                for ppo_idx in ppo_indices:
+                    if ppo_idx < ph_w.shape[0]:
+                        ph_w[ppo_idx] = th_w[bc_type_idx]
+                        ph_b[ppo_idx] = th_b[bc_type_idx]
+                        n_mapped += 1
+
+            self.policy_head[-1].weight.data.copy_(ph_w)
+            self.policy_head[-1].bias.data.copy_(ph_b)
+            logger.info("load_bc_v2_weights: mapped %d PPO action rows from BC type_head", n_mapped)
+
+            # ── 2. shared[4] (Linear 128→128) → policy_head[0] scalar half ──
+            # shared Sequential indices: 0=Linear(271→128), 1=LN, 2=ReLU, 3=Drop,
+            #                            4=Linear(128→128), 5=LN, 6=ReLU, 7=Drop
+            trunk_w = sd["shared.4.weight"]   # [128, 128]
+            trunk_b = sd["shared.4.bias"]     # [128]
+            ph0_w   = self.policy_head[0].weight.data.clone()   # [128, 256]
+            ph0_b   = self.policy_head[0].bias.data.clone()     # [128]
+            ph0_w[:, self.d_model:] = trunk_w   # scalar half = cols 128:256
+            ph0_b.copy_(trunk_b)
+            self.policy_head[0].weight.data.copy_(ph0_w)
+            self.policy_head[0].bias.data.copy_(ph0_b)
+            logger.info(
+                "load_bc_v2_weights: initialised policy_head[0] scalar half "
+                "from BC shared trunk layer 4"
+            )
+
+        except Exception as exc:
+            logger.warning("load_bc_v2_weights: failed to load '%s': %s", bc_path, exc)
+
     def load_bc_weights(self, bc_model_path: str) -> None:
         """Try to warm-start from a behavioural-cloning checkpoint.
 

@@ -283,8 +283,15 @@ def train(args: argparse.Namespace) -> None:
     policy      = components["policy"]
     ppo_trainer = components["ppo_trainer"]
 
-    # Optional BC warm-start
-    if args.load_bc:
+    # Optional BC warm-start (v2 takes priority over legacy v1)
+    if args.load_bc_v2:
+        bc_path = Path(args.load_bc_v2)
+        if bc_path.exists():
+            logger.info("Warm-starting from BC v2 checkpoint: %s", bc_path)
+            policy.load_bc_v2_weights(str(bc_path))
+        else:
+            logger.warning("BC v2 checkpoint not found: %s — skipping warm-start", bc_path)
+    elif args.load_bc:
         bc_path = Path(args.load_bc)
         if bc_path.exists():
             logger.info("Warm-starting from BC checkpoint: %s", bc_path)
@@ -372,7 +379,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--load-bc", type=str, default=None,
         dest="load_bc",
-        help="Path to behavioural-cloning checkpoint for warm-start.",
+        help="Path to BC v1 checkpoint for warm-start (legacy).",
+    )
+    p.add_argument(
+        "--load-bc-v2", type=str, default=None,
+        dest="load_bc_v2",
+        help="Path to BC v2 checkpoint (bc_v2.pt) for structured warm-start.",
     )
     p.add_argument(
         "--device", type=str, default="cpu",
