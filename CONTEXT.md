@@ -478,3 +478,12 @@
 **Open questions / next steps:**
 - Same padding pattern should be applied in `game_loop.py` wherever hand tokens are assembled for the policy — verify `env/game_loop.py` pads hand to 10 correctly
 ---
+
+---
+### 2026-03-27 — Restore state encoding helpers deleted with BC v1
+**Files changed:** `explore.ipynb`
+**What was done:** Added a new cell after `bc-v2-constants` that restores the state-encoding infrastructure that was removed with BC v1: `CARD_FEATS`, `MAX_SHOP/BOARD/HAND`, `CONTEXT_FEATS`, `STATE_DIM`, zone offsets (`_SHOP_OFF`, `_BOARD_OFF`, `_HAND_OFF`, `_IS_PRES`), `encode_card`, `encode_slot_list`, `encode_state`, and `find_by_card_id`. These are depended on by `extract_transitions_v2`, `valid_action_type_mask`, and `BGPolicyV2`.
+**Current state:** BC v2 section is self-contained and runnable from top to bottom.
+**Open questions / next steps:**
+- Run BC v2 cells end-to-end to confirm no further missing dependencies
+---
