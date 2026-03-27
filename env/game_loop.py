@@ -247,7 +247,7 @@ class BattlegroundsGame:
         self.tavern_pool.reset()
         self.matchmaker.history.clear()
         self.round_num = 1
-        self._placement_counter = self.n_players + 1  # placements count down
+        self._placement_counter = self.n_players  # placements count down from n_players (last place)
         self._accumulated_rewards = {i: 0.0 for i in range(self.n_players)}
 
         self.players = []
@@ -684,19 +684,19 @@ class BattlegroundsGame:
         ps: PlayerState,
     ) -> int:
         """Get an action from the agent or fall back to a simple random policy."""
-        from agent.policy import build_action_mask
+        from agent.policy import build_action_mask, END_TURN_IDX
 
         mask = build_action_mask(ps)
         valid = mask.nonzero(as_tuple=True)[0].tolist()
         if not valid:
-            return 19  # end_turn as last resort
+            return END_TURN_IDX  # end_turn as last resort
 
         if agent is None:
             # Random agent: uniform over valid actions, with END_TURN bias
             # to avoid infinite loops
             weights = []
             for v in valid:
-                weights.append(3.0 if v == 19 else 1.0)
+                weights.append(3.0 if v == END_TURN_IDX else 1.0)
             total_w = sum(weights)
             r = self._rng.random() * total_w
             cumulative = 0.0
@@ -828,7 +828,7 @@ class BattlegroundsGame:
         return {
             "board_tokens":   board_tokens,   # [7, 44]
             "shop_tokens":    shop_tokens,    # [7, 44]
-            "hand_tokens":    hand_tokens,    # [2, 44]
+            "hand_tokens":    hand_tokens,    # [10, 44]
             "opp_tokens":     opp_tokens,     # [7, 44]  next opponent's last board
             "scalar_context": scalar_ctx,     # [38]
             "player_id":      player_id,

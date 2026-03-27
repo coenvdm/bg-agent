@@ -425,3 +425,16 @@
 - Collect more games (current val set is 1 game; need ~20+ for reliable accuracy measurement)
 - `bc_v2.pt` is not yet generated — requires running the notebook BC v2 training cells to convergence first
 ---
+
+---
+### 2026-03-27 — Run game loop end-to-end; fix 4 bugs
+**Files changed:** `env/game_loop.py`
+**What was done:** Ran the game loop end-to-end for the first time with random agents across 3 seeds — all completed without errors. Found and fixed 4 bugs: (1) `_placement_counter` initialised to `n_players + 1 = 9` instead of `n_players = 8`, causing the first eliminated player to receive placement 9 in an 8-player game (out of range, also breaks `FINAL_PLACEMENT_REWARD` lookup); (2) random agent end_turn bias used hardcoded index `19` (which is `play_h0_p5` in the 95-action space) instead of `END_TURN_IDX = 88`; (3) same wrong index `19` used as the `if not valid` last-resort fallback; (4) observation docstring comment on `hand_tokens` said `[2, 44]` instead of `[10, 44]`.
+**Current state:** Game loop runs cleanly end-to-end. Placements are always in range 1–8 (asserted across 3 seeds). The pure-Python BGCombatSim is used as default backend (mock_mode=False).
+**Open questions / next steps:**
+- Tie probability is approximated as `(1 - win_prob) / 2`; BGCombatSim does not expose `tie_prob` separately — worth adding to `SimResult`
+- Hero power action (index 87) is a no-op placeholder; needs per-hero dispatch
+- Golden triple merging is not implemented
+- Run `python train.py --load-bc-v2 bc_v2.pt --no-firestone --dry-run` to confirm full training pipeline works end-to-end (requires bc_v2.pt from notebook)
+- Collect more games to expand dataset
+---
