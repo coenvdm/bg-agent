@@ -447,11 +447,11 @@ class BattlegroundsGame:
             opp_tier=opp.tavern_tier,
         )
 
-        # Determine concrete outcome by sampling from win probability
+        # Determine concrete outcome by sampling from the full probability distribution
         roll = self._rng.random()
         if roll < sim.win_prob:
             outcome = "win"
-        elif roll < sim.win_prob + (1.0 - sim.win_prob) / 2.0:
+        elif roll < sim.win_prob + sim.tie_prob:
             outcome = "tie"
         else:
             outcome = "loss"

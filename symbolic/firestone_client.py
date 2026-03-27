@@ -131,10 +131,15 @@ class FirestoneClient:
         op = _power(opponent_board)
         win_prob = max(0.05, min(0.95, pp / (pp + op + 1e-9)))
 
+        # Heuristic has no tie signal — assume ties are rare (5%)
+        tie_prob  = 0.05 * (1.0 - abs(win_prob - 0.5) * 2)  # peaks at 0.05 when evenly matched
+        loss_prob = max(0.0, 1.0 - win_prob - tie_prob)
         return SimResult(
             win_prob=win_prob,
+            tie_prob=tie_prob,
+            loss_prob=loss_prob,
             expected_damage_dealt=win_prob * 5.0,
-            expected_damage_taken=(1.0 - win_prob) * 5.0,
+            expected_damage_taken=loss_prob * 5.0,
             trials=0,
         )
 
@@ -182,8 +187,13 @@ class FirestoneClient:
         finally:
             Path(tmp_path).unlink(missing_ok=True)
 
+        win_prob  = float(data["win_prob"])
+        tie_prob  = float(data.get("tie_prob",  0.0))
+        loss_prob = float(data.get("loss_prob", max(0.0, 1.0 - win_prob - tie_prob)))
         return SimResult(
-            win_prob=float(data["win_prob"]),
+            win_prob=win_prob,
+            tie_prob=tie_prob,
+            loss_prob=loss_prob,
             expected_damage_dealt=float(data.get("expected_damage_dealt", 0.0)),
             expected_damage_taken=float(data.get("expected_damage_taken", 0.0)),
             trials=int(data.get("trials", self.n_trials)),

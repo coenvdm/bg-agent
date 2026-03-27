@@ -438,3 +438,13 @@
 - Run `python train.py --load-bc-v2 bc_v2.pt --no-firestone --dry-run` to confirm full training pipeline works end-to-end (requires bc_v2.pt from notebook)
 - Collect more games to expand dataset
 ---
+
+---
+### 2026-03-27 — Implement tie_prob in combat simulator
+**Files changed:** `symbolic/combat_sim.py`, `symbolic/firestone_client.py`, `env/game_loop.py`
+**What was done:** Added `tie_prob` and `loss_prob` fields to `SimResult` (with defaults of 0.0 for backward compatibility). `BGCombatSim.simulate()` already tracked `ties` and `losses` per trial but discarded them — now included in the returned `SimResult`. Updated `FirestoneClient._heuristic_estimate()` to estimate tie probability (peaks at 5% on evenly-matched boards, tapers toward 0 on lopsided ones). Updated `FirestoneClient._run_firestone()` to parse `tie_prob`/`loss_prob` from subprocess JSON output with fallback. Updated `game_loop.step_combat()` to sample outcomes using `sim.tie_prob` directly instead of the incorrect `(1-win_prob)/2` approximation. Verified probabilities sum to 1.0 across all board configurations.
+**Current state:** Tie probability is now accurately tracked through the full pipeline. Empty vs empty boards correctly report tie_prob=1.0. The game loop runs cleanly; note that random agents with empty boards produce all-tie combats and hit the 40-round cap, which is expected.
+**Open questions / next steps:**
+- Random agents rarely play cards so boards are empty and all combats tie — meaningful testing requires trained or scripted agents that actually populate boards
+- Hero power (action 87) is still a no-op placeholder
+- Golden triple merging is not implemented

@@ -36,6 +36,8 @@ class SimResult:
     expected_damage_dealt: float
     expected_damage_taken: float
     trials:                int
+    tie_prob:              float = 0.0
+    loss_prob:             float = 0.0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -924,7 +926,9 @@ class BGCombatSim:
 
         n = self.n_trials
         return SimResult(
-            win_prob=wins / n,
+            win_prob=wins   / n,
+            tie_prob=ties   / n,
+            loss_prob=losses / n,
             # Expected damage conditional on winning/losing
             expected_damage_dealt=total_dealt / max(wins,   1),
             expected_damage_taken=total_taken / max(losses, 1),
