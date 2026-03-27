@@ -458,3 +458,14 @@
 - Run BC v2 training cells end-to-end to confirm no remaining imports depend on removed BC v1 helpers
 - Wire `bc_v2.pt` checkpoint into `train.py --load-bc-v2` warm-start
 ---
+
+---
+### 2026-03-27 — Update PPO cells to match current architecture; move after BC v2
+**Files changed:** `explore.ipynb`
+**What was done:** Updated the 6 PPO notebook cells to reflect the current `BGPolicyNetwork` architecture: 32 tokens (CLS + 7b + 7s + 10h + 7opp), 38-dim scalar context (own-board 24 + opponent 8 + lobby 6), and 95-action output. Fixed `hand_t` from `[:2]` to `[:10]`, updated the architecture diagram to show Opp Tokens and correct counts, expanded `SCALAR_LABELS` from 24 to 38 entries with boundary dividers. Added note about BC v2 warm-start via `load_bc_v2_weights`. Moved all 6 PPO cells to after the BC v2 section to reflect the pretraining flow.
+**Current state:** Notebook flows Dataset → Neurosymbolic → BC v2 (BGPolicyV2) → PPO (BGPolicyNetwork). PPO cells are consistent with `agent/policy.py`.
+**Open questions / next steps:**
+- Run notebook end-to-end to verify no broken imports after the reorder
+- Wire `policy.load_bc_v2_weights("bc_v2.pt")` once a bc_v2.pt checkpoint is saved
+- `ppo_action_groups` mapping in the checkpoint needed for `load_bc_v2_weights` — confirm it is saved by the BC v2 training cell
+---
