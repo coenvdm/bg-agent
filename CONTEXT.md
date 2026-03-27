@@ -448,3 +448,13 @@
 - Random agents rarely play cards so boards are empty and all combats tie — meaningful testing requires trained or scripted agents that actually populate boards
 - Hero power (action 87) is still a no-op placeholder
 - Golden triple merging is not implemented
+
+---
+### 2026-03-27 — Remove BC v1 (BGPolicy) from notebook; keep only BGPolicyV2
+**Files changed:** `explore.ipynb`
+**What was done:** Deleted the 20-cell BC v1 section from the notebook (cells 18–37), which included the single-headed `BGPolicy` model, its `encode_card`/`extract_transitions` helpers, the 300-epoch training loop, confusion matrix evaluation, step-by-step prediction demo, and the save/load checkpoint cell. `BGPolicyV2` (two-headed: action-type + card-pointer) is now the sole training model in the notebook.
+**Current state:** Notebook has 46 cells. All BC training infrastructure references `BGPolicyV2` only. The BC v1 model and pipeline are gone from the notebook but the checkpoint `bg_policy.pt` (if it exists on disk) is unaffected.
+**Open questions / next steps:**
+- Run BC v2 training cells end-to-end to confirm no remaining imports depend on removed BC v1 helpers
+- Wire `bc_v2.pt` checkpoint into `train.py --load-bc-v2` warm-start
+---
