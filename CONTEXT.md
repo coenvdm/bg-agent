@@ -469,3 +469,12 @@
 - Wire `policy.load_bc_v2_weights("bc_v2.pt")` once a bc_v2.pt checkpoint is saved
 - `ppo_action_groups` mapping in the checkpoint needed for `load_bc_v2_weights` — confirm it is saved by the BC v2 training cell
 ---
+
+---
+### 2026-03-27 — Fix hand tensor shape in PPO forward demo cell
+**Files changed:** `explore.ipynb`
+**What was done:** Fixed a `RuntimeError` in the PPO forward pass demo cell. `card_encoder.encode_board` always returns `[7, 44]` regardless of input size, so `hand_enc4[:10]` was still 7 rows, producing 28 tokens instead of the expected 31 (7b+7s+10h+7o). Fixed by allocating a `np.zeros((10, 44))` buffer and copying `hand_enc4` into it, ensuring `hand_t` is always `[1, 10, 44]`.
+**Current state:** PPO forward pass demo runs without shape errors.
+**Open questions / next steps:**
+- Same padding pattern should be applied in `game_loop.py` wherever hand tokens are assembled for the policy — verify `env/game_loop.py` pads hand to 10 correctly
+---
