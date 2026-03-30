@@ -541,6 +541,18 @@
 ---
 
 ---
+### 2026-03-30 — Fix load_checkpoint to tolerate stale architecture checkpoints
+
+**Files changed:** `agent/ppo.py`
+**What was done:** Wrapped `policy.load_state_dict(...)` in a `try/except RuntimeError` block. When a checkpoint saved with the old flat `policy_head` architecture is loaded against the new `type_head`+`pointer_head` architecture, the call now logs a warning and returns early rather than crashing the training run.
+**Current state:** Dry-run (`python train.py --dry-run --no-firestone --seed 42`) completes successfully: 2 games, ~1185 transitions collected, checkpoint saved.
+**Open questions / next steps:**
+- Delete stale `bg_agent_ppo.pt` before production training run to start from a clean slate
+- BC warm-start (`--load-bc-v2 bc_v2.pt`) should be tested before full training
+
+---
+
+---
 ### 2026-03-30 — Add terminal transition for final placement reward
 **Files changed:** `env/game_loop.py`
 **What was done:** After placements are assigned, each player's agent receives a terminal transition via `record_transition(last_obs, end_turn, -1, reward=final_r, done=True)`. This delivers the +4/-4 placement reward as a `done=True` step so GAE bootstraps to 0 at game end rather than ignoring the signal entirely.

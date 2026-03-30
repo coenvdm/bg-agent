@@ -416,9 +416,21 @@ class PPOTrainer:
         logger.info("Checkpoint saved to %s (steps=%d)", path, self.total_steps)
 
     def load_checkpoint(self, path: str) -> None:
-        """Load policy weights and optimizer state from a checkpoint file."""
+        """Load policy weights and optimizer state from a checkpoint file.
+
+        If the checkpoint was saved with an incompatible architecture (e.g. an
+        older policy_head layout), logs a warning and skips loading rather than
+        crashing — training will start from scratch / BC init instead.
+        """
         checkpoint = torch.load(path, map_location=self.config.device)
-        self.policy.load_state_dict(checkpoint["model_state_dict"])
+        try:
+            self.policy.load_state_dict(checkpoint["model_state_dict"])
+        except RuntimeError as exc:
+            logger.warning(
+                "Checkpoint at '%s' is incompatible with the current architecture "
+                "and will be ignored: %s", path, exc
+            )
+            return
         if "optimizer_state_dict" in checkpoint:
             self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         self.total_steps  = checkpoint.get("total_steps", 0)
