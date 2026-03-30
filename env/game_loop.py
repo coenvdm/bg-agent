@@ -311,7 +311,8 @@ class BattlegroundsGame:
     def step_shopping(
         self,
         player_id: int,
-        action: int,
+        type_action: int,
+        ptr_action: int,
     ) -> Tuple[dict, float, bool]:
         """Execute one buy-phase action for a player.
 
@@ -319,44 +320,60 @@ class BattlegroundsGame:
         ----------
         player_id:
             Index into self.players.
-        action:
-            Integer action index (see ACTION_NAMES in policy.py).
+        type_action:
+            Action type index (0-7), matching ACTION_TYPE_NAMES in policy.py:
+            0=buy, 1=sell, 2=place, 3=reroll, 4=freeze, 5=level_up,
+            6=hero_power, 7=end_turn.
+        ptr_action:
+            Card pointer index (0-23) for buy/sell/place; -1 otherwise.
+            Layout: shop[0-6] | board[7-13] | hand[14-23].
 
         Returns
         -------
         (next_obs, reward, done_with_shopping)
         """
+        from agent.policy import PTR_SHOP_OFF, PTR_BOARD_OFF, PTR_HAND_OFF
+
         ps = self.players[player_id]
         reward = 0.0
         done = False
 
-        if action <= 6:
-            # buy_i: buy shop slot i
-            i = action
-            if i < len(ps.shop) and ps.shop[i] is not None and ps.gold >= 3:
+        if type_action == 0:
+            # buy: ptr_action is shop slot index (ptr 0-6 → slot 0-6)
+            i = ptr_action - PTR_SHOP_OFF
+            if 0 <= i < len(ps.shop) and ps.shop[i] is not None and ps.gold >= 3:
                 minion = ps.shop.pop(i)
                 ps.hand.append(minion)
                 ps.gold = max(0, ps.gold - 3)
 
-        elif action <= 13:
-            # sell_i: sell board slot i
-            i = action - 7
-            if i < len(ps.board) and ps.board[i] is not None:
+        elif type_action == 1:
+            # sell: ptr_action is board slot index (ptr 7-13 → slot 0-6)
+            i = ptr_action - PTR_BOARD_OFF
+            if 0 <= i < len(ps.board) and ps.board[i] is not None:
                 ps.board.pop(i)
                 ps.gold = min(ps.max_gold, ps.gold + 1)
 
-        elif 14 <= action <= 83:
-            # play_h{h}_p{p}: play hand[h], insert at board position p
-            offset = action - 14
-            h = offset // 7
-            p = offset % 7
-            if (h < len(ps.hand) and ps.hand[h] is not None
-                    and len(ps.board) < 7 and p <= len(ps.board)):
+        elif type_action == 2:
+            # place: ptr_action is hand slot index (ptr 14-23 → slot 0-9)
+            # Board position is always append (two-step model doesn't predict position)
+            h = ptr_action - PTR_HAND_OFF
+            if 0 <= h < len(ps.hand) and ps.hand[h] is not None and len(ps.board) < 7:
                 minion = ps.hand.pop(h)
-                ps.board.insert(p, minion)
+                ps.board.append(minion)
                 self._update_multiplier_flags(ps)
 
-        elif action == 84:
+        elif type_action == 3:
+            # reroll
+            if ps.gold >= 1:
+                ps.gold -= 1
+                ps.frozen = False
+                ps.shop = self._draw_shop(ps)
+
+        elif type_action == 4:
+            # freeze
+            ps.frozen = True
+
+        elif type_action == 5:
             # level_up
             if ps.tavern_tier < 6 and ps.gold >= ps.level_cost:
                 ps.gold = max(0, ps.gold - ps.level_cost)
@@ -365,34 +382,16 @@ class BattlegroundsGame:
                 ps.frozen = False
                 ps.shop = self._draw_shop(ps)
 
-        elif action == 85:
-            # freeze
-            ps.frozen = True
-
-        elif action == 86:
-            # refresh
-            if ps.gold >= 1:
-                ps.gold -= 1
-                ps.frozen = False
-                ps.shop = self._draw_shop(ps)
-
-        elif action == 87:
+        elif type_action == 6:
             # hero_power: no-op placeholder
             pass
 
-        elif action == 88:
+        elif type_action == 7:
             # end_turn — penalize unspent gold (gold efficiency signal).
-            # Scale by round: full penalty early (gold efficiency critical),
-            # fades to 20% by round 16+ (full board / maxed tier = hard to spend).
+            # Scale by round: full penalty early, fades to 20% by round 16+.
             gold_scale = max(0.2, 1.0 - (ps.round_num - 1) / 15.0)
             reward -= 0.05 * ps.gold * gold_scale
             done = True
-
-        elif 89 <= action <= 94:
-            # swap_ij: swap adjacent board positions i ↔ i+1
-            i = action - 89
-            if i + 1 < len(ps.board) and ps.board[i] is not None and ps.board[i + 1] is not None:
-                ps.board[i], ps.board[i + 1] = ps.board[i + 1], ps.board[i]
 
         return self._get_observation(player_id), reward, done
 
@@ -544,7 +543,7 @@ class BattlegroundsGame:
         agents:
             Override the agents list for this game.  None to use
             self.agents.  Each agent should implement ``get_action(obs)``
-            returning an integer action index.
+            returning a ``(type_idx, ptr_idx)`` tuple.
 
         Returns
         -------
@@ -588,8 +587,10 @@ class BattlegroundsGame:
                 # Shopping action loop
                 max_actions = 30  # safety cap to prevent infinite loops
                 for _ in range(max_actions):
-                    action = self._get_agent_action(agent, obs, ps)
-                    obs, step_reward, done = self.step_shopping(ps.player_id, action)
+                    type_action, ptr_action = self._get_agent_action(agent, obs, ps)
+                    obs, step_reward, done = self.step_shopping(
+                        ps.player_id, type_action, ptr_action
+                    )
                     cumulative_rewards[ps.player_id] += step_reward
                     if done:
                         break
@@ -682,42 +683,53 @@ class BattlegroundsGame:
         agent: Any,
         obs: dict,
         ps: PlayerState,
-    ) -> int:
-        """Get an action from the agent or fall back to a simple random policy."""
-        from agent.policy import build_action_mask, END_TURN_IDX
+    ) -> Tuple[int, int]:
+        """Get a (type_action, ptr_action) from the agent or fall back to random.
 
-        mask = build_action_mask(ps)
-        valid = mask.nonzero(as_tuple=True)[0].tolist()
-        if not valid:
-            return END_TURN_IDX  # end_turn as last resort
+        Returns
+        -------
+        (type_idx, ptr_idx) where ptr_idx is -1 for non-pointer types.
+        """
+        from agent.policy import build_type_mask, build_pointer_mask, TYPES_WITH_POINTER
 
-        if agent is None:
-            # Random agent: uniform over valid actions, with END_TURN bias
-            # to avoid infinite loops
-            weights = []
-            for v in valid:
-                weights.append(3.0 if v == END_TURN_IDX else 1.0)
+        type_mask = build_type_mask(ps)
+        valid_types = type_mask.nonzero(as_tuple=True)[0].tolist()
+        if not valid_types:
+            return 7, -1  # end_turn as last resort
+
+        def _random_action() -> Tuple[int, int]:
+            # Weighted random: bias towards end_turn to prevent infinite loops
+            weights = [3.0 if t == 7 else 1.0 for t in valid_types]
             total_w = sum(weights)
             r = self._rng.random() * total_w
             cumulative = 0.0
-            for v, w in zip(valid, weights):
+            chosen_type = valid_types[-1]
+            for t, w in zip(valid_types, weights):
                 cumulative += w
                 if r < cumulative:
-                    return v
-            return 19
+                    chosen_type = t
+                    break
+            if chosen_type in TYPES_WITH_POINTER:
+                ptr_mask = build_pointer_mask(ps, chosen_type)
+                valid_ptrs = ptr_mask.nonzero(as_tuple=True)[0].tolist()
+                ptr = self._rng.choice(valid_ptrs) if valid_ptrs else -1
+            else:
+                ptr = -1
+            return chosen_type, ptr
+
+        if agent is None:
+            return _random_action()
 
         try:
-            action = agent.get_action(obs)
-            if isinstance(action, (list, tuple)):
-                action = action[0]
-            action = int(action)
-            if mask[action]:
-                return action
+            result = agent.get_action(obs)
+            if isinstance(result, (list, tuple)) and len(result) == 2:
+                type_action, ptr_action = int(result[0]), int(result[1])
+                if type_mask[type_action]:
+                    return type_action, ptr_action
         except Exception as exc:
             logger.debug("Agent get_action failed: %s", exc)
 
-        # Fall back to random valid action
-        return self._rng.choice(valid)
+        return _random_action()
 
     # ------------------------------------------------------------------
     # Observation builder

@@ -497,3 +497,13 @@
 - SWAP/reorder actions were dropped; add as a 9th type if board positioning proves important
 - `game_loop.py` needs to interpret (type_idx, ptr_idx) tuples from PPOAgent.get_action instead of a flat action int
 ---
+
+---
+### 2026-03-30 — Update game_loop.py to use two-step (type, ptr) action API
+**Files changed:** `env/game_loop.py`
+**What was done:** Updated `step_shopping` to take `(type_action, ptr_action)` instead of a flat int, dispatching on type index 0-7 with pointer decoded via PTR_*_OFF constants. Updated `_get_agent_action` to return a `(type_idx, ptr_idx)` tuple, replacing `build_action_mask`/`END_TURN_IDX` with `build_type_mask`/`build_pointer_mask`. Random agent now samples type first then pointer. Updated `run_game` to unpack the tuple.
+**Current state:** Full pipeline (game_loop → PPOAgent → BGPolicyNetwork) is consistent on the two-step action API end-to-end.
+**Open questions / next steps:**
+- `PPOAgent.record_transition` is not yet wired into game_loop; transitions are not being collected during self-play — needs integration
+- Board position for place actions is always append; could add position prediction later
+---
