@@ -17,7 +17,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from agent.policy import BGPolicyNetwork, N_ACTIONS
+from agent.policy import BGPolicyNetwork, N_ACTION_TYPES, POINTER_DIM
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +55,10 @@ class Transition:
     hand_tokens:    np.ndarray   # [10, 44]
     opp_tokens:     np.ndarray   # [7,  44] last seen opponent board
     scalar_context: np.ndarray   # [38]
-    action_mask:    np.ndarray   # [N_ACTIONS] bool
-    action:         int
+    type_mask:      np.ndarray   # [8]  bool — valid action types
+    pointer_mask:   np.ndarray   # [24] bool — valid pointer slots (zone+occupancy)
+    type_action:    int          # 0-7
+    ptr_action:     int          # 0-23 or -1 for non-pointer types
     reward:         float
     done:           bool
     value:          float        # stored for GAE bootstrap
@@ -139,20 +141,23 @@ class RolloutBuffer:
 
         Returns a dict with keys:
           board_tokens, shop_tokens, hand_tokens, opp_tokens, scalar_context,
-          action_mask, actions, rewards, dones, values, log_probs
+          type_mask, pointer_mask, type_actions, ptr_actions,
+          rewards, dones, values, log_probs
         """
         dev = torch.device(device)
-        board   = np.stack([t.board_tokens   for t in self.transitions])
-        shop    = np.stack([t.shop_tokens    for t in self.transitions])
-        hand    = np.stack([t.hand_tokens    for t in self.transitions])
-        opp     = np.stack([t.opp_tokens     for t in self.transitions])
-        scalar  = np.stack([t.scalar_context for t in self.transitions])
-        mask    = np.stack([t.action_mask    for t in self.transitions])
-        actions = np.array([t.action   for t in self.transitions], dtype=np.int64)
-        rewards = np.array([t.reward   for t in self.transitions], dtype=np.float32)
-        dones   = np.array([t.done     for t in self.transitions], dtype=np.float32)
-        values  = np.array([t.value    for t in self.transitions], dtype=np.float32)
-        logprobs= np.array([t.log_prob for t in self.transitions], dtype=np.float32)
+        board    = np.stack([t.board_tokens   for t in self.transitions])
+        shop     = np.stack([t.shop_tokens    for t in self.transitions])
+        hand     = np.stack([t.hand_tokens    for t in self.transitions])
+        opp      = np.stack([t.opp_tokens     for t in self.transitions])
+        scalar   = np.stack([t.scalar_context for t in self.transitions])
+        t_mask   = np.stack([t.type_mask      for t in self.transitions])
+        p_mask   = np.stack([t.pointer_mask   for t in self.transitions])
+        t_acts   = np.array([t.type_action    for t in self.transitions], dtype=np.int64)
+        p_acts   = np.array([t.ptr_action     for t in self.transitions], dtype=np.int64)
+        rewards  = np.array([t.reward         for t in self.transitions], dtype=np.float32)
+        dones    = np.array([t.done           for t in self.transitions], dtype=np.float32)
+        values   = np.array([t.value          for t in self.transitions], dtype=np.float32)
+        logprobs = np.array([t.log_prob       for t in self.transitions], dtype=np.float32)
 
         return {
             "board_tokens":   torch.tensor(board,    dtype=torch.float32, device=dev),
@@ -160,8 +165,10 @@ class RolloutBuffer:
             "hand_tokens":    torch.tensor(hand,     dtype=torch.float32, device=dev),
             "opp_tokens":     torch.tensor(opp,      dtype=torch.float32, device=dev),
             "scalar_context": torch.tensor(scalar,   dtype=torch.float32, device=dev),
-            "action_mask":    torch.tensor(mask,     dtype=torch.bool,    device=dev),
-            "actions":        torch.tensor(actions,  dtype=torch.long,    device=dev),
+            "type_mask":      torch.tensor(t_mask,   dtype=torch.bool,    device=dev),
+            "pointer_mask":   torch.tensor(p_mask,   dtype=torch.bool,    device=dev),
+            "type_actions":   torch.tensor(t_acts,   dtype=torch.long,    device=dev),
+            "ptr_actions":    torch.tensor(p_acts,   dtype=torch.long,    device=dev),
             "rewards":        torch.tensor(rewards,  dtype=torch.float32, device=dev),
             "dones":          torch.tensor(dones,    dtype=torch.float32, device=dev),
             "values":         torch.tensor(values,   dtype=torch.float32, device=dev),
@@ -208,8 +215,10 @@ class PPOTrainer:
         shop_tokens:    np.ndarray,
         hand_tokens:    np.ndarray,
         scalar_context: np.ndarray,
-        action_mask:    np.ndarray,
-        action:         int,
+        type_action:    int,
+        ptr_action:     int,
+        type_mask:      np.ndarray,     # [8]  bool
+        pointer_mask:   np.ndarray,     # [24] bool — zone+occupancy for this type
         reward:         float,
         done:           bool,
         opp_tokens:     Optional[np.ndarray] = None,
@@ -221,14 +230,15 @@ class PPOTrainer:
         """
         dev = torch.device(self.config.device)
 
-        board_t  = torch.tensor(board_tokens[None],   dtype=torch.float32, device=dev)
-        shop_t   = torch.tensor(shop_tokens[None],    dtype=torch.float32, device=dev)
-        hand_t   = torch.tensor(hand_tokens[None],    dtype=torch.float32, device=dev)
-        scalar_t = torch.tensor(scalar_context[None], dtype=torch.float32, device=dev)
-        mask_t   = torch.tensor(action_mask[None],    dtype=torch.bool,    device=dev)
-        action_t = torch.tensor([action],             dtype=torch.long,    device=dev)
+        board_t    = torch.tensor(board_tokens[None],   dtype=torch.float32, device=dev)
+        shop_t     = torch.tensor(shop_tokens[None],    dtype=torch.float32, device=dev)
+        hand_t     = torch.tensor(hand_tokens[None],    dtype=torch.float32, device=dev)
+        scalar_t   = torch.tensor(scalar_context[None], dtype=torch.float32, device=dev)
+        t_mask_t   = torch.tensor(type_mask[None],      dtype=torch.bool,    device=dev)
+        p_mask_t   = torch.tensor(pointer_mask[None],   dtype=torch.bool,    device=dev)
+        t_action_t = torch.tensor([type_action],        dtype=torch.long,    device=dev)
+        p_action_t = torch.tensor([ptr_action],         dtype=torch.long,    device=dev)
 
-        # Opponent board — zero-fill if not yet observed (round 1)
         if opp_tokens is None:
             opp_tokens = np.zeros((7, 44), dtype=np.float32)
         opp_t = torch.tensor(opp_tokens[None], dtype=torch.float32, device=dev)
@@ -236,7 +246,8 @@ class PPOTrainer:
         self.policy.eval()
         with torch.no_grad():
             log_probs, values, _ = self.policy.evaluate_actions(
-                board_t, shop_t, hand_t, scalar_t, action_t, mask_t, opp_t,
+                board_t, shop_t, hand_t, scalar_t,
+                t_action_t, p_action_t, t_mask_t, p_mask_t, opp_t,
             )
         value_f    = float(values.squeeze().item())
         log_prob_f = float(log_probs.squeeze().item())
@@ -247,8 +258,10 @@ class PPOTrainer:
             hand_tokens=hand_tokens,
             opp_tokens=opp_tokens,
             scalar_context=scalar_context,
-            action_mask=action_mask,
-            action=action,
+            type_mask=type_mask,
+            pointer_mask=pointer_mask,
+            type_action=type_action,
+            ptr_action=ptr_action,
             reward=reward,
             done=done,
             value=value_f,
@@ -325,19 +338,22 @@ class PPOTrainer:
                     continue
 
                 idx_t = torch.tensor(batch_idx, dtype=torch.long, device=dev)
-                b_board   = data["board_tokens"][idx_t]
-                b_shop    = data["shop_tokens"][idx_t]
-                b_hand    = data["hand_tokens"][idx_t]
-                b_opp     = data["opp_tokens"][idx_t]
-                b_scalar  = data["scalar_context"][idx_t]
-                b_mask    = data["action_mask"][idx_t]
-                b_actions = data["actions"][idx_t]
-                b_old_lp  = data["log_probs"][idx_t]
-                b_adv     = adv_t[idx_t]
-                b_ret     = ret_t[idx_t]
+                b_board    = data["board_tokens"][idx_t]
+                b_shop     = data["shop_tokens"][idx_t]
+                b_hand     = data["hand_tokens"][idx_t]
+                b_opp      = data["opp_tokens"][idx_t]
+                b_scalar   = data["scalar_context"][idx_t]
+                b_t_mask   = data["type_mask"][idx_t]
+                b_p_mask   = data["pointer_mask"][idx_t]
+                b_t_acts   = data["type_actions"][idx_t]
+                b_p_acts   = data["ptr_actions"][idx_t]
+                b_old_lp   = data["log_probs"][idx_t]
+                b_adv      = adv_t[idx_t]
+                b_ret      = ret_t[idx_t]
 
                 new_log_probs, new_values, entropy = self.policy.evaluate_actions(
-                    b_board, b_shop, b_hand, b_scalar, b_actions, b_mask, b_opp,
+                    b_board, b_shop, b_hand, b_scalar,
+                    b_t_acts, b_p_acts, b_t_mask, b_p_mask, b_opp,
                 )
                 new_values = new_values.squeeze(-1)  # [B]
 

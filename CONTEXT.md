@@ -487,3 +487,13 @@
 **Open questions / next steps:**
 - Run BC v2 cells end-to-end to confirm no further missing dependencies
 ---
+
+---
+### 2026-03-30 — Refactor BGPolicyNetwork to two-headed output matching BGPolicyV2
+**Files changed:** `agent/policy.py`, `agent/ppo.py`, `train.py`, `explore.ipynb`
+**What was done:** Replaced the flat 95-action policy head with two separate heads matching BGPolicyV2: `type_head` (8 action types) and `pointer_head` (24 card slots). `load_bc_v2_weights` now does a direct shape-exact weight copy (no row-mapping). `Transition` dataclass updated to store `(type_action, ptr_action, type_mask, pointer_mask)` instead of a flat action and 95-dim mask. `PPOAgent` in train.py updated to use `build_type_mask` + `build_pointer_mask` and return (type_idx, ptr_idx) tuples. Notebook PPO cells updated throughout.
+**Current state:** Architecture is fully aligned — BC and PPO share the same output structure; BC→PPO weight transfer is now direct and complete.
+**Open questions / next steps:**
+- SWAP/reorder actions were dropped; add as a 9th type if board positioning proves important
+- `game_loop.py` needs to interpret (type_idx, ptr_idx) tuples from PPOAgent.get_action instead of a flat action int
+---

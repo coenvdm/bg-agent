@@ -1,111 +1,115 @@
 """
-BGPolicyNetwork — Transformer-based policy + value network for BG agent.
+BGPolicyNetwork — Two-headed Transformer policy + value network.
 
 Architecture:
   - Project 44-dim card tokens to d_model
   - Zone embedding: 0=board, 1=shop, 2=hand, 3=opponent_board
   - CLS token prepended
   - Single Transformer encoder over [CLS + 7 board + 7 shop + 10 hand + 7 opp] = 32 tokens
-  - Policy head: CLS + scalar_context → action logits
-  - Value head: CLS + scalar_context → scalar value
+  - type_head:    CLS + scalar_context → 8 action-type logits  (matching BGPolicyV2)
+  - pointer_head: CLS + scalar_context → 24 card-pointer logits (matching BGPolicyV2)
+  - value_head:   CLS + scalar_context → scalar value
+
+Action types (8, matching BGPolicyV2 BC model):
+  0 buy        → pointer: shop  slot  [PTR_SHOP_OFF  + i,  i in 0-6]
+  1 sell       → pointer: board slot  [PTR_BOARD_OFF + i,  i in 0-6]
+  2 place      → pointer: hand  slot  [PTR_HAND_OFF  + i,  i in 0-9]
+  3 reroll     → no pointer
+  4 freeze     → no pointer
+  5 level_up   → no pointer
+  6 hero_power → no pointer
+  7 end_turn   → no pointer
+
+Pointer layout (24, matching BGPolicyV2 BC model):
+  [0-6]   shop  slots
+  [7-13]  board slots
+  [14-23] hand  slots
 
 scalar_context layout (38 dims):
   [0:24]  own board features (SymbolicBoardComputer.to_scalar_vector)
-  [24:32] next-opponent features:
-            24 tier/7, 25 health/40, 26 armor/10, 27 board_size/7,
-            28 dominant_tribe_count/7, 29 is_synergistic,
-            30 rounds_since_seen/10, 31 health_delta/40
-  [32:38] lobby-wide features:
-            32 num_alive/8, 33 mean_opp_tier/7, 34 mean_opp_health/40,
-            35 num_synergistic_boards/7, 36 health_rank/8, 37 tier_rank/8
+  [24:32] next-opponent features: tier/7, health/40, armor/10, board_size/7,
+          dominant_tribe_count/7, is_synergistic, rounds_since_seen/10, health_delta/40
+  [32:38] lobby-wide features: num_alive/8, mean_opp_tier/7, mean_opp_health/40,
+          num_synergistic_boards/7, health_rank/8, tier_rank/8
 """
 
 from __future__ import annotations
 
 import logging
-import warnings
 from typing import Optional, Tuple
 
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 logger = logging.getLogger(__name__)
 
-CARD_DIM = 44
-SCALAR_DIM = 38  # 24 own-board + 8 next-opponent + 6 lobby features
+# ── Input dimensions ──────────────────────────────────────────────────────────
+CARD_DIM   = 44
+SCALAR_DIM = 38   # 24 own-board + 8 next-opponent + 6 lobby
 
-# PLAY action layout:  play_h{hand_idx}_p{board_pos}
-#   hand_idx  : 0-9   (up to 10 hand slots)
-#   board_pos : 0-6   (insert before slot j; j == len(board) appends)
-#   index     : PLAY_START + hand_idx * PLAY_BOARD_POS + board_pos
-PLAY_HAND_SLOTS = 10
-PLAY_BOARD_POS  = 7
-PLAY_START      = 14
-PLAY_END        = PLAY_START + PLAY_HAND_SLOTS * PLAY_BOARD_POS - 1  # 83
+# ── Action type space (matches BGPolicyV2) ────────────────────────────────────
+N_ACTION_TYPES    = 8
+ACTION_TYPE_NAMES = ["buy", "sell", "place", "reroll", "freeze",
+                     "level_up", "hero_power", "end_turn"]
 
-# Fixed actions after the play block
-LEVEL_UP_IDX   = PLAY_END + 1   # 84
-FREEZE_IDX     = PLAY_END + 2   # 85
-REFRESH_IDX    = PLAY_END + 3   # 86
-HERO_POWER_IDX = PLAY_END + 4   # 87
-END_TURN_IDX   = PLAY_END + 5   # 88
-SWAP_START     = PLAY_END + 6   # 89  (swap_01 .. swap_56 → 89-94)
+# Types that require a card pointer; all others use ptr_idx = -1
+TYPES_WITH_POINTER = frozenset({0, 1, 2})  # buy, sell, place
 
-N_ACTIONS = SWAP_START + 6  # 95
+# ── Pointer space (matches BGPolicyV2) ────────────────────────────────────────
+SHOP_ZONE_SIZE  = 7
+BOARD_ZONE_SIZE = 7
+HAND_ZONE_SIZE  = 10
+POINTER_DIM     = SHOP_ZONE_SIZE + BOARD_ZONE_SIZE + HAND_ZONE_SIZE  # 24
 
-ACTION_NAMES = (
-    [f"buy_{i}"  for i in range(7)]   +  # 0-6
-    [f"sell_{i}" for i in range(7)]   +  # 7-13
-    [
-        f"play_h{h}_p{p}"
-        for h in range(PLAY_HAND_SLOTS)
-        for p in range(PLAY_BOARD_POS)
-    ]                                  +  # 14-83
-    ["level_up", "freeze", "refresh", "hero_power", "end_turn"]  +  # 84-88
-    [f"swap_{i}{i+1}" for i in range(6)]  # 89-94
-)
+PTR_SHOP_OFF  = 0                                  # buy  target: shop  slot i  → 0-6
+PTR_BOARD_OFF = SHOP_ZONE_SIZE                     # sell target: board slot i  → 7-13
+PTR_HAND_OFF  = SHOP_ZONE_SIZE + BOARD_ZONE_SIZE   # place target: hand slot i  → 14-23
 
+# Per-type zone slice: (start_idx, size) used to restrict pointer after type is sampled
+_ZONE_SLICE = {
+    0: (PTR_SHOP_OFF,  SHOP_ZONE_SIZE),
+    1: (PTR_BOARD_OFF, BOARD_ZONE_SIZE),
+    2: (PTR_HAND_OFF,  HAND_ZONE_SIZE),
+}
+
+
+# ── Network ───────────────────────────────────────────────────────────────────
 
 class BGPolicyNetwork(nn.Module):
-    """Transformer policy + value network for Hearthstone Battlegrounds.
+    """Two-headed Transformer policy + value network for Hearthstone Battlegrounds.
 
-    Accepts per-zone card token tensors and a scalar board-feature context
-    vector, encodes them with a Transformer, and produces action logits and
-    a state value estimate.
+    Produces separate action-type logits and card-pointer logits, matching the
+    BGPolicyV2 BC model's factored output structure so that BC weights transfer
+    directly via load_bc_v2_weights().
 
     Parameters
     ----------
     card_dim:
         Dimensionality of input card feature vectors (default: 44).
     d_model:
-        Internal Transformer dimension.
+        Internal Transformer dimension.  Must be 128 to load BC v2 weights.
     nhead:
         Number of attention heads.
     num_layers:
         Number of Transformer encoder layers.
     scalar_dim:
-        Dimensionality of the scalar context vector (default: 24).
-    n_actions:
-        Number of output actions (default: 26).
+        Dimensionality of the scalar context vector (default: 38).
     dropout:
         Dropout probability applied in the Transformer and heads.
     """
 
     def __init__(
         self,
-        card_dim: int = CARD_DIM,
-        d_model: int = 128,
-        nhead: int = 4,
+        card_dim:   int = CARD_DIM,
+        d_model:    int = 128,
+        nhead:      int = 4,
         num_layers: int = 3,
         scalar_dim: int = SCALAR_DIM,
-        n_actions: int = N_ACTIONS,
-        dropout: float = 0.1,
+        dropout:    float = 0.1,
     ) -> None:
         super().__init__()
         self.d_model = d_model
-        self.n_actions = n_actions
 
         # Card token projection: 44 → d_model
         self.card_proj = nn.Linear(card_dim, d_model)
@@ -126,18 +130,25 @@ class BGPolicyNetwork(nn.Module):
         )
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
 
-        # Scalar context projection: 24 → d_model
+        # Scalar context projection: scalar_dim → d_model
         self.scalar_proj = nn.Linear(scalar_dim, d_model)
 
-        # Policy head: [CLS‖scalar] → action logits
-        self.policy_head = nn.Sequential(
+        # ── Two-headed policy output (matching BGPolicyV2 structure) ─────────
+        # Both heads receive fused = [CLS ‖ scalar_emb] of size d_model*2
+        self.type_head = nn.Sequential(
             nn.Linear(d_model * 2, d_model),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(d_model, n_actions),
+            nn.Linear(d_model, N_ACTION_TYPES),   # → [B, 8]
+        )
+        self.pointer_head = nn.Sequential(
+            nn.Linear(d_model * 2, d_model),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(d_model, POINTER_DIM),      # → [B, 24]
         )
 
-        # Value head: [CLS‖scalar] → scalar value
+        # Value head: [CLS ‖ scalar] → scalar value
         self.value_head = nn.Sequential(
             nn.Linear(d_model * 2, d_model),
             nn.ReLU(),
@@ -148,7 +159,6 @@ class BGPolicyNetwork(nn.Module):
         self._init_weights()
 
     def _init_weights(self) -> None:
-        """Initialise CLS token with truncated normal; linears with Xavier."""
         nn.init.trunc_normal_(self.cls_token, std=0.02)
         for m in self.modules():
             if isinstance(m, nn.Linear):
@@ -156,26 +166,26 @@ class BGPolicyNetwork(nn.Module):
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
 
-    # ------------------------------------------------------------------
-    # Forward pass
-    # ------------------------------------------------------------------
+    # ── Forward ───────────────────────────────────────────────────────────────
 
     def forward(
         self,
-        board_tokens: torch.Tensor,             # [B, 7,  44]
-        shop_tokens: torch.Tensor,              # [B, 7,  44]
-        hand_tokens: torch.Tensor,              # [B, 10, 44]
-        scalar_context: torch.Tensor,           # [B, 38]
-        action_mask: Optional[torch.Tensor] = None,  # [B, N_ACTIONS] True=valid
-        opp_tokens: Optional[torch.Tensor] = None,   # [B, 7, 44] last seen opponent board
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        board_tokens:   torch.Tensor,                    # [B, 7,  44]
+        shop_tokens:    torch.Tensor,                    # [B, 7,  44]
+        hand_tokens:    torch.Tensor,                    # [B, 10, 44]
+        scalar_context: torch.Tensor,                    # [B, 38]
+        type_mask:    Optional[torch.Tensor] = None,     # [B, 8]  True=valid
+        pointer_mask: Optional[torch.Tensor] = None,     # [B, 24] True=valid
+        opp_tokens:   Optional[torch.Tensor] = None,     # [B, 7,  44]
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Returns
         -------
-        action_logits : [B, N_ACTIONS]
-        value         : [B, 1]
+        type_logits    : [B, 8]
+        pointer_logits : [B, 24]
+        value          : [B, 1]
         """
-        B = board_tokens.shape[0]
+        B      = board_tokens.shape[0]
         device = board_tokens.device
 
         # Project card tokens to d_model
@@ -184,247 +194,244 @@ class BGPolicyNetwork(nn.Module):
         hand_emb  = self.card_proj(hand_tokens)    # [B, 10, d_model]
 
         if opp_tokens is not None:
-            opp_emb = self.card_proj(opp_tokens)   # [B, 7, d_model]
+            opp_emb = self.card_proj(opp_tokens)
         else:
-            # Fall back to zeros for the opponent zone (safe before first combat)
             opp_emb = torch.zeros(B, 7, self.d_model, device=device)
 
-        # Zone embeddings: board:7, shop:7, hand:10, opp:7 → 31 tokens total
-        n_card_tokens = 31
-        zone_ids = torch.zeros(B, n_card_tokens, dtype=torch.long, device=device)
-        zone_ids[:, :7]   = 0   # board
-        zone_ids[:, 7:14] = 1   # shop
-        zone_ids[:, 14:24] = 2  # hand (10 slots)
-        zone_ids[:, 24:]  = 3   # opponent board
-        zone_emb = self.zone_embed(zone_ids)  # [B, 31, d_model]
+        # Zone embeddings over 31 card tokens: board:7, shop:7, hand:10, opp:7
+        zone_ids = torch.zeros(B, 31, dtype=torch.long, device=device)
+        zone_ids[:, :7]    = 0   # board
+        zone_ids[:, 7:14]  = 1   # shop
+        zone_ids[:, 14:24] = 2   # hand (10 slots)
+        zone_ids[:, 24:]   = 3   # opponent board
+        zone_emb = self.zone_embed(zone_ids)   # [B, 31, d_model]
 
-        # Concatenate zones and add zone embeddings
         tokens = torch.cat([board_emb, shop_emb, hand_emb, opp_emb], dim=1)  # [B, 31, d_model]
         tokens = tokens + zone_emb
 
-        # Prepend CLS token
-        cls = self.cls_token.expand(B, -1, -1)    # [B, 1,  d_model]
-        tokens = torch.cat([cls, tokens], dim=1)  # [B, 32, d_model]
-
-        # Transformer
-        tokens = self.transformer(tokens)  # [B, 32, d_model]
-        cls_out = tokens[:, 0, :]          # [B, d_model]
+        # Prepend CLS token → 32 tokens total
+        cls    = self.cls_token.expand(B, -1, -1)
+        tokens = torch.cat([cls, tokens], dim=1)      # [B, 32, d_model]
+        tokens = self.transformer(tokens)             # [B, 32, d_model]
+        cls_out = tokens[:, 0, :]                     # [B, d_model]
 
         # Scalar context
-        scalar_emb = self.scalar_proj(scalar_context)        # [B, d_model]
-        fused = torch.cat([cls_out, scalar_emb], dim=-1)     # [B, 2*d_model]
+        scalar_emb = self.scalar_proj(scalar_context)         # [B, d_model]
+        fused      = torch.cat([cls_out, scalar_emb], dim=-1) # [B, 2*d_model]
 
-        # Policy and value heads
-        logits = self.policy_head(fused)   # [B, N_ACTIONS]
-        value  = self.value_head(fused)    # [B, 1]
+        # Two-headed policy output
+        type_logits    = self.type_head(fused)     # [B, 8]
+        pointer_logits = self.pointer_head(fused)  # [B, 24]
+        value          = self.value_head(fused)    # [B, 1]
 
-        # Mask invalid actions with -inf so softmax/log_softmax treats them as 0
-        if action_mask is not None:
-            logits = logits.masked_fill(~action_mask, float("-inf"))
+        if type_mask is not None:
+            type_logits = type_logits.masked_fill(~type_mask, float("-inf"))
+        if pointer_mask is not None:
+            pointer_logits = pointer_logits.masked_fill(~pointer_mask, float("-inf"))
 
-        return logits, value
+        return type_logits, pointer_logits, value
 
-    # ------------------------------------------------------------------
-    # Action sampling / evaluation
-    # ------------------------------------------------------------------
+    # ── Action sampling ───────────────────────────────────────────────────────
 
     def get_action(
         self,
-        board_tokens: torch.Tensor,
-        shop_tokens: torch.Tensor,
-        hand_tokens: torch.Tensor,
+        board_tokens:   torch.Tensor,
+        shop_tokens:    torch.Tensor,
+        hand_tokens:    torch.Tensor,
         scalar_context: torch.Tensor,
-        action_mask: Optional[torch.Tensor] = None,
+        type_mask:    Optional[torch.Tensor] = None,   # [B, 8]
+        pointer_mask: Optional[torch.Tensor] = None,   # [B, 24] full occupancy
         deterministic: bool = False,
-        opp_tokens: Optional[torch.Tensor] = None,
-    ) -> Tuple[int, torch.Tensor, torch.Tensor]:
-        """Sample (or argmax) an action given the current state.
+        opp_tokens:   Optional[torch.Tensor] = None,
+    ) -> Tuple[int, int, torch.Tensor, torch.Tensor]:
+        """Two-step action sampling.
+
+        Step 1: sample action type from type_logits.
+        Step 2: if the type requires a card pointer (buy/sell/place), restrict
+                pointer_logits to the type's zone intersected with pointer_mask,
+                then sample the pointer slot.
 
         Parameters
         ----------
-        deterministic:
-            If True, take the argmax of the logits rather than sampling.
+        pointer_mask:
+            Full [B, 24] occupancy mask marking all non-empty slots across all
+            zones.  get_action will further restrict this to the relevant zone
+            based on the sampled type.  If None, only zone restriction applies.
 
         Returns
         -------
-        action_idx : int
-        log_prob   : scalar tensor
-        value      : scalar tensor [1]
+        type_idx  : int  (0-7)
+        ptr_idx   : int  (0-23) or -1 for non-pointer types
+        log_prob  : scalar tensor  — log p(type) + log p(ptr | type)
+        value     : scalar tensor  [1]
         """
         self.eval()
         with torch.no_grad():
-            logits, value = self.forward(
+            type_logits, ptr_logits, value = self.forward(
                 board_tokens, shop_tokens, hand_tokens,
-                scalar_context, action_mask, opp_tokens,
+                scalar_context, type_mask, None, opp_tokens,
+                # pass pointer_mask=None here; zone restriction applied below
             )
-            # logits: [1, N_ACTIONS] or [N_ACTIONS] — squeeze batch dim
-            logits_1d = logits.squeeze(0)
-            dist = torch.distributions.Categorical(logits=logits_1d)
-            if deterministic:
-                action = logits_1d.argmax(dim=-1)
-            else:
-                action = dist.sample()
-            log_prob = dist.log_prob(action)
-        return int(action.item()), log_prob, value.squeeze(0)
+            t_logits_1d = type_logits.squeeze(0)   # [8]
+            p_logits_1d = ptr_logits.squeeze(0)    # [24]
+
+            t_dist = torch.distributions.Categorical(logits=t_logits_1d)
+            type_tensor = t_logits_1d.argmax() if deterministic else t_dist.sample()
+            type_idx    = int(type_tensor.item())
+            log_prob    = t_dist.log_prob(type_tensor)
+
+            ptr_idx = -1
+            if type_idx in TYPES_WITH_POINTER:
+                # Restrict pointer to this type's zone
+                start, size = _ZONE_SLICE[type_idx]
+                zone_bits   = torch.zeros(POINTER_DIM, dtype=torch.bool, device=t_logits_1d.device)
+                zone_bits[start:start + size] = True
+
+                combined = zone_bits
+                if pointer_mask is not None:
+                    combined = zone_bits & pointer_mask.squeeze(0)
+                    if not combined.any():
+                        combined = zone_bits  # fallback: zone only (state inconsistency guard)
+
+                masked_ptr = p_logits_1d.masked_fill(~combined, float("-inf"))
+                p_dist     = torch.distributions.Categorical(logits=masked_ptr)
+                ptr_tensor = masked_ptr.argmax() if deterministic else p_dist.sample()
+                ptr_idx    = int(ptr_tensor.item())
+                log_prob   = log_prob + p_dist.log_prob(ptr_tensor)
+
+        return type_idx, ptr_idx, log_prob, value.squeeze(0)
+
+    # ── PPO evaluation ────────────────────────────────────────────────────────
 
     def evaluate_actions(
         self,
-        board_tokens: torch.Tensor,
-        shop_tokens: torch.Tensor,
-        hand_tokens: torch.Tensor,
+        board_tokens:   torch.Tensor,
+        shop_tokens:    torch.Tensor,
+        hand_tokens:    torch.Tensor,
         scalar_context: torch.Tensor,
-        actions: torch.Tensor,                          # [B]
-        action_mask: Optional[torch.Tensor] = None,
-        opp_tokens: Optional[torch.Tensor] = None,
+        type_actions:   torch.Tensor,             # [B] int64
+        ptr_actions:    torch.Tensor,             # [B] int64, -1 for non-pointer types
+        type_mask:    Optional[torch.Tensor] = None,    # [B, 8]
+        pointer_mask: Optional[torch.Tensor] = None,    # [B, 24] zone+occupancy specific
+        opp_tokens:   Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Evaluate log-probs and entropy for a batch of taken actions.
+        """Evaluate joint log-probs and entropy for a batch of stored actions.
 
-        Used during PPO update to compute the importance-sampling ratio.
+        For pointer types, log_prob = log p(type) + log p(ptr | type).
+        For non-pointer types, log_prob = log p(type).
+
+        The pointer_mask stored in each Transition should be the zone+occupancy
+        mask that was active when the pointer was sampled (from build_pointer_mask).
 
         Returns
         -------
         log_probs : [B]
         values    : [B, 1]
-        entropy   : [B]
+        entropy   : [B]  — H(type) + H(ptr) for pointer types, H(type) otherwise
         """
-        logits, values = self.forward(
+        type_logits, ptr_logits, values = self.forward(
             board_tokens, shop_tokens, hand_tokens,
-            scalar_context, action_mask, opp_tokens,
+            scalar_context, type_mask, pointer_mask, opp_tokens,
         )
-        dist = torch.distributions.Categorical(logits=logits)
-        log_probs = dist.log_prob(actions)
-        entropy   = dist.entropy()
+
+        t_dist     = torch.distributions.Categorical(logits=type_logits)
+        log_probs  = t_dist.log_prob(type_actions)   # [B]
+        entropy    = t_dist.entropy()                # [B]
+
+        # Add pointer contribution for buy/sell/place transitions
+        needs_ptr = torch.zeros(
+            type_actions.shape[0], dtype=torch.bool, device=type_actions.device
+        )
+        for t_idx in TYPES_WITH_POINTER:
+            needs_ptr = needs_ptr | (type_actions == t_idx)
+
+        if needs_ptr.any():
+            p_dist = torch.distributions.Categorical(logits=ptr_logits)
+            # Clamp ptr_actions to [0, POINTER_DIM-1] for rows where ptr == -1;
+            # those rows are masked out by needs_ptr anyway.
+            safe_ptr = ptr_actions.clamp(min=0)
+            ptr_lp = p_dist.log_prob(safe_ptr)        # [B]
+            ptr_ent = p_dist.entropy()                # [B]
+            log_probs = log_probs + ptr_lp  * needs_ptr.float()
+            entropy   = entropy   + ptr_ent * needs_ptr.float()
+
         return log_probs, values, entropy
 
-    # ------------------------------------------------------------------
-    # Warm-start from BC checkpoint
-    # ------------------------------------------------------------------
+    # ── BC warm-start ─────────────────────────────────────────────────────────
 
     def load_bc_v2_weights(self, bc_path: str) -> None:
-        """Warm-start from a BC v2 two-headed checkpoint (bc_v2.pt).
+        """Warm-start from a BGPolicyV2 BC checkpoint (bc_v2.pt).
 
-        Two things are transferred:
+        Direct weight transfers (no row-mapping required):
 
-        1. **Type-head → policy_head final layer**
-           The BC type_head (Linear 128→8) learned a weight vector per action
-           type (buy/sell/place/…).  Each row is copied to the corresponding
-           group of PPO output actions so the policy starts with a calibrated
-           prior over action types rather than random noise.
+        1. BC type_head [8, 128]   → PPO type_head[-1]    [8, 128]
+        2. BC pointer_head [24, 128] → PPO pointer_head[-1] [24, 128]
+        3. BC shared.4 [128, 128]  → scalar half (cols d_model:) of
+           type_head[0].weight and pointer_head[0].weight  [128, 256]
 
-        2. **BC shared[4] → policy_head[0] scalar half**
-           policy_head[0] is Linear(256→128); its input is [CLS ‖ scalar_emb].
-           The BC second trunk layer (Linear 128→128) learned to compress a
-           128-dim game representation into policy-relevant features.  We copy
-           its weights into columns 128:256 of policy_head[0].weight — the half
-           that processes the scalar embedding — leaving the CLS half at its
-           Xavier-initialised values.
+        Requires d_model=128 (the BC hidden size).
         """
         try:
             ckpt = torch.load(bc_path, map_location="cpu")
             sd   = ckpt["state_dict"]
-            groups: dict = ckpt.get("ppo_action_groups", {})
 
-            # ── 1. type_head weights/bias → policy_head[-1] ──────────────────
-            ph_w = self.policy_head[-1].weight.data.clone()   # [95, 128]
-            ph_b = self.policy_head[-1].bias.data.clone()     # [95]
-            th_w = sd["type_head.weight"]                     # [8, 128]
-            th_b = sd["type_head.bias"]                       # [8]
+            # 1. type_head output layer
+            th_w = sd["type_head.weight"]   # [8, 128]
+            th_b = sd["type_head.bias"]     # [8]
+            assert self.type_head[-1].weight.shape == th_w.shape, (
+                f"type_head shape mismatch: {self.type_head[-1].weight.shape} vs {th_w.shape}"
+                " — was the network built with d_model=128?"
+            )
+            self.type_head[-1].weight.data.copy_(th_w)
+            self.type_head[-1].bias.data.copy_(th_b)
+            logger.info("load_bc_v2_weights: copied type_head [8, 128]")
 
-            n_mapped = 0
-            for bc_type_idx, ppo_indices in groups.items():
-                bc_type_idx = int(bc_type_idx)
-                for ppo_idx in ppo_indices:
-                    if ppo_idx < ph_w.shape[0]:
-                        ph_w[ppo_idx] = th_w[bc_type_idx]
-                        ph_b[ppo_idx] = th_b[bc_type_idx]
-                        n_mapped += 1
+            # 2. pointer_head output layer
+            ph_w = sd["pointer_head.weight"]  # [24, 128]
+            ph_b = sd["pointer_head.bias"]    # [24]
+            assert self.pointer_head[-1].weight.shape == ph_w.shape, (
+                f"pointer_head shape mismatch: {self.pointer_head[-1].weight.shape} vs {ph_w.shape}"
+            )
+            self.pointer_head[-1].weight.data.copy_(ph_w)
+            self.pointer_head[-1].bias.data.copy_(ph_b)
+            logger.info("load_bc_v2_weights: copied pointer_head [24, 128]")
 
-            self.policy_head[-1].weight.data.copy_(ph_w)
-            self.policy_head[-1].bias.data.copy_(ph_b)
-            logger.info("load_bc_v2_weights: mapped %d PPO action rows from BC type_head", n_mapped)
-
-            # ── 2. shared[4] (Linear 128→128) → policy_head[0] scalar half ──
-            # shared Sequential indices: 0=Linear(271→128), 1=LN, 2=ReLU, 3=Drop,
-            #                            4=Linear(128→128), 5=LN, 6=ReLU, 7=Drop
+            # 3. BC trunk layer 4 (shared.4: Linear 128→128) → scalar half of
+            #    each head's first linear (Linear 256→128; cols d_model: = scalar half)
             trunk_w = sd["shared.4.weight"]   # [128, 128]
             trunk_b = sd["shared.4.bias"]     # [128]
-            ph0_w   = self.policy_head[0].weight.data.clone()   # [128, 256]
-            ph0_b   = self.policy_head[0].bias.data.clone()     # [128]
-            ph0_w[:, self.d_model:] = trunk_w   # scalar half = cols 128:256
-            ph0_b.copy_(trunk_b)
-            self.policy_head[0].weight.data.copy_(ph0_w)
-            self.policy_head[0].bias.data.copy_(ph0_b)
+            for name, head in (("type_head", self.type_head),
+                               ("pointer_head", self.pointer_head)):
+                w = head[0].weight.data.clone()     # [128, 256]
+                w[:, self.d_model:] = trunk_w        # overwrite scalar half
+                head[0].weight.data.copy_(w)
+                head[0].bias.data.copy_(trunk_b)
             logger.info(
-                "load_bc_v2_weights: initialised policy_head[0] scalar half "
-                "from BC shared trunk layer 4"
+                "load_bc_v2_weights: seeded type_head[0] and pointer_head[0] "
+                "scalar half from BC shared.4"
             )
 
         except Exception as exc:
             logger.warning("load_bc_v2_weights: failed to load '%s': %s", bc_path, exc)
 
-    def load_bc_weights(self, bc_model_path: str) -> None:
-        """Try to warm-start from a behavioural-cloning checkpoint.
 
-        The BC model stored at *bc_model_path* may have a different
-        architecture (e.g. an MLP with 181-dim input).  We load only layers
-        whose parameter tensors exactly match in shape and log a warning for
-        every mismatch.  Never raises — silently skips incompatible weights.
-        """
-        try:
-            checkpoint = torch.load(bc_model_path, map_location="cpu")
-            # Accept both raw state_dicts and {"model_state_dict": ...} wrappers
-            if isinstance(checkpoint, dict):
-                state_dict = checkpoint.get("model_state_dict", checkpoint.get("state_dict", checkpoint))
-            else:
-                state_dict = checkpoint
+# ── Action mask builders ──────────────────────────────────────────────────────
 
-            own_state = self.state_dict()
-            loaded = 0
-            skipped = 0
-            for name, param in state_dict.items():
-                if name in own_state and own_state[name].shape == param.shape:
-                    own_state[name].copy_(param)
-                    loaded += 1
-                else:
-                    skipped += 1
-                    logger.warning(
-                        "load_bc_weights: skipping '%s' (shape mismatch or not found)", name
-                    )
-
-            self.load_state_dict(own_state)
-            logger.info(
-                "load_bc_weights: loaded %d params, skipped %d from '%s'",
-                loaded, skipped, bc_model_path,
-            )
-        except Exception as exc:
-            logger.warning("load_bc_weights: failed to load '%s': %s", bc_model_path, exc)
-
-
-# ------------------------------------------------------------------
-# Action mask builder
-# ------------------------------------------------------------------
-
-def build_action_mask(player_state) -> torch.Tensor:
-    """Build a boolean action mask from a player state.
+def build_type_mask(player_state) -> torch.Tensor:
+    """Build a [8] boolean mask of valid action types from a player state.
 
     Accepts either a dataclass/object with attribute access or a plain dict.
 
     Masking rules
     -------------
-    buy_i         (0-6):       shop[i] occupied AND gold >= 3 AND len(hand) < 10
-    sell_i        (7-13):      board[i] occupied
-    play_h{h}_p{p}(14-83):    hand[h] occupied AND len(board) < 7 AND p <= len(board)
-                               index = 14 + h*7 + p
-    level_up      (84):        tavern_tier < 6 AND gold >= level_cost
-    freeze        (85):        always valid
-    refresh       (86):        gold >= 1
-    hero_power    (87):        always valid
-    end_turn      (88):        always valid
-    swap_ij       (89-94):     board[i] and board[i+1] both occupied (i = action-89)
-
-    Returns
-    -------
-    torch.BoolTensor of shape [N_ACTIONS], True = action is valid.
+    0 buy        : shop non-empty AND gold >= 3 AND len(hand) < 10
+    1 sell       : board non-empty
+    2 place      : hand non-empty AND len(board) < 7
+    3 reroll     : gold >= 1
+    4 freeze     : always valid
+    5 level_up   : tavern_tier < 6 AND gold >= level_cost
+    6 hero_power : always valid
+    7 end_turn   : always valid
     """
     if isinstance(player_state, dict):
         gold        = player_state.get("gold", 0)
@@ -441,60 +448,84 @@ def build_action_mask(player_state) -> torch.Tensor:
         tavern_tier = getattr(player_state, "tavern_tier", 1)
         level_cost  = getattr(player_state, "level_cost", 5)
 
-    mask = torch.zeros(N_ACTIONS, dtype=torch.bool)
+    n_shop  = sum(1 for s in shop  if _slot_occupied(s))
+    n_board = sum(1 for s in board if _slot_occupied(s))
+    n_hand  = sum(1 for s in hand  if _slot_occupied(s))
 
-    # buy_i (0-6)
-    can_buy = gold >= 3 and len(hand) < 10
-    for i in range(7):
-        if can_buy and i < len(shop) and _slot_occupied(shop[i]):
-            mask[i] = True
+    mask = torch.zeros(N_ACTION_TYPES, dtype=torch.bool)
+    if n_shop  > 0 and gold >= 3 and n_hand < 10: mask[0] = True  # buy
+    if n_board > 0:                                mask[1] = True  # sell
+    if n_hand  > 0 and n_board < 7:               mask[2] = True  # place
+    if gold >= 1:                                  mask[3] = True  # reroll
+    mask[4] = True                                                  # freeze
+    if tavern_tier < 6 and gold >= level_cost:    mask[5] = True  # level_up
+    mask[6] = True                                                  # hero_power
+    mask[7] = True                                                  # end_turn
+    return mask
 
-    # sell_i (7-13)
-    for i in range(7):
-        if i < len(board) and _slot_occupied(board[i]):
-            mask[7 + i] = True
 
-    # play_h{h}_p{p} (14-83)
-    # Valid insert positions: 0 .. len(board)  (len(board) == append to end)
-    # Clipped to PLAY_BOARD_POS-1 (6) so the action exists in the table.
-    board_size = len(board)
-    if board_size < 7:
-        for h in range(PLAY_HAND_SLOTS):
-            if h < len(hand) and _slot_occupied(hand[h]):
-                for p in range(min(board_size + 1, PLAY_BOARD_POS)):
-                    mask[PLAY_START + h * PLAY_BOARD_POS + p] = True
+def build_pointer_mask(player_state, type_idx: int) -> torch.Tensor:
+    """Build a [24] boolean mask of valid pointer slots.
 
-    # level_up (84)
-    if tavern_tier < 6 and gold >= level_cost:
-        mask[LEVEL_UP_IDX] = True
+    When type_idx is in TYPES_WITH_POINTER (0/1/2), only the relevant zone
+    is enabled and only occupied slots are marked True.
 
-    # freeze (85): always valid
-    mask[FREEZE_IDX] = True
+    When type_idx is not in TYPES_WITH_POINTER, all slots are set to True
+    (the pointer distribution is irrelevant and won't be sampled).
 
-    # refresh (86)
-    if gold >= 1:
-        mask[REFRESH_IDX] = True
+    When type_idx == -1, returns the full occupancy mask across all zones
+    (used when the type is not yet known, e.g. in get_action).
+    """
+    if isinstance(player_state, dict):
+        shop  = player_state.get("shop",  [])
+        board = player_state.get("board", [])
+        hand  = player_state.get("hand",  [])
+    else:
+        shop  = getattr(player_state, "shop",  [])
+        board = getattr(player_state, "board", [])
+        hand  = getattr(player_state, "hand",  [])
 
-    # hero_power (87): always valid
-    mask[HERO_POWER_IDX] = True
+    mask = torch.zeros(POINTER_DIM, dtype=torch.bool)
 
-    # end_turn (88): always valid
-    mask[END_TURN_IDX] = True
-
-    # swap_ij (89-94)
-    for i in range(6):
-        if i + 1 < len(board) and _slot_occupied(board[i]) and _slot_occupied(board[i + 1]):
-            mask[SWAP_START + i] = True
+    if type_idx == 0:          # buy → shop zone
+        for i, slot in enumerate(shop[:SHOP_ZONE_SIZE]):
+            if _slot_occupied(slot):
+                mask[PTR_SHOP_OFF + i] = True
+        if not mask.any():
+            mask[PTR_SHOP_OFF:PTR_SHOP_OFF + SHOP_ZONE_SIZE] = True  # fallback
+    elif type_idx == 1:        # sell → board zone
+        for i, slot in enumerate(board[:BOARD_ZONE_SIZE]):
+            if _slot_occupied(slot):
+                mask[PTR_BOARD_OFF + i] = True
+        if not mask.any():
+            mask[PTR_BOARD_OFF:PTR_BOARD_OFF + BOARD_ZONE_SIZE] = True
+    elif type_idx == 2:        # place → hand zone
+        for i, slot in enumerate(hand[:HAND_ZONE_SIZE]):
+            if _slot_occupied(slot):
+                mask[PTR_HAND_OFF + i] = True
+        if not mask.any():
+            mask[PTR_HAND_OFF:PTR_HAND_OFF + HAND_ZONE_SIZE] = True
+    elif type_idx == -1:       # full occupancy mask, all zones
+        for i, slot in enumerate(shop[:SHOP_ZONE_SIZE]):
+            if _slot_occupied(slot):
+                mask[PTR_SHOP_OFF + i] = True
+        for i, slot in enumerate(board[:BOARD_ZONE_SIZE]):
+            if _slot_occupied(slot):
+                mask[PTR_BOARD_OFF + i] = True
+        for i, slot in enumerate(hand[:HAND_ZONE_SIZE]):
+            if _slot_occupied(slot):
+                mask[PTR_HAND_OFF + i] = True
+    else:
+        mask[:] = True   # non-pointer type; mask is irrelevant
 
     return mask
 
 
 def _slot_occupied(slot) -> bool:
-    """Return True if the given shop/board slot contains a real minion."""
+    """Return True if the given shop/board/hand slot contains a real minion."""
     if slot is None:
         return False
     if isinstance(slot, dict):
         return bool(slot.get("card_id", ""))
-    # MinionState or similar object
     card_id = getattr(slot, "card_id", None)
     return bool(card_id)

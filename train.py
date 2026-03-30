@@ -32,7 +32,8 @@ logger = logging.getLogger(__name__)
 # Import project components
 # -------------------------------------------------------------------------
 from agent.card_encoder import CardEncoder
-from agent.policy import BGPolicyNetwork, N_ACTIONS, build_action_mask
+from agent.policy import (BGPolicyNetwork, N_ACTION_TYPES, POINTER_DIM,
+                          build_type_mask, build_pointer_mask)
 from agent.ppo import PPOConfig, PPOTrainer
 from env.game_loop import BattlegroundsGame, GameResult
 from env.matchmaker import Matchmaker
@@ -71,47 +72,55 @@ class PPOAgent:
         self.deterministic = deterministic
         self._last_obs: Optional[dict] = None
 
-    def get_action(self, obs: dict) -> int:
-        """Select an action given an observation dict."""
-        self._last_obs = obs
-        ps = obs["player_state"]
-        mask = build_action_mask(ps)
+    def get_action(self, obs: dict) -> tuple:
+        """Select an action given an observation dict.
 
+        Returns (type_idx, ptr_idx) where ptr_idx is -1 for non-pointer types.
+        """
+        self._last_obs = obs
+        ps  = obs["player_state"]
         dev = torch.device(self.device)
+
+        t_mask_t = build_type_mask(ps).unsqueeze(0).to(dev)
+        p_mask_t = build_pointer_mask(ps, -1).unsqueeze(0).to(dev)  # full occupancy
+
         board_t  = torch.tensor(obs["board_tokens"][None],   dtype=torch.float32, device=dev)
         shop_t   = torch.tensor(obs["shop_tokens"][None],    dtype=torch.float32, device=dev)
         hand_t   = torch.tensor(obs["hand_tokens"][None],    dtype=torch.float32, device=dev)
         scalar_t = torch.tensor(obs["scalar_context"][None], dtype=torch.float32, device=dev)
-        mask_t   = mask.unsqueeze(0).to(dev)
         opp_np   = obs.get("opp_tokens")
         opp_t    = torch.tensor(opp_np[None], dtype=torch.float32, device=dev) if opp_np is not None else None
 
-        action_idx, _log_prob, _value = self.policy.get_action(
-            board_t, shop_t, hand_t, scalar_t, mask_t,
-            deterministic=self.deterministic,
-            opp_tokens=opp_t,
+        type_idx, ptr_idx, _log_prob, _value = self.policy.get_action(
+            board_t, shop_t, hand_t, scalar_t,
+            type_mask=t_mask_t, pointer_mask=p_mask_t,
+            deterministic=self.deterministic, opp_tokens=opp_t,
         )
-        return action_idx
+        return type_idx, ptr_idx
 
     def record_transition(
         self,
         obs: dict,
-        action: int,
+        type_action: int,
+        ptr_action:  int,
         reward: float,
-        done: bool,
+        done:   bool,
     ) -> None:
         """Push a completed transition into the PPO rollout buffer."""
         if obs is None:
             return
-        ps   = obs["player_state"]
-        mask = build_action_mask(ps).numpy()
+        ps        = obs["player_state"]
+        type_mask = build_type_mask(ps).numpy()
+        ptr_mask  = build_pointer_mask(ps, type_action).numpy()
         self.trainer.collect_transition(
             board_tokens   = obs["board_tokens"],
             shop_tokens    = obs["shop_tokens"],
             hand_tokens    = obs["hand_tokens"],
             scalar_context = obs["scalar_context"],
-            action_mask    = mask,
-            action         = action,
+            type_action    = type_action,
+            ptr_action     = ptr_action,
+            type_mask      = type_mask,
+            pointer_mask   = ptr_mask,
             reward         = reward,
             done           = done,
             opp_tokens     = obs.get("opp_tokens"),
@@ -177,7 +186,6 @@ def build_components(
         nhead=4,
         num_layers=3,
         scalar_dim=38,
-        n_actions=N_ACTIONS,
         dropout=0.1,
     ).to(device)
 
@@ -291,13 +299,6 @@ def train(args: argparse.Namespace) -> None:
             policy.load_bc_v2_weights(str(bc_path))
         else:
             logger.warning("BC v2 checkpoint not found: %s — skipping warm-start", bc_path)
-    elif args.load_bc:
-        bc_path = Path(args.load_bc)
-        if bc_path.exists():
-            logger.info("Warm-starting from BC checkpoint: %s", bc_path)
-            policy.load_bc_weights(str(bc_path))
-        else:
-            logger.warning("BC checkpoint not found: %s — skipping warm-start", bc_path)
 
     # Optional: resume from PPO checkpoint
     if args.checkpoint and Path(args.checkpoint).exists():
