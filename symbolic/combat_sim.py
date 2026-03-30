@@ -5,13 +5,18 @@ Implements the core BG combat loop:
   - Round-robin attack selection with wrap-around pointer
   - Target selection: taunt preference, random otherwise
   - Divine shield, venomous, windfury, reborn, cleave (Blade Collector)
-  - ~20 common deathrattles (token summons, AoE damage, stat buffs)
-  - ~7 start-of-combat triggers
+  - ~24 common deathrattles (token summons, AoE damage, stat buffs,
+    Selfless Hero, Kaboom Bot, Kangor's Apprentice)
+  - ~9 start-of-combat triggers (including Red Whelp, Amalgadon)
   - Titus Rivendare (deathrattles trigger an extra time)
+  - Rally mechanic: Roaring Recruiter, Felstomper, Stasis Elemental
+  - Avenge mechanic: Famished Felbat, Dragonspawn Lieutenant,
+    Imposing Direhorn, Bristleback Knight
+  - End-of-turn mechanic: Amalgam of the Ancient; Khadgar token bonus
   - Monte Carlo win-probability estimation (200 trials ≈ 2–5 ms)
 
-Not modelled: hero powers, rally, avenge, end-of-turn effects, shop triggers,
-blood gems, spellcraft, duos mechanics — none of these fire during combat.
+Not modelled: hero powers, shop triggers, blood gems, spellcraft,
+duos mechanics — none of these fire during combat.
 """
 from __future__ import annotations
 
@@ -73,6 +78,10 @@ class CombatMinion:
     killed_by_uid:     int  = field(default=-1,     repr=False)
     # Stitched Salvager stores a clone of its left neighbour at SOC
     _stored_clone: Optional["CombatMinion"] = field(default=None, repr=False)
+    # Avenge mechanic: threshold = N friendlies that must die before trigger fires;
+    # avenge_triggered ensures it fires at most once per combat.
+    avenge_threshold:  int  = field(default=0,     repr=False)
+    avenge_triggered:  bool = field(default=False, repr=False)
 
     # ── helpers ─────────────────────────────────────────────────────────────
 
@@ -114,6 +123,8 @@ class CombatMinion:
         c.attacks_this_turn = 0
         c.killed_by_uid = -1
         c._stored_clone = None
+        # Reborn copy can re-trigger Avenge from the new death count forward
+        c.avenge_triggered = False
         return c
 
 
@@ -133,6 +144,10 @@ class CombatSide:
         self._titus:      bool = any(m.is_titus() for m in minions)
         # Track tribe types that died this combat (for Arid Atrocity)
         self.dead_tribe_types: set = set()
+        # Avenge: total friendly deaths this combat (incremented in remove())
+        self.deaths_this_combat: int = 0
+        # Kangor's Apprentice: copies of dead friendly Mechs for DR reconstruction
+        self.dead_mechs: List[CombatMinion] = []
 
     # ── UID factory ─────────────────────────────────────────────────────────
 
@@ -177,6 +192,11 @@ class CombatSide:
             self.dead_tribe_types.add(t)
         if self._titus and minion.is_titus():
             self._titus = any(m.is_titus() for m in self.minions)
+        # Avenge: count every friendly death
+        self.deaths_this_combat += 1
+        # Kangor: remember dead Mechs so DR can reconstruct them
+        if minion.has_tribe("MECH"):
+            self.dead_mechs.append(minion)
         # Adjust ptr
         n = len(self.minions)
         if n == 0:
@@ -226,6 +246,22 @@ class CombatSide:
 
 _CLEAVE_CARDS = {"blade collector", "blade_collector"}
 
+# Avenge thresholds keyed by normalized name_key.
+# Value = number of friendly deaths required to trigger the Avenge effect.
+_AVENGE_MINIONS: Dict[str, int] = {
+    "famished_felbat":        4,
+    "dragonspawn_lieutenant": 1,
+    "imposing_direhorn":      3,
+    "bristleback_knight":     2,
+}
+
+# Rally minions — set of name_keys that have a Rally effect.
+_RALLY_MINIONS = {
+    "roaring_recruiter",
+    "felstomper",
+    "stasis_elemental",
+}
+
 _KEY_TABLE = str.maketrans(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ ",
     "abcdefghijklmnopqrstuvwxyz_",
@@ -255,11 +291,14 @@ def _minion_from_dict(d: dict, uid: int) -> CombatMinion:
          + d.get("perm_hp_bonus",  0)
          + d.get("game_hp_bonus",  0))
 
+    nk = _normalize_key(name)
+    avenge_thresh = _AVENGE_MINIONS.get(nk, 0)
+
     return CombatMinion(
         uid=uid,
         name=name,
         card_key=card_key,
-        name_key=_normalize_key(name),
+        name_key=nk,
         attack=max(0, atk),
         health=max(1, hp),
         tier=max(1, d.get("tier", 1)),
@@ -271,6 +310,7 @@ def _minion_from_dict(d: dict, uid: int) -> CombatMinion:
         windfury=bool(d.get("windfury", False)),
         cleave=cleave,
         golden=bool(d.get("golden", False)),
+        avenge_threshold=avenge_thresh,
     )
 
 
@@ -292,6 +332,7 @@ def _fast_clone_side(templates: List[CombatMinion], tavern_tier: int,
         m.reborn_used = False
         m.killed_by_uid = -1
         m._stored_clone = None
+        m.avenge_triggered = False   # reset per trial even if threshold is set
         minions.append(m)
     return CombatSide(minions, tavern_tier)
 
@@ -332,6 +373,151 @@ def _make_token(
         cleave=False,
         golden=False,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Khadgar helper — used by token-summoning deathrattles / SOC triggers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _has_khadgar(side: CombatSide) -> bool:
+    """Return True if a living Khadgar is on *side*."""
+    return any("khadgar" in m.name_key and not m.dead for m in side.minions)
+
+
+def _summon_tokens_with_khadgar(
+    side: CombatSide,
+    pos: int,
+    *,
+    name: str,
+    attack: int,
+    health: int,
+    count: int,
+    tier: int = 1,
+    tribes: Optional[List[str]] = None,
+    taunt: bool = False,
+    divine_shield: bool = False,
+    reborn: bool = False,
+    venomous: bool = False,
+    windfury: bool = False,
+) -> None:
+    """Summon *count* token copies at *pos*, +1 extra if Khadgar is alive."""
+    extra = 1 if _has_khadgar(side) else 0
+    for i in range(count + extra):
+        side.insert_at(
+            pos + i,
+            _make_token(
+                side,
+                name=name,
+                attack=attack,
+                health=health,
+                tier=tier,
+                tribes=tribes,
+                taunt=taunt,
+                divine_shield=divine_shield,
+                reborn=reborn,
+                venomous=venomous,
+                windfury=windfury,
+            ),
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Rally mechanic
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _fire_rally(attacker: "CombatMinion", side: "CombatSide",
+                rng: random.Random) -> None:
+    """Fire the Rally effect for *attacker* if it has one."""
+    key = attacker.name_key
+    mult = 2 if attacker.golden else 1
+
+    if key == "roaring_recruiter":
+        # +3/+1 to another random friendly minion
+        candidates = [m for m in side.minions if m is not attacker]
+        if candidates:
+            t = rng.choice(candidates)
+            t.attack += 3 * mult
+            t.health += 1 * mult
+
+    elif key == "felstomper":
+        # give all other friendly Beasts +2/+0
+        for m in side.minions:
+            if m is not attacker and m.has_tribe("BEAST"):
+                m.attack += 2 * mult
+
+    elif key == "stasis_elemental":
+        # give all other friendly minions +1/+1
+        for m in side.minions:
+            if m is not attacker:
+                m.attack += 1 * mult
+                m.health += 1 * mult
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Avenge mechanic
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _check_avenge(side: "CombatSide", rng: random.Random) -> None:
+    """Check all living minions on *side* — fire Avenge if threshold crossed."""
+    deaths = side.deaths_this_combat
+    for m in list(side.minions):
+        if m.avenge_threshold <= 0 or m.avenge_triggered:
+            continue
+        if deaths >= m.avenge_threshold:
+            m.avenge_triggered = True
+            _fire_avenge(m, side, rng)
+
+
+def _fire_avenge(trigger: "CombatMinion", side: "CombatSide",
+                 rng: random.Random) -> None:
+    """Apply the Avenge effect for *trigger*."""
+    key = trigger.name_key
+    mult = 2 if trigger.golden else 1
+
+    if key == "famished_felbat":
+        # +2/+2 to all friendly Demons
+        for m in side.minions:
+            if m.has_tribe("DEMON"):
+                m.attack += 2 * mult
+                m.health += 2 * mult
+
+    elif key == "dragonspawn_lieutenant":
+        # +2/+1 to a random friendly Dragon
+        candidates = [m for m in side.minions if m.has_tribe("DRAGON")]
+        if candidates:
+            t = rng.choice(candidates)
+            t.attack += 2 * mult
+            t.health += 1 * mult
+
+    elif key == "imposing_direhorn":
+        # gain +3/+3 on self
+        trigger.attack += 3 * mult
+        trigger.health += 3 * mult
+
+    elif key == "bristleback_knight":
+        # gain divine shield
+        trigger.divine_shield = True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# End-of-turn triggers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _fire_end_of_turn(side: "CombatSide", rng: random.Random) -> None:
+    """Fire end-of-turn effects for all living minions on *side*."""
+    for m in list(side.minions):
+        if m.dead:
+            continue
+        key = m.name_key
+        mult = 2 if m.golden else 1
+
+        if key == "amalgam_of_the_ancient":
+            # +2/+2 to a random friendly minion
+            candidates = [x for x in side.minions if not x.dead]
+            if candidates:
+                t = rng.choice(candidates)
+                t.attack += 2 * mult
+                t.health += 2 * mult
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -571,6 +757,51 @@ def _dr_leeroy(dead, pos, friendly, enemy, rq, tc):
             break
 
 
+# ── Additional deathrattles ───────────────────────────────────────────────────
+
+@_dr_register("selfless_hero")
+def _dr_selfless_hero(dead, pos, friendly, enemy, rq, tc):
+    """Give a random friendly minion divine shield (once per trigger count)."""
+    for _ in range(tc):
+        candidates = [m for m in friendly.minions if not m.divine_shield]
+        if candidates:
+            import random as _r
+            _r.choice(candidates).divine_shield = True
+
+
+@_dr_register("kaboom_bot")
+def _dr_kaboom_bot(dead, pos, friendly, enemy, rq, tc):
+    """Deal 4 damage to a random enemy."""
+    for _ in range(tc):
+        if enemy.minions:
+            import random as _r
+            _r.choice(enemy.minions).take_damage(4)
+
+
+@_dr_register("kangors_apprentice")
+def _dr_kangors_apprentice(dead, pos, friendly, enemy, rq, tc):
+    """Summon 2 copies of random friendly Mechs that died this combat."""
+    dead_mechs = friendly.dead_mechs
+    if not dead_mechs:
+        return
+    import random as _r
+    for _ in range(tc):
+        for slot in range(2):
+            if len(friendly.minions) >= MAX_BOARD:
+                break
+            source = _r.choice(dead_mechs)
+            clone = object.__new__(CombatMinion)
+            clone.__dict__.update(source.__dict__)
+            clone.uid = friendly.next_uid()
+            clone.dead = False
+            clone.attacks_this_turn = 0
+            clone.reborn_used = False
+            clone.killed_by_uid = -1
+            clone._stored_clone = None
+            clone.avenge_triggered = False
+            friendly.insert_at(pos + slot, clone)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Start-of-combat triggers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -600,6 +831,10 @@ def _apply_soc(
             _soc_soulsplitter(m, side, rng)
         elif "stitched_salvager" in key:
             _soc_stitched_salvager(m, side)
+        elif key == "red_whelp":
+            _soc_red_whelp(m, side)
+        elif key == "amalgadon":
+            _soc_amalgadon(m, side, rng)
 
 
 def _soc_amber_guardian(m: CombatMinion, side: CombatSide, rng: random.Random):
@@ -669,6 +904,36 @@ def _soc_stitched_salvager(m: CombatMinion, side: CombatSide):
     neighbour.dead = True                    # will be collected in next death wave
 
 
+def _soc_red_whelp(m: CombatMinion, side: CombatSide):
+    """Gain +1 attack for each Dragon on your side at start of combat."""
+    mult = 2 if m.golden else 1
+    dragon_count = sum(1 for x in side.minions if x.has_tribe("DRAGON"))
+    m.attack += dragon_count * mult
+
+
+_KEYWORD_GRANTS = ("divine_shield", "venomous", "taunt", "windfury")
+
+
+def _soc_amalgadon(m: CombatMinion, side: CombatSide, rng: random.Random):
+    """Gain a random bonus keyword for each distinct tribe among friendly minions."""
+    mult = 2 if m.golden else 1
+    tribes_present: set = set()
+    for x in side.minions:
+        if x is not m:
+            tribes_present.update(x.tribes)
+    bonus_count = len(tribes_present) * mult
+    for _ in range(bonus_count):
+        kw = rng.choice(_KEYWORD_GRANTS)
+        if kw == "divine_shield":
+            m.divine_shield = True
+        elif kw == "venomous":
+            m.venomous = True
+        elif kw == "taunt":
+            m.taunt = True
+        elif kw == "windfury":
+            m.windfury = True
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Attack and damage
 # ─────────────────────────────────────────────────────────────────────────────
@@ -689,6 +954,10 @@ def _do_attack(
     target = _pick_target(attacker, defender_side, rng)
     if target is None:
         return
+
+    # Rally: fire before damage is dealt (BG convention)
+    if attacker.name_key in _RALLY_MINIONS:
+        _fire_rally(attacker, attacker_side, rng)
 
     t_pos = defender_side.position_of(target.uid)
 
@@ -750,6 +1019,9 @@ def _resolve_deaths(side_a: CombatSide, side_b: CombatSide,
                 # Queue reborn if eligible
                 if dead_m.reborn and not dead_m.reborn_used:
                     reborn_queue.append((dead_m, pos))
+
+            # Avenge: check after all deaths on this side have been processed
+            _check_avenge(friendly, rng)
 
             # Apply reborn resurrections (after all DRs on this side have fired)
             for dead_m, death_pos in reborn_queue:
@@ -824,6 +1096,12 @@ def _combat(
 
         attacker.attacks_this_turn = 0
         current.advance_ptr()
+
+        # End-of-turn: fire when the attack pointer wraps back to 0 on *current*
+        # (i.e. after the last minion on this side has attacked).
+        # We fire for both sides once per complete cycle to avoid double-triggering.
+        if current._ptr == 0 and current.alive():
+            _fire_end_of_turn(current, rng)
 
     # ── Outcome ──────────────────────────────────────────────────────────────
     p_alive = side_p.alive()

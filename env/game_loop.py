@@ -23,6 +23,7 @@ from env.tavern_pool import TavernPool
 from env.matchmaker import Matchmaker
 from symbolic.board_computer import SymbolicBoardComputer
 from symbolic.firestone_client import FirestoneClient
+from symbolic.effect_handler import EffectHandler
 from agent.card_encoder import CardEncoder
 
 logger = logging.getLogger(__name__)
@@ -167,6 +168,27 @@ def _encode_zone(
 
 
 # ---------------------------------------------------------------------------
+# Smart play positioning
+# ---------------------------------------------------------------------------
+
+def _smart_position(minion: MinionState, board: list) -> int:
+    """Return the board insertion index for a minion being played.
+
+    Priority order: Taunt → Divine Shield → Windfury → Normal (append).
+    Taunt and Divine Shield minions go to the front (index 0) so they absorb
+    hits early.  Windfury minions go to the back to attack twice safely.
+    All other minions append to the end.
+    """
+    if minion.taunt:
+        return 0
+    if minion.divine_shield:
+        return 0
+    if minion.windfury:
+        return len(board)
+    return len(board)
+
+
+# ---------------------------------------------------------------------------
 # Main game class
 # ---------------------------------------------------------------------------
 
@@ -218,6 +240,7 @@ class BattlegroundsGame:
         self.max_rounds      = max_rounds
         self._rng            = random.Random(seed)
         self.encoder         = CardEncoder(card_defs)
+        self.effect_handler  = EffectHandler(card_defs)
 
         # Populated by reset()
         self.players: List[PlayerState] = []
@@ -295,13 +318,36 @@ class BattlegroundsGame:
 
     def _dict_to_minion(self, d: dict) -> MinionState:
         """Convert a TavernPool card dict to a MinionState."""
+        card_id = d.get("card_id", d.get("id", ""))
+        card_def = self.card_defs.get(card_id, {})
+        mechanics = [m.upper() for m in card_def.get("mechanics", [])]
+        keywords = card_def.get("keywords", {})
+        is_magnetic = (
+            "MAGNETIC" in mechanics
+            or bool(card_def.get("has_magnetic", False))
+            or bool(keywords.get("magnetic", False))
+        )
+        # Detect spells: explicit flag/type, or card def present but has no stats
+        is_spell = (
+            bool(card_def.get("is_spell", False))
+            or card_def.get("type", "").upper() == "SPELL"
+            or (
+                card_def
+                and "base_atk" not in card_def
+                and "base_hp" not in card_def
+                and d.get("attack", -1) < 0
+                and d.get("health", -1) < 0
+            )
+        )
         return MinionState(
-            card_id=d.get("card_id", d.get("id", "")),
+            card_id=card_id,
             name=d.get("name", ""),
             attack=d.get("attack", 0),
             health=d.get("health", 0),
             max_health=d.get("health", 0),
             tier=d.get("tier", 1),
+            magnetic=is_magnetic,
+            is_spell=is_spell,
         )
 
     # ------------------------------------------------------------------
@@ -345,22 +391,60 @@ class BattlegroundsGame:
                 minion = ps.shop.pop(i)
                 ps.hand.append(minion)
                 ps.gold = max(0, ps.gold - 3)
+                from env.triple_system import check_and_process_triple
+                check_and_process_triple(ps, self.tavern_pool)
 
         elif type_action == 1:
             # sell: ptr_action is board slot index (ptr 7-13 → slot 0-6)
             i = ptr_action - PTR_BOARD_OFF
             if 0 <= i < len(ps.board) and ps.board[i] is not None:
-                ps.board.pop(i)
+                minion = ps.board.pop(i)
                 ps.gold = min(ps.max_gold, ps.gold + 1)
+                self.effect_handler.on_sell(ps, minion)
 
         elif type_action == 2:
             # place: ptr_action is hand slot index (ptr 14-23 → slot 0-9)
-            # Board position is always append (two-step model doesn't predict position)
             h = ptr_action - PTR_HAND_OFF
-            if 0 <= h < len(ps.hand) and ps.hand[h] is not None and len(ps.board) < 7:
-                minion = ps.hand.pop(h)
-                ps.board.append(minion)
-                self._update_multiplier_flags(ps)
+            # Spells don't occupy a board slot; minions require board space
+            if 0 <= h < len(ps.hand) and ps.hand[h] is not None:
+                minion = ps.hand[h]
+                board_full = len(ps.board) >= 7
+                if minion.is_spell or not board_full:
+                    ps.hand.pop(h)
+                    if minion.is_spell:
+                        # Cast the spell and discard — no board slot consumed
+                        self._cast_spell(ps, minion)
+                    else:
+                        # Check Magnetic: merge with rightmost friendly Mech if present
+                        mech_targets = [
+                            m for m in ps.board
+                            if "MECH" in (_minion_to_dict(m).get("tribes") or [])
+                            or _minion_to_dict(m).get("tribe", "").upper() == "MECH"
+                        ]
+                        if minion.magnetic and mech_targets:
+                            target = mech_targets[-1]
+                            target.attack += minion.attack
+                            target.health += minion.health
+                            target.max_health += minion.max_health
+                            if minion.divine_shield:
+                                target.divine_shield = True
+                            if minion.taunt:
+                                target.taunt = True
+                            if minion.venomous:
+                                target.venomous = True
+                            if minion.windfury:
+                                target.windfury = True
+                            if minion.reborn:
+                                target.reborn = True
+                            # Magnetic minion merged — not added to board
+                        else:
+                            # Normal placement with smart positioning
+                            pos = _smart_position(minion, ps.board)
+                            ps.board.insert(pos, minion)
+                        self._update_multiplier_flags(ps)
+                        self.effect_handler.on_play(ps, minion)
+                        from env.triple_system import check_and_process_triple
+                        check_and_process_triple(ps, self.tavern_pool)
 
         elif type_action == 3:
             # reroll
@@ -404,6 +488,21 @@ class BattlegroundsGame:
                               for cid in board_ids)
         ps.has_drakkari = any("drakkari" in cid.lower() or "TB_BaconUps_090" in cid
                               for cid in board_ids)
+
+    def _cast_spell(self, ps: PlayerState, minion: MinionState) -> None:
+        """Apply a spell card's effect and discard it.  Falls back to no-op for unknown spells."""
+        name = minion.name.lower()
+        if "blood gem" in name:
+            # Give a random friendly minion +1/+1
+            if ps.board:
+                target = self._rng.choice(ps.board)
+                target.attack += 1
+                target.health += 1
+                target.max_health += 1
+        elif "tavern spell" in name or "coin" in name:
+            # Generic tavern spells / coin: refund 1 gold
+            ps.gold = min(ps.max_gold, ps.gold + 1)
+        # else: no-op for unrecognized spells
 
     # ------------------------------------------------------------------
     # Combat phase

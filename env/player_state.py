@@ -49,6 +49,8 @@ class MinionState:
     perm_hp_bonus: int = 0   # accumulated permanent health buffs
     game_atk_bonus: int = 0  # this-game attack buffs
     game_hp_bonus: int = 0   # this-game health buffs
+    magnetic: bool = False   # Magnetic mechanic: merges with rightmost friendly Mech when played
+    is_spell: bool = False   # True for spell cards (no board slot used)
 
     @classmethod
     def from_snap(cls, snap: dict) -> "MinionState":

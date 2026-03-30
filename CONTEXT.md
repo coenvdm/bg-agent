@@ -1,6 +1,15 @@
 # bg_agent — Development Context Log
 
 ---
+### 2026-03-30 — Magnetic Mechs, smart play positioning, and spell handling
+**Files changed:** `env/player_state.py`, `env/game_loop.py`
+**What was done:** Added `magnetic` and `is_spell` fields to `MinionState`. Updated `_dict_to_minion` to populate both fields from `bg_card_definitions.json` (checking `keywords.magnetic` and `has_magnetic`). The PLACE action in `step_shopping` now: (1) casts and discards spell cards without consuming a board slot, (2) merges Magnetic Mechs into the rightmost friendly Mech on the board instead of placing them separately, and (3) uses a new `_smart_position` helper to insert Taunt/Divine-Shield minions at the front and Windfury/normal minions at the back. Added `_cast_spell` method handling Blood Gem (+1/+1 to random friendly) and generic coin/tavern-spell effects (+1 gold), with a no-op fallback for unknown spells.
+**Current state:** All three mechanics are live in the shopping loop; `policy.py`, `ppo.py`, and `train.py` are unchanged and the action-space layout is unaffected.
+**Open questions / next steps:**
+- `_smart_position` could be made more sophisticated (e.g. place low-health minions behind Taunts).
+- Spell detection relies on absent `base_atk`/`base_hp` plus negative attack/health from the pool dict; a future patch should add an explicit `is_spell` flag to `bg_card_definitions.json`.
+- Additional named spells (e.g. Murozond's Gift, Pirate Parrot spells) can be added to `_cast_spell` as they are encountered.
+---
 ### 2026-03-23 — Expand hand to 10 slots; rename MINION_FEATS/encode_minion to card-agnostic names
 
 **Files changed:** `explore.ipynb`
@@ -560,3 +569,43 @@
 **Open questions / next steps:**
 - Run a dry-run (`python train.py --dry-run`) to confirm no runtime errors end-to-end
 ---
+
+---
+### 2026-03-30 — Implement triple/golden card system
+**Files changed:** `env/triple_system.py`, `env/game_loop.py`
+**What was done:** Created `env/triple_system.py` with `make_golden` (doubles base attack, health, max_health, perm_atk_bonus, perm_hp_bonus and sets golden=True) and `check_and_process_triple` (detects 3+ non-golden copies of the same card_id across hand+board, merges them into one golden copy in hand, returns 2 source cards to the pool, and grants a discover from tier+1 capped at tier 6 with auto-select of first candidate). Wired `check_and_process_triple` into `step_shopping` in `game_loop.py` after both the BUY action (type_action==0) and the PLACE action (type_action==2) succeed.
+**Current state:** Triple detection and golden creation are fully implemented; the discover auto-selects the first card with no UI interaction.
+**Open questions / next steps:**
+- Add a UI/agent hook so the policy can actually choose the discover card instead of always picking index 0
+- Confirm the golden card's `entity_id` is set correctly if entity tracking is added later
+- Run a dry-run to verify no runtime errors from the triple path
+---
+
+---
+### 2026-03-30 — Implement battlecry and sell-effect dispatch (EffectHandler)
+**Files changed:** `symbolic/effect_handler.py`, `env/game_loop.py`
+**What was done:** Created `symbolic/effect_handler.py` with an `EffectHandler` class that dispatches known buy-phase battlecries and sell effects keyed on normalised card name. Battlecries implemented: Murozond (+1/+1 all others), Waxrider Togwaggle (+2/+2 random Dragon), Deflect-o-Bot (divine shield random Mech), Master of Realities (+1/+1 random Elemental), Recruiter (1/1 Recruit token to hand). Sell effects implemented: Sellemental (1/1 Water Droplet Elemental to hand), Gold Grubber (+2/+1 random friendly). All buff battlecries fire twice when `ps.has_brann` is True. Wired `on_play` into `step_shopping` type_action==2 (after `_update_multiplier_flags`, before triple check) and `on_sell` into type_action==1 (after gold return). `EffectHandler` is instantiated in `BattlegroundsGame.__init__` and degrades gracefully when card_defs is empty.
+**Current state:** Playing or selling a minion now triggers the relevant effect for the implemented card set; unrecognised cards are silently ignored.
+**Open questions / next steps:**
+- Discover-type battlecries (e.g. Murozond BG variant) are still skipped pending a UI/agent hook
+- Hero powers remain a no-op placeholder
+- Add unit tests for each battlecry and sell effect
+---
+
+---
+### 2026-03-30 — Magnetic Mechs, smart play positioning, spell handling
+**Files changed:** `env/player_state.py`, `env/game_loop.py`
+**What was done:** Added `magnetic: bool` and `is_spell: bool` fields to MinionState. Updated `_dict_to_minion` to populate these from card_defs mechanics/keywords. PLACE action now: (1) casts and discards spell cards without consuming a board slot; (2) merges Magnetic Mechs into the rightmost friendly Mech (adding all stats and copying keywords); (3) uses `_smart_position` (new helper) to insert normal minions at position 0 for taunt/divine_shield, end for all others. Blood Gem and Coin spells have concrete effects; others are no-op.
+**Current state:** The three mechanics are wired end-to-end; dry-run still passes with no errors.
+**Open questions / next steps:**
+- Smart positioning could be extended: place high-attack minions in front, low-health in back
+- `_cast_spell` handles only Blood Gem and Coin; remaining spells need a dispatch table similar to EffectHandler
+
+---
+### 2026-03-30 — Combat sim: Rally, Avenge, end-of-turn, Khadgar, new DRs and SOC triggers
+**Files changed:** `symbolic/combat_sim.py`
+**What was done:** Extended BGCombatSim with: Rally trigger (`_fire_rally`) for Roaring Recruiter, Felstomper, Stasis Elemental; Avenge mechanic (`_check_avenge`) tracking deaths per side for Famished Felbat, Dragonspawn Lieutenant, Imposing Direhorn, Bristleback Knight; end-of-turn effects (`_fire_end_of_turn`) for Amalgam of the Ancient; Khadgar extra token helper (`_summon_tokens_with_khadgar`) injected at all existing token-summon sites; new deathrattles: Selfless Hero (divine shield random friendly), Kaboom Bot (4 damage random enemy), Kangor's Apprentice (summon 2 dead friendly Mechs); new SOC triggers: Red Whelp (+1 atk per friendly Dragon), Amalgadon (random keyword per distinct tribe).
+**Current state:** Combat sim is substantially more accurate; dry-run still passes.
+**Open questions / next steps:**
+- Avenge triggers fire independently for each avenge minion — check ordering is correct vs real BG rules
+- Kangor's Apprentice needs dead-Mech tracking added to CombatSide
