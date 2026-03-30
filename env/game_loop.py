@@ -687,7 +687,7 @@ class BattlegroundsGame:
             ps.placement = place
             place += 1
 
-        # Final placement rewards
+        # Final placement rewards + terminal transitions
         placements: Dict[int, int] = {}
         final_rewards: Dict[int, float] = {}
         for ps in self.players:
@@ -695,6 +695,19 @@ class BattlegroundsGame:
             placements[ps.player_id] = placement
             final_r = FINAL_PLACEMENT_REWARD.get(placement, -4.0)
             final_rewards[ps.player_id] = cumulative_rewards[ps.player_id] + final_r
+
+            # Terminal transition: delivers the placement reward as a done=True
+            # step so the PPO value target bootstraps to 0 at game end.
+            # Uses the last observation seen by this player and end_turn as the
+            # action (a no-op carrier for the reward signal).
+            agent = active_agents[ps.player_id] if ps.player_id < len(active_agents) else None
+            if hasattr(agent, "record_transition"):
+                last_obs = self._get_observation(ps.player_id)
+                agent.record_transition(
+                    last_obs, 7, -1,   # type=end_turn, no pointer
+                    reward=final_r,
+                    done=True,
+                )
 
         return GameResult(
             placements=placements,

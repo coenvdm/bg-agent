@@ -528,3 +528,23 @@
 - Test that `end_turn_buffers` is fully drained each round (no leaks if a player dies mid-shopping before issuing END_TURN)
 - Putricide/unknown minion encoding: currently falls back to zeros for dims 12–43; a dynamic fallback reading keywords from live state would improve feature coverage
 ---
+
+---
+### 2026-03-30 — Dynamic fallback encoding for unknown/generated minions
+**Files changed:** `agent/card_encoder.py`
+**What was done:** Added `_dynamic_fallback` method to `CardEncoder` that fills dims 8 and 12–38 from the live minion dict when no card definition exists. Recovers tribes from `tribe`/`tribes` fields, infers trigger type via regex against `raw_text`, and detects DR-summon minions. Added `_RAW_TEXT_TRIGGER_PATTERNS` constant for the inference rules. Wired fallback into `encode` so unknown cards (Putricide creations, token summons, etc.) get meaningful features instead of all-zeros.
+**Current state:** Unknown minions now encode with tribe, trigger, and deathrattle signal when the game state provides `tribe`/`tribes`/`raw_text`; pure stat-only unknowns (no extra fields) still degrade gracefully to zeros for those dims.
+**Open questions / next steps:**
+- `board_computer.py` still skips unknown cards in tribal synergy and aura detection — those paths need similar live-state fallbacks
+- Putricide creations with multi-tribe (ALL / ANY) need special handling if that tag surfaces in log data
+- Consider adding token stubs (Skeleton 1/1 Undead, Beetle 2/2 Beast, etc.) to bg_card_definitions.json so the static path is preferred over inference
+---
+
+---
+### 2026-03-30 — Add terminal transition for final placement reward
+**Files changed:** `env/game_loop.py`
+**What was done:** After placements are assigned, each player's agent receives a terminal transition via `record_transition(last_obs, end_turn, -1, reward=final_r, done=True)`. This delivers the +4/-4 placement reward as a `done=True` step so GAE bootstraps to 0 at game end rather than ignoring the signal entirely.
+**Current state:** All reward components (per-step, round combat, final placement) are now captured in the PPO rollout buffer.
+**Open questions / next steps:**
+- Run a dry-run (`python train.py --dry-run`) to confirm no runtime errors end-to-end
+---
