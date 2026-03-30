@@ -517,3 +517,14 @@
 - Final placement reward (+4/-4) is not captured in a transition; could add a terminal transition after game end
 - `record_transition` requires the agent to hold a reference to its PPOTrainer — confirm this is set up correctly in train.py
 ---
+
+---
+### 2026-03-30 — Wire PPOAgent.record_transition into game loop with buffered end-turn flush
+**Files changed:** `env/game_loop.py`
+**What was done:** Added `end_turn_buffers` dict to the shopping phase loop. Non-end-turn transitions are recorded immediately via `agent.record_transition(done=False)`. The END_TURN transition is buffered and flushed after combat so its reward includes both the gold-spend step reward and the post-combat round reward, with `done=True` for eliminated players.
+**Current state:** Self-play now collects transitions correctly; the reward signal on the last shopping action of each round now reflects the full combat outcome.
+**Open questions / next steps:**
+- Confirm `active_agents[pid]` indexing is correct when some agents are non-PPO (e.g. random agents in mixed lobbies)
+- Test that `end_turn_buffers` is fully drained each round (no leaks if a player dies mid-shopping before issuing END_TURN)
+- Putricide/unknown minion encoding: currently falls back to zeros for dims 12–43; a dynamic fallback reading keywords from live state would improve feature coverage
+---
