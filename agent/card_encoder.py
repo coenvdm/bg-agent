@@ -81,6 +81,17 @@ TRIGGER_TYPES: List[str] = [
 ]
 TRIGGER_IDX: Dict[str, int] = {t: i for i, t in enumerate(TRIGGER_TYPES)}
 
+# Patterns used by the dynamic fallback to infer trigger type from raw_text.
+# Checked in order; first match wins.  Keys are trigger_type values.
+_RAW_TEXT_TRIGGER_PATTERNS: List[tuple[str, str]] = [
+    ("deathrattle", r"deathrattle\s*:"),
+    ("battlecry",   r"battlecry\s*:"),
+    ("end_of_turn", r"end of turn"),
+    ("start_of_combat", r"start of combat"),
+    ("on_sell",     r"when you sell|on.?sell"),
+    ("rally",       r"rally\s*:"),
+]
+
 # Effect durations with assigned one-hot indices 29-31; "instant" → all zeros.
 DURATION_TYPES: List[str] = ["permanent", "this_combat", "this_game"]
 DURATION_IDX: Dict[str, int] = {t: i for i, t in enumerate(DURATION_TYPES)}
@@ -138,6 +149,53 @@ class CardEncoder:
         return None
 
     # ------------------------------------------------------------------
+    # Dynamic fallback for unknown/generated minions
+    # ------------------------------------------------------------------
+
+    def _dynamic_fallback(self, minion: dict, feat: np.ndarray) -> None:
+        """Fill dims 8 and 12-38 from the live minion dict when card_defs has
+        no entry for this card.  Recovers tribes, magnetic, and trigger/DR
+        signals without requiring a static definition.
+
+        Used for generated minions (Putricide creations, token summons, etc.)
+        that are absent from bg_card_definitions.json.
+        """
+        # dim 8: magnetic — some game states surface this directly
+        if minion.get("magnetic", False):
+            feat[8] = 1.0
+
+        # dims 12-21: tribes — accept both "tribe" (single str) and "tribes" (list)
+        raw_tribes = minion.get("tribes", None)
+        if raw_tribes is None:
+            t = minion.get("tribe", None)
+            raw_tribes = [t] if t else []
+        elif isinstance(raw_tribes, str):
+            raw_tribes = [raw_tribes]
+        for t in raw_tribes:
+            t_upper = str(t).upper()
+            if t_upper in TRIBE_IDX:
+                feat[12 + TRIBE_IDX[t_upper]] = 1.0
+
+        # dims 22-28: trigger type inferred from raw_text when present
+        raw_text = minion.get("raw_text", "") or ""
+        raw_lower = raw_text.lower()
+        trigger_set = False
+        for trigger_key, pattern in _RAW_TEXT_TRIGGER_PATTERNS:
+            if re.search(pattern, raw_lower):
+                if trigger_key in TRIGGER_IDX:
+                    feat[22 + TRIGGER_IDX[trigger_key]] = 1.0
+                else:
+                    feat[28] = 1.0  # "other"
+                trigger_set = True
+                break
+        if not trigger_set and raw_text:
+            # Has text but no recognised pattern → other
+            feat[28] = 1.0
+
+        # dim 38: deathrattle that summons a token
+        feat[38] = float(bool(re.search(r"deathrattle\s*:\s*summon", raw_lower)))
+
+    # ------------------------------------------------------------------
     # Single-minion encoding
     # ------------------------------------------------------------------
 
@@ -192,6 +250,9 @@ class CardEncoder:
             self.card_defs = _orig
         else:
             cdef = self._get_def(minion.get("card_id", ""))
+
+        if cdef is None:
+            self._dynamic_fallback(minion, feat)
 
         if cdef:
             # dim 8: magnetic
