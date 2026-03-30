@@ -507,3 +507,13 @@
 - `PPOAgent.record_transition` is not yet wired into game_loop; transitions are not being collected during self-play — needs integration
 - Board position for place actions is always append; could add position prediction later
 ---
+
+---
+### 2026-03-30 — Wire PPO transition recording into game_loop.py
+**Files changed:** `env/game_loop.py`
+**What was done:** Added transition recording to the shopping loop. Non-end-turn steps are recorded immediately via `agent.record_transition(..., done=False)`. End-turn steps are buffered in `end_turn_buffers` and flushed after combat in the round-rewards loop, combining the gold-penalty step reward with the round combat reward. `done=True` is set when the player was just eliminated. Uses `hasattr(agent, "record_transition")` so random/scripted agents are unaffected.
+**Current state:** PPO rollout buffer is now populated during self-play. The full training pipeline (game_loop → transitions → PPO update) is wired end-to-end.
+**Open questions / next steps:**
+- Final placement reward (+4/-4) is not captured in a transition; could add a terminal transition after game end
+- `record_transition` requires the agent to hold a reference to its PPOTrainer — confirm this is set up correctly in train.py
+---

@@ -572,6 +572,11 @@ class BattlegroundsGame:
                     self.players[pid_b].next_opponent_id = pid_a
 
             # ---- Shopping phase ----------------------------------------
+            # end_turn_buffers: pid → (obs, type_action, ptr_action, step_reward)
+            # End-turn transitions are buffered here and flushed after combat
+            # so the combined step + round reward can be stored together.
+            end_turn_buffers: dict = {}
+
             for ps in alive_players:
                 ps.round_num = round_num
                 ps.gold      = self._gold_for_round(round_num)
@@ -587,13 +592,24 @@ class BattlegroundsGame:
                 # Shopping action loop
                 max_actions = 30  # safety cap to prevent infinite loops
                 for _ in range(max_actions):
+                    prev_obs = obs
                     type_action, ptr_action = self._get_agent_action(agent, obs, ps)
                     obs, step_reward, done = self.step_shopping(
                         ps.player_id, type_action, ptr_action
                     )
                     cumulative_rewards[ps.player_id] += step_reward
                     if done:
+                        # Buffer end_turn; flushed after combat with round reward
+                        end_turn_buffers[ps.player_id] = (
+                            prev_obs, type_action, ptr_action, step_reward
+                        )
                         break
+                    # Record non-end-turn transitions immediately
+                    if hasattr(agent, "record_transition"):
+                        agent.record_transition(
+                            prev_obs, type_action, ptr_action,
+                            reward=step_reward, done=False,
+                        )
 
             # ---- Combat phase (uses same pairings already announced) ----
             # Snapshot ranks BEFORE combat so the delta includes any kills.
@@ -624,7 +640,7 @@ class BattlegroundsGame:
             new_dead = self._eliminate_players(round_num)
             round_summary["eliminations"] = new_dead
 
-            # ---- Round rewards (computed post-elimination) ----------------
+            # ---- Round rewards + transition flush -------------------------
             for (pid_a, pid_b, result_a, result_b) in combat_results:
                 pairs = [(pid_a, result_a)]
                 if pid_b != -1:
@@ -641,6 +657,19 @@ class BattlegroundsGame:
                         max_health=ps.max_health,
                     )
                     cumulative_rewards[pid] += r
+
+                    # Flush the buffered end-turn transition with the combined
+                    # reward (gold penalty + round reward).  done=True when the
+                    # player was just eliminated; False when they survive.
+                    buf = end_turn_buffers.pop(pid, None)
+                    agent = active_agents[pid] if pid < len(active_agents) else None
+                    if buf is not None and hasattr(agent, "record_transition"):
+                        et_obs, et_type, et_ptr, et_step_reward = buf
+                        agent.record_transition(
+                            et_obs, et_type, et_ptr,
+                            reward=et_step_reward + r,
+                            done=not ps.alive,
+                        )
             round_history.append(round_summary)
 
             alive_after = [p for p in self.players if p.alive]
