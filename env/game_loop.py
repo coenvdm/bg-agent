@@ -24,7 +24,9 @@ from env.matchmaker import Matchmaker
 from symbolic.board_computer import SymbolicBoardComputer
 from symbolic.firestone_client import FirestoneClient
 from symbolic.effect_handler import EffectHandler
+from symbolic.hero_handler import HeroPowerHandler
 from agent.card_encoder import CardEncoder
+from agent.hero_encoder import HERO_DEF_MAP, NULL_HERO_ID
 
 logger = logging.getLogger(__name__)
 
@@ -241,6 +243,7 @@ class BattlegroundsGame:
         self._rng            = random.Random(seed)
         self.encoder         = CardEncoder(card_defs)
         self.effect_handler  = EffectHandler(card_defs)
+        self.hero_handler    = HeroPowerHandler(card_defs, HERO_DEF_MAP)
 
         # Populated by reset()
         self.players: List[PlayerState] = []
@@ -273,12 +276,28 @@ class BattlegroundsGame:
         self._placement_counter = self.n_players  # placements count down from n_players (last place)
         self._accumulated_rewards = {i: 0.0 for i in range(self.n_players)}
 
+        # Assign heroes: sample without replacement from active pool
+        hero_ids = list(HERO_DEF_MAP.keys())
+        active_heroes = [
+            hid for hid in hero_ids
+            if HERO_DEF_MAP[hid].get("phase", 99) <= 2  # phases 0-2 only
+        ]
+        chosen_heroes = self._rng.sample(
+            active_heroes, min(self.n_players, len(active_heroes))
+        )
+        # Pad with null hero if not enough distinct heroes
+        while len(chosen_heroes) < self.n_players:
+            chosen_heroes.append(NULL_HERO_ID)
+
         self.players = []
         for pid in range(self.n_players):
+            hero_card_id = chosen_heroes[pid]
+            hdef = HERO_DEF_MAP.get(hero_card_id, HERO_DEF_MAP[NULL_HERO_ID])
             ps = PlayerState(
                 player_id=pid,
+                hero_card_id=hero_card_id,
                 health=40,
-                armor=0,
+                armor=hdef.get("armor", 0),
                 max_health=40,
                 gold=self._gold_for_round(1),
                 max_gold=10,
@@ -287,6 +306,12 @@ class BattlegroundsGame:
                 frozen=False,
                 round_num=1,
                 alive=True,
+                hero_power_cost=hdef.get("power_cost", 0),
+                hero_power_charges=hdef.get("total_charges", -1),
+                hero_power_counter=0,
+                hero_power_x=4,
+                buy_cost=3,
+                reroll_cost=1,
             )
             # Draw initial shop
             ps.shop = self._draw_shop(ps)
@@ -387,10 +412,16 @@ class BattlegroundsGame:
         if type_action == 0:
             # buy: ptr_action is shop slot index (ptr 0-6 → slot 0-6)
             i = ptr_action - PTR_SHOP_OFF
-            if 0 <= i < len(ps.shop) and ps.shop[i] is not None and ps.gold >= 3:
+            eff_cost = 0 if ps.first_buy_free else max(0, ps.buy_cost - ps.buy_discount)
+            if 0 <= i < len(ps.shop) and ps.shop[i] is not None and ps.gold >= eff_cost:
                 minion = ps.shop.pop(i)
                 ps.hand.append(minion)
-                ps.gold = max(0, ps.gold - 3)
+                ps.gold = max(0, ps.gold - eff_cost)
+                if ps.first_buy_free:
+                    ps.first_buy_free = False  # consumed
+                else:
+                    ps.buy_discount = 0  # consume one-shot discount
+                self.hero_handler.on_buy(ps, minion)
                 from env.triple_system import check_and_process_triple
                 check_and_process_triple(ps, self.tavern_pool)
 
@@ -401,6 +432,14 @@ class BattlegroundsGame:
                 minion = ps.board.pop(i)
                 ps.gold = min(ps.max_gold, ps.gold + 1)
                 self.effect_handler.on_sell(ps, minion)
+                self.hero_handler.on_sell(ps, minion)
+                # Fungalmancer Flurgl: inject Murloc into shop
+                if getattr(ps, "_flurgl_murloc_due", False):
+                    ps._flurgl_murloc_due = False  # type: ignore[attr-defined]
+                    murlocs = self.tavern_pool.draw(ps.tavern_tier, 1)
+                    # (TavernPool.draw doesn't filter by tribe, so this is approximate)
+                    for card in murlocs:
+                        ps.shop.append(self._dict_to_minion(card))
 
         elif type_action == 2:
             # place: ptr_action is hand slot index (ptr 14-23 → slot 0-9)
@@ -443,38 +482,63 @@ class BattlegroundsGame:
                             ps.board.insert(pos, minion)
                         self._update_multiplier_flags(ps)
                         self.effect_handler.on_play(ps, minion)
+                        self.hero_handler.on_play(ps, minion)
                         from env.triple_system import check_and_process_triple
                         check_and_process_triple(ps, self.tavern_pool)
 
         elif type_action == 3:
             # reroll
-            if ps.gold >= 1:
-                ps.gold -= 1
+            if ps.gold >= ps.reroll_cost:
+                ps.gold -= ps.reroll_cost
                 ps.frozen = False
                 ps.shop = self._draw_shop(ps)
+                self.hero_handler.on_refresh(ps)
+                # Ysera: inject a Dragon into the shop
+                if getattr(ps, "_ysera_dragon_due", False):
+                    ps._ysera_dragon_due = False  # type: ignore[attr-defined]
+                    extras = self.tavern_pool.draw(ps.tavern_tier, 1)
+                    for card in extras:
+                        ps.shop.append(self._dict_to_minion(card))
 
         elif type_action == 4:
             # freeze
             ps.frozen = True
 
         elif type_action == 5:
-            # level_up
-            if ps.tavern_tier < 6 and ps.gold >= ps.level_cost:
-                ps.gold = max(0, ps.gold - ps.level_cost)
+            # level_up (Millhouse adds 1 to cost)
+            millhouse = getattr(ps, "_millhouse", False)
+            effective_level_cost = ps.level_cost + (1 if millhouse else 0)
+            if ps.tavern_tier < 6 and ps.gold >= effective_level_cost:
+                ps.gold = max(0, ps.gold - effective_level_cost)
                 ps.tavern_tier = min(6, ps.tavern_tier + 1)
                 ps.level_cost = max(0, self._level_cost_for_tier(ps.tavern_tier) - 1)
                 ps.frozen = False
                 ps.shop = self._draw_shop(ps)
+                self.hero_handler.on_tavern_upgrade(ps)
 
         elif type_action == 6:
-            # hero_power: no-op placeholder
-            pass
+            # hero_power: active no-pointer heroes (Phase 2)
+            hdef = HERO_DEF_MAP.get(ps.hero_card_id, {})
+            ptype = hdef.get("power_type", "null")
+            cost  = ps.hero_power_cost
+            if (
+                not ps.hero_power_used
+                and ptype == "active_noptr"
+                and ps.gold >= cost
+                and (ps.hero_power_charges == -1 or ps.hero_power_charges > 0)
+            ):
+                ps.gold -= cost
+                ps.hero_power_used = True
+                if ps.hero_power_charges > 0:
+                    ps.hero_power_charges -= 1
+                self.hero_handler.activate_no_pointer(ps, self.tavern_pool)
 
         elif type_action == 7:
             # end_turn — penalize unspent gold (gold efficiency signal).
             # Scale by round: full penalty early, fades to 20% by round 16+.
             gold_scale = max(0.2, 1.0 - (ps.round_num - 1) / 15.0)
             reward -= 0.05 * ps.gold * gold_scale
+            self.hero_handler.on_end_turn(ps)
             done = True
 
         return self._get_observation(player_id), reward, done
@@ -681,9 +745,21 @@ class BattlegroundsGame:
                 ps.gold      = self._gold_for_round(round_num)
                 # Decrease level_cost by 1 each turn (BG mechanic), floor at 0
                 ps.level_cost = max(0, ps.level_cost - 1)
+                # Reset hero power availability for this turn
+                ps.hero_power_used = False
                 # Redraw shop (respects frozen flag)
                 ps.shop = self._draw_shop(ps)
                 ps.frozen = False  # reset freeze flag after draw
+                # Hero passive: on_start_of_round (may add gold, set cost overrides)
+                self.hero_handler.on_start_of_round(ps)
+                # Hero passive: on_refresh fires on initial shop draw too
+                self.hero_handler.on_refresh(ps)
+                # Ysera: inject Dragon into initial shop
+                if getattr(ps, "_ysera_dragon_due", False):
+                    ps._ysera_dragon_due = False  # type: ignore[attr-defined]
+                    extras = self.tavern_pool.draw(ps.tavern_tier, 1)
+                    for card in extras:
+                        ps.shop.append(self._dict_to_minion(card))
 
                 obs = self._get_observation(ps.player_id)
                 agent = active_agents[ps.player_id] if ps.player_id < len(active_agents) else None

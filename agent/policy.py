@@ -452,14 +452,31 @@ def build_type_mask(player_state) -> torch.Tensor:
     n_board = sum(1 for s in board if _slot_occupied(s))
     n_hand  = sum(1 for s in hand  if _slot_occupied(s))
 
+    _buy_cost    = getattr(player_state, "buy_cost", 3)
+    _reroll_cost = getattr(player_state, "reroll_cost", 1)
+    _buy_discount = getattr(player_state, "buy_discount", 0)
+    _first_free  = getattr(player_state, "first_buy_free", False)
+    _eff_buy_cost = 0 if _first_free else max(0, _buy_cost - _buy_discount)
+
     mask = torch.zeros(N_ACTION_TYPES, dtype=torch.bool)
-    if n_shop  > 0 and gold >= 3 and n_hand < 10: mask[0] = True  # buy
-    if n_board > 0:                                mask[1] = True  # sell
-    if n_hand  > 0 and n_board < 7:               mask[2] = True  # place
-    if gold >= 1:                                  mask[3] = True  # reroll
+    if n_shop  > 0 and gold >= _eff_buy_cost and n_hand < 10: mask[0] = True  # buy
+    if n_board > 0:                                            mask[1] = True  # sell
+    if n_hand  > 0 and n_board < 7:                           mask[2] = True  # place
+    if gold >= _reroll_cost:                                   mask[3] = True  # reroll
     mask[4] = True                                                  # freeze
     if tavern_tier < 6 and gold >= level_cost:    mask[5] = True  # level_up
-    mask[6] = True                                                  # hero_power
+    # hero_power: valid when not used, has charges, enough gold, and hero is active
+    _hp_used    = getattr(player_state, "hero_power_used", False)
+    _hp_charges = getattr(player_state, "hero_power_charges", -1)
+    _hp_cost    = getattr(player_state, "hero_power_cost", 0)
+    _hero_id    = getattr(player_state, "hero_card_id", "")
+    _hp_active  = _hero_id not in ("", "TB_BaconShop_HERO_00")
+    mask[6] = bool(
+        not _hp_used
+        and (_hp_charges == -1 or _hp_charges > 0)
+        and gold >= _hp_cost
+        and _hp_active
+    )  # hero_power
     mask[7] = True                                                  # end_turn
     return mask
 

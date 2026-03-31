@@ -43,6 +43,7 @@ class MinionState:
     taunt: bool = False
     windfury: bool = False
     golden: bool = False
+    maiev_dormant_rounds: int = 0  # >0 = dormant, skipped in combat
     tier: int = 1
     zone_pos: int = 0
     perm_atk_bonus: int = 0  # accumulated permanent attack buffs
@@ -94,6 +95,18 @@ class PlayerState:
     hero_card_id: str = ""
     health: int = 40
     armor: int = 0
+    # ── Hero power state ─────────────────────────────────────────────────────
+    hero_power_used:     bool  = False   # reset to False at start of each buy phase
+    hero_power_charges:  int   = -1      # remaining uses this game; -1 = unlimited
+    hero_power_cost:     int   = 0       # current gold cost
+    hero_power_counter:  int   = 0       # general-purpose progression counter
+    hero_power_x:        int   = 4       # growing X for Pyramad-style heroes
+    hero_extra_gold:     int   = 0       # pending extra gold to grant next turn
+    # ── Buy cost overrides ───────────────────────────────────────────────────
+    buy_cost:            int   = 3       # cost to buy a Tavern minion (Millhouse: 2)
+    reroll_cost:         int   = 1       # cost to reroll (Millhouse: still 1, but shop cost=2)
+    buy_discount:        int   = 0       # one-shot discount on next buy (Edwin VanCleef)
+    first_buy_free:      bool  = False   # Aranna: first buy each turn costs 0
     max_health: int = 40
     gold: int = 0
     max_gold: int = 10

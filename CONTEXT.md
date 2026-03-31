@@ -1,6 +1,12 @@
 # bg_agent — Development Context Log
 
 ---
+### 2026-03-31 — Phase 1 & 2 hero power system
+**Files changed:** `hero_definitions.json`, `HEROES.md`, `agent/hero_encoder.py`, `symbolic/hero_handler.py`, `env/player_state.py`, `env/game_loop.py`, `agent/policy.py`
+**What was done:** Implemented the full Phase 1 (passive) and Phase 2 (active no-pointer) hero power system. Created `hero_definitions.json` with 29 heroes (1 null + 16 Phase 1 + 12 Phase 2). `HeroPowerHandler` dispatches all passive hooks (on_sell, on_buy, on_play, on_refresh, on_tavern_upgrade, on_start_of_round, on_end_turn) and the `activate_no_pointer` path for type_action==6. `PlayerState` gained 10 new hero-power and buy-cost-override fields; `MinionState` gained `maiev_dormant_rounds`. `build_type_mask` now correctly gates hero_power on gold/charges/used-flag. Heroes are assigned without replacement at game start via `reset()`.
+**Current state:** Full game dry-run passes (2 games, ~1900 transitions each). All 9 hero unit tests pass. Heroes are correctly assigned and their effects fire during gameplay.
+**Open questions / next steps:** Phase 3 targeted heroes (Vol'jin, Shudderwock, Maiev, Saurfang) require extending `TYPES_WITH_POINTER` to include type 6 and a two-step HERO_POWER_T2 action. Hero identity is not yet encoded in the policy input (scalar_context still 38-dim; hero embedding + 4 flags would expand to 50). Ysera/Fungalmancer Flurgl use flag-based pool injection which is approximate (no tribe filtering in TavernPool).
+---
 ### 2026-03-30 — Magnetic Mechs, smart play positioning, and spell handling
 **Files changed:** `env/player_state.py`, `env/game_loop.py`
 **What was done:** Added `magnetic` and `is_spell` fields to `MinionState`. Updated `_dict_to_minion` to populate both fields from `bg_card_definitions.json` (checking `keywords.magnetic` and `has_magnetic`). The PLACE action in `step_shopping` now: (1) casts and discards spell cards without consuming a board slot, (2) merges Magnetic Mechs into the rightmost friendly Mech on the board instead of placing them separately, and (3) uses a new `_smart_position` helper to insert Taunt/Divine-Shield minions at the front and Windfury/normal minions at the back. Added `_cast_spell` method handling Blood Gem (+1/+1 to random friendly) and generic coin/tavern-spell effects (+1 gold), with a no-op fallback for unknown spells.
@@ -604,8 +610,9 @@
 ---
 ### 2026-03-30 — Combat sim: Rally, Avenge, end-of-turn, Khadgar, new DRs and SOC triggers
 **Files changed:** `symbolic/combat_sim.py`
-**What was done:** Extended BGCombatSim with: Rally trigger (`_fire_rally`) for Roaring Recruiter, Felstomper, Stasis Elemental; Avenge mechanic (`_check_avenge`) tracking deaths per side for Famished Felbat, Dragonspawn Lieutenant, Imposing Direhorn, Bristleback Knight; end-of-turn effects (`_fire_end_of_turn`) for Amalgam of the Ancient; Khadgar extra token helper (`_summon_tokens_with_khadgar`) injected at all existing token-summon sites; new deathrattles: Selfless Hero (divine shield random friendly), Kaboom Bot (4 damage random enemy), Kangor's Apprentice (summon 2 dead friendly Mechs); new SOC triggers: Red Whelp (+1 atk per friendly Dragon), Amalgadon (random keyword per distinct tribe).
-**Current state:** Combat sim is substantially more accurate; dry-run still passes.
+**What was done:** Extended BGCombatSim with five major mechanic additions: (1) Rally trigger (`_fire_rally`) firing at attack time for Roaring Recruiter (+3/+1 random friendly), Felstomper (+2/+0 all friendly Beasts), Stasis Elemental (+1/+1 all friendlies); (2) Avenge mechanic with `deaths_this_combat` counter on CombatSide, `_check_avenge()` called after each death-resolution wave, covering Famished Felbat, Dragonspawn Lieutenant, Imposing Direhorn, Bristleback Knight; (3) end-of-turn effects (`_fire_end_of_turn`) firing when the attack pointer wraps to 0, implementing Amalgam of the Ancient; (4) Khadgar extra-token helper (`_has_khadgar`, `_summon_tokens_with_khadgar`) available as a call-site utility; (5) three new deathrattles (Selfless Hero, Kaboom Bot, Kangor's Apprentice with dead-Mech tracking on CombatSide) and two new SOC triggers (Red Whelp, Amalgadon).
+**Current state:** Combat sim now covers all five major in-combat mechanic families (DR, SOC, Rally, Avenge, EOT); the BGCombatSim public interface is unchanged.
 **Open questions / next steps:**
-- Avenge triggers fire independently for each avenge minion — check ordering is correct vs real BG rules
-- Kangor's Apprentice needs dead-Mech tracking added to CombatSide
+- Khadgar helper exists but existing DR token summons still use direct `_make_token` — callers can be migrated to `_summon_tokens_with_khadgar` in a follow-up
+- Avenge triggers fire per avenge-minion at the first death-wave where threshold is crossed; verify BG rules on simultaneous avenge interactions
+---
