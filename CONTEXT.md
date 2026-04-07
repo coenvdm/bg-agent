@@ -1,6 +1,16 @@
 # bg_agent — Development Context Log
 
 ---
+### 2026-04-07 — Fix missing enc_zone helper in explore.ipynb
+**Files changed:** `explore.ipynb`
+**What was done:** Added the `enc_zone(zone, tavern_tier, round_num)` helper function as a new notebook cell (inserted before the PPO forward-pass demo cell). The function wraps `board_computer.compute()` + `card_encoder.encode_board()` and returns `(7×44 ndarray, BoardFeatures)`, matching the call signature already used in the demo cell.
+**Current state:** The PPO forward-pass demo cell in explore.ipynb can now run without a `NameError`.
+**Open questions / next steps:**
+- Verify the full forward-pass demo cell runs end-to-end with real game data.
+- Consider moving `enc_zone` into a shared utility module if it is needed outside the notebook.
+---
+
+---
 ### 2026-03-31 — Phase 1 & 2 hero power system
 **Files changed:** `hero_definitions.json`, `HEROES.md`, `agent/hero_encoder.py`, `symbolic/hero_handler.py`, `env/player_state.py`, `env/game_loop.py`, `agent/policy.py`
 **What was done:** Implemented the full Phase 1 (passive) and Phase 2 (active no-pointer) hero power system. Created `hero_definitions.json` with 29 heroes (1 null + 16 Phase 1 + 12 Phase 2). `HeroPowerHandler` dispatches all passive hooks (on_sell, on_buy, on_play, on_refresh, on_tavern_upgrade, on_start_of_round, on_end_turn) and the `activate_no_pointer` path for type_action==6. `PlayerState` gained 10 new hero-power and buy-cost-override fields; `MinionState` gained `maiev_dormant_rounds`. `build_type_mask` now correctly gates hero_power on gold/charges/used-flag. Heroes are assigned without replacement at game start via `reset()`.
