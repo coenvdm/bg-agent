@@ -1,6 +1,16 @@
 # bg_agent — Development Context Log
 
 ---
+### 2026-04-09 — Notebook execution outputs committed
+**Files changed:** `explore.ipynb`
+**What was done:** Ran explore.ipynb end-to-end after the enc_zone fix; cell outputs and execution counts were updated in the notebook file. Also diagnosed a disk-full issue (C: at 100%) — pip cache (2.5 GB) and Temp (2.9 GB) identified as main culprits.
+**Current state:** Notebook runs cleanly through the PPO forward-pass demo; no source logic changed.
+**Open questions / next steps:**
+- Free disk space: run `pip cache purge` and clear Temp to recover ~5 GB.
+- Consider adding `nbstripout` via `.gitattributes` to avoid large output diffs on every notebook run.
+---
+
+---
 ### 2026-04-07 — Fix missing enc_zone helper in explore.ipynb
 **Files changed:** `explore.ipynb`
 **What was done:** Added the `enc_zone(zone, tavern_tier, round_num)` helper function as a new notebook cell (inserted before the PPO forward-pass demo cell). The function wraps `board_computer.compute()` + `card_encoder.encode_board()` and returns `(7×44 ndarray, BoardFeatures)`, matching the call signature already used in the demo cell.
