@@ -729,3 +729,13 @@
 - Delete or archive `bg_agent_ppo.pt` before starting a fresh training run (it will be overwritten on first checkpoint save anyway).
 - Run 500+ games to compare convergence against old architecture.
 - Future: retrain BC model with new BGPolicyNetwork architecture to re-enable warm-start.
+---
+### 2026-04-10 — Architecture overhaul + notebook scalar-dim fixes
+**Files changed:** `agent/policy.py`, `env/game_loop.py`, `train.py`, `explore.ipynb`
+**What was done:** Overhauled BGPolicyNetwork to d_model=256/4-layers/8-heads (~3.46M params). Replaced CLS→24 pointer_head MLP with three per-token scorers (sell/buy/place Linear(256,1)) acting directly on zone tokens. Added slot_pos_embed (Embedding(10,256)) per zone. Expanded scalar context from 38→94 dims: own(24) + all_opp(8×8=64) + lobby(6). Updated _get_observation() in game_loop.py and all train.py build sites. Fixed explore.ipynb cells (policy_forward, scalar_viz, scalar_header, policy_header) that still used 38-dim tensors.
+**Current state:** Architecture is complete, dry-run passes (2 games, no NaN). All notebook demo cells use 94-dim scalars. Ready for sustained PPO training from random init.
+**Open questions / next steps:**
+- Resume PPO training (restart kernel, re-run cells 46-48); monitor reward trend over 50+ games
+- BC retrain with new arch for faster convergence warm-start
+- Consider in-turn action history LSTM for coherent multi-step turn planning
+---
