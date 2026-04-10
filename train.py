@@ -268,6 +268,19 @@ def run_one_game(
 # Parallel worker  (module-level — required for Windows multiprocessing spawn)
 # -------------------------------------------------------------------------
 
+# Per-process cache populated by _worker_init — avoids re-pickling card_defs
+# on every single game call (card_defs is ~1 MB and never changes).
+_W_CARD_DEFS: dict = {}
+_W_DEVICE: str = "cpu"
+
+
+def _worker_init(card_defs: dict, device: str) -> None:
+    """Pool initializer: runs once per worker process on Windows spawn."""
+    global _W_CARD_DEFS, _W_DEVICE
+    _W_CARD_DEFS = card_defs
+    _W_DEVICE    = device
+
+
 def _worker_run_game(task: tuple) -> tuple:
     """Run one self-play game in a subprocess.
 
@@ -279,9 +292,10 @@ def _worker_run_game(task: tuple) -> tuple:
     Parameters (unpacked from *task*)
     ---------------------------------
     state_dict : dict           — policy.state_dict() snapshot
-    card_defs  : dict           — card definitions (plain dict, picklable)
-    device     : str            — torch device ('cpu')
     seed       : int | None     — per-game RNG seed
+
+    card_defs and device are read from the per-process globals set by
+    _worker_init, so they are NOT re-pickled on every call.
 
     Returns
     -------
@@ -293,7 +307,9 @@ def _worker_run_game(task: tuple) -> tuple:
     import numpy as _np
     import torch as _torch
 
-    state_dict, card_defs, device, seed = task
+    state_dict, seed = task
+    card_defs = _W_CARD_DEFS
+    device    = _W_DEVICE
 
     if seed is not None:
         _random.seed(seed)
@@ -391,20 +407,27 @@ def _train_parallel(
     update_count = 0
     game_idx     = 0
 
-    with ProcessPoolExecutor(max_workers=n_workers) as pool:
+    with ProcessPoolExecutor(
+        max_workers=n_workers,
+        initializer=_worker_init,
+        initargs=(card_defs, args.device),
+    ) as pool:
+        # Snapshot weights once; only re-clone after each PPO update
+        sd = {k: v.detach().cpu().clone() for k, v in policy.state_dict().items()}
+        sd_stale = False
+
         while game_idx < n_games:
             batch_n = min(n_workers, n_games - game_idx)
 
-            # Snapshot current policy weights (CPU copies — picklable)
-            sd = {k: v.detach().cpu().clone() for k, v in policy.state_dict().items()}
+            if sd_stale:
+                sd = {k: v.detach().cpu().clone() for k, v in policy.state_dict().items()}
+                sd_stale = False
 
             # Use total_steps as seed offset so each re-run gets fresh seeds
             seed_base = ppo_trainer.total_steps
             tasks = [
                 (
                     sd,
-                    card_defs,
-                    args.device,
                     (args.seed + seed_base + i) if args.seed is not None else None,
                 )
                 for i in range(batch_n)
@@ -436,6 +459,7 @@ def _train_parallel(
                 if len(ppo_trainer.buffer) > 0:
                     metrics = ppo_trainer.update(last_value=0.0)
                     update_count += 1
+                    sd_stale = True   # weights changed — reclone before next batch
                     log_update_metrics(update_count, metrics)
 
                     nan_count = sum(
