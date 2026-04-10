@@ -674,3 +674,13 @@
 - Khadgar helper exists but existing DR token summons still use direct `_make_token` — callers can be migrated to `_summon_tokens_with_khadgar` in a follow-up
 - Avenge triggers fire per avenge-minion at the first death-wave where threshold is crossed; verify BG rules on simultaneous avenge interactions
 ---
+
+---
+### 2026-04-10 — PPO training + turn inspection notebook cells; ANOMALIES.md
+**Files changed:** `explore.ipynb`, `ANOMALIES.md`
+**What was done:** Added two new notebook sections. (1) PPO Training: imports, policy + PPO setup with BC v2 warm-start, a 50-game self-play training loop with live reward/loss reporting, and training-curve plots. (2) Turn Inspection: a `RecordingAgent` that captures every greedy action with value estimates and type probabilities, a round-by-round text log, a full-game overview (V(s) trace + action-type stacked bar), and a per-round deep-dive heatmap. Also created `ANOMALIES.md` documenting the full Season 11 anomaly pool (the last season anomalies were active, removed in Season 12) with effect text, categories, and simulator implementation notes.
+**Current state:** Notebook has 57 cells; all new code cells parse cleanly. Training cells are ready to run.
+**Open questions / next steps:**
+- Run the training cells and observe whether the agent develops coherent strategies (leveling timing, tribe focus, economy management).
+- Check if value estimates V(s) rise meaningfully as training progresses (indicates the critic is learning).
+- Increase N_GAMES beyond 50 once behavior looks plausible.
