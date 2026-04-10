@@ -1116,29 +1116,34 @@ class BattlegroundsGame:
         opp_tokens = _encode_zone(opp_board, self.encoder, 7, **ctx)
 
         # Own board scalar (24 dims)
-        # + opponent scalar (8 dims: tier, health, armor, board_size,
-        #                    dominant_tribe_count, is_synergistic,
-        #                    rounds_since_seen, health_delta)
+        # + all-opponent scalar (7 × 8 = 56 dims, sorted by player_id; own slot zeroed)
+        #     each 8-dim block: tier/7, health/40, armor/10, board_size/7,
+        #                       dominant_tribe_count/7, is_synergistic,
+        #                       rounds_since_seen/10, health_delta/40
         # + lobby scalar (6 dims: num_alive, mean_tier, mean_health,
         #                         num_synergistic, health_rank, tier_rank)
-        # = 38 dims total
+        # = 86 dims total
         own_scalar = features.to_scalar_vector()  # [24]
 
-        if opp_snap is not None:
-            rounds_since_seen = (ps.round_num - opp_snap.last_seen_round) / 10.0
-            health_delta = (opp_snap.health - opp_snap.prev_health) / 40.0
-            opp_scalar = np.array([
-                opp_snap.tavern_tier / 7.0,           # 24
-                opp_snap.health / 40.0,               # 25
-                opp_snap.armor / 10.0,                # 26
-                opp_snap.board_size / 7.0,            # 27
-                opp_snap.dominant_tribe_count / 7.0,  # 28
-                float(opp_snap.is_synergistic),       # 29
-                rounds_since_seen,                    # 30
-                health_delta,                         # 31
-            ], dtype=np.float32)
-        else:
-            opp_scalar = np.zeros(8, dtype=np.float32)
+        # All-opponent block: one 8-dim slot per player_id 0..n_players-1
+        all_opp_scalar = np.zeros(self.n_players * 8, dtype=np.float32)
+        for opp_pid in range(self.n_players):
+            if opp_pid == player_id:
+                continue  # own slot stays zero
+            snap = ps.opponent_snapshots.get(opp_pid)
+            if snap is None:
+                continue
+            base = opp_pid * 8
+            all_opp_scalar[base:base + 8] = [
+                snap.tavern_tier / 7.0,
+                snap.health / 40.0,
+                snap.armor / 10.0,
+                snap.board_size / 7.0,
+                snap.dominant_tribe_count / 7.0,
+                float(snap.is_synergistic),
+                (ps.round_num - snap.last_seen_round) / 10.0,
+                (snap.health - snap.prev_health) / 40.0,
+            ]
 
         # Lobby-wide summary over all known opponent snapshots
         all_players = self.players
@@ -1166,22 +1171,22 @@ class BattlegroundsGame:
                             if p.player_id == player_id), n_alive)
 
         lobby_scalar = np.array([
-            n_alive / 8.0,                        # 32
-            mean_opp_tier / 7.0,                  # 33
-            mean_opp_health / 40.0,               # 34
-            num_synergistic / 7.0,                # 35
-            health_rank / 8.0,                    # 36
-            tier_rank / 8.0,                      # 37
+            n_alive / 8.0,
+            mean_opp_tier / 7.0,
+            mean_opp_health / 40.0,
+            num_synergistic / 7.0,
+            health_rank / 8.0,
+            tier_rank / 8.0,
         ], dtype=np.float32)
 
-        scalar_ctx = np.concatenate([own_scalar, opp_scalar, lobby_scalar])  # [38]
+        scalar_ctx = np.concatenate([own_scalar, all_opp_scalar, lobby_scalar])  # [86]
 
         return {
             "board_tokens":   board_tokens,   # [7, 44]
             "shop_tokens":    shop_tokens,    # [7, 44]
             "hand_tokens":    hand_tokens,    # [10, 44]
             "opp_tokens":     opp_tokens,     # [7, 44]  next opponent's last board
-            "scalar_context": scalar_ctx,     # [38]
+            "scalar_context": scalar_ctx,     # [86]
             "player_id":      player_id,
             "player_state":   ps,
         }

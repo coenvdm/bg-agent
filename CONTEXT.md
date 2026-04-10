@@ -719,3 +719,13 @@
 **Open questions / next steps:**
 - Benchmark actual wall-clock speedup vs. serial (expect ~N_WORKERS× on 16-core machine).
 - Increase `N_GAMES` to 500+ once the setup is confirmed working.
+
+---
+### 2026-04-10 — Architecture overhaul: per-token pointer, slot positions, 3.5M params, all-opp context
+**Files changed:** `agent/policy.py`, `env/game_loop.py`, `train.py`, `explore.ipynb`
+**What was done:** Redesigned BGPolicyNetwork with four improvements: (1) per-token pointer scoring — three Linear(d_model,1) scorers acting directly on board/shop/hand Transformer outputs replace the global CLS→24 pointer MLP, giving the network direct card-selection signal; (2) slot positional encoding — shared Embedding(10,d_model) applied per zone so slot 0 on the board vs slot 3 is distinguishable; (3) scaled up to d_model=256, 4 layers, 8 heads (~3.5M params vs ~700K); (4) all-opponent scalar context expanded from 8 dims (one announced opponent) to 64 dims (all 8 player slots × 8 dims, own slot zeroed), SCALAR_DIM 38→94. BC warm-start disabled (d_model mismatch); PPO trains from Xavier init.
+**Current state:** Dry-run passes cleanly (2 games, 403 transitions, no NaN). Old checkpoint shapes trigger a load warning and are skipped automatically — training starts fresh.
+**Open questions / next steps:**
+- Delete or archive `bg_agent_ppo.pt` before starting a fresh training run (it will be overwritten on first checkpoint save anyway).
+- Run 500+ games to compare convergence against old architecture.
+- Future: retrain BC model with new BGPolicyNetwork architecture to re-enable warm-start.

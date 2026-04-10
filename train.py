@@ -71,6 +71,8 @@ class PPOAgent:
         self.device       = device
         self.deterministic = deterministic
         self._last_obs: Optional[dict] = None
+        self._cached_type_mask: Optional[np.ndarray] = None
+        self._cached_ptr_mask:  Optional[np.ndarray] = None
 
     def get_action(self, obs: dict) -> tuple:
         """Select an action given an observation dict.
@@ -123,6 +125,14 @@ class PPOAgent:
         """
         if obs is None:
             return
+        # Fall back to building masks from obs if get_action hasn't been called yet
+        # (e.g. for terminal transitions delivered to players eliminated mid-game).
+        if self._cached_type_mask is None:
+            ps = obs.get("player_state")
+            self._cached_type_mask = build_type_mask(ps).numpy() if ps is not None else np.ones(N_ACTION_TYPES, dtype=bool)
+        if self._cached_ptr_mask is None:
+            ps = obs.get("player_state")
+            self._cached_ptr_mask = build_pointer_mask(ps, type_action).numpy() if ps is not None else np.ones(POINTER_DIM, dtype=bool)
         type_mask = self._cached_type_mask
         ptr_mask  = self._cached_ptr_mask
         self.trainer.collect_transition(
@@ -195,10 +205,10 @@ def build_components(
 
     policy = BGPolicyNetwork(
         card_dim=44,
-        d_model=128,
-        nhead=4,
-        num_layers=3,
-        scalar_dim=38,
+        d_model=256,
+        nhead=8,
+        num_layers=4,
+        scalar_dim=94,
         dropout=0.1,
     ).to(device)
 
@@ -296,8 +306,8 @@ def _worker_run_game(task: tuple) -> tuple:
     firestone   = FirestoneClient(firestone_path=None, mock_mode=True)
 
     policy = BGPolicyNetwork(
-        card_dim=44, d_model=128, nhead=4, num_layers=3,
-        scalar_dim=38, dropout=0.1,
+        card_dim=44, d_model=256, nhead=8, num_layers=4,
+        scalar_dim=94, dropout=0.1,
     ).to(device)
     policy.load_state_dict(state_dict)
 

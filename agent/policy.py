@@ -6,8 +6,9 @@ Architecture:
   - Zone embedding: 0=board, 1=shop, 2=hand, 3=opponent_board
   - CLS token prepended
   - Single Transformer encoder over [CLS + 7 board + 7 shop + 10 hand + 7 opp] = 32 tokens
-  - type_head:    CLS + scalar_context → 8 action-type logits  (matching BGPolicyV2)
-  - pointer_head: CLS + scalar_context → 24 card-pointer logits (matching BGPolicyV2)
+  - type_head:    CLS + scalar_context → 8 action-type logits
+  - pointer_head: per-token scorers (sell/buy/place) acting directly on Transformer
+                  outputs for board/shop/hand tokens → 24 card-pointer logits
   - value_head:   CLS + scalar_context → scalar value
 
 Action types (8, matching BGPolicyV2 BC model):
@@ -25,11 +26,12 @@ Pointer layout (24, matching BGPolicyV2 BC model):
   [7-13]  board slots
   [14-23] hand  slots
 
-scalar_context layout (38 dims):
+scalar_context layout (94 dims):
   [0:24]  own board features (SymbolicBoardComputer.to_scalar_vector)
-  [24:32] next-opponent features: tier/7, health/40, armor/10, board_size/7,
+  [24:88] all-opponent features: 8 × 8 dims, indexed by player_id (own slot zeroed)
+          each 8-dim block: tier/7, health/40, armor/10, board_size/7,
           dominant_tribe_count/7, is_synergistic, rounds_since_seen/10, health_delta/40
-  [32:38] lobby-wide features: num_alive/8, mean_opp_tier/7, mean_opp_health/40,
+  [88:94] lobby-wide features: num_alive/8, mean_opp_tier/7, mean_opp_health/40,
           num_synergistic_boards/7, health_rank/8, tier_rank/8
 """
 
@@ -46,7 +48,7 @@ logger = logging.getLogger(__name__)
 
 # ── Input dimensions ──────────────────────────────────────────────────────────
 CARD_DIM   = 44
-SCALAR_DIM = 38   # 24 own-board + 8 next-opponent + 6 lobby
+SCALAR_DIM = 94   # 24 own-board + 64 all-opponents (8×8, own slot zeroed) + 6 lobby
 
 # ── Action type space (matches BGPolicyV2) ────────────────────────────────────
 N_ACTION_TYPES    = 8
@@ -102,9 +104,9 @@ class BGPolicyNetwork(nn.Module):
     def __init__(
         self,
         card_dim:   int = CARD_DIM,
-        d_model:    int = 128,
-        nhead:      int = 4,
-        num_layers: int = 3,
+        d_model:    int = 256,
+        nhead:      int = 8,
+        num_layers: int = 4,
         scalar_dim: int = SCALAR_DIM,
         dropout:    float = 0.1,
     ) -> None:
@@ -116,6 +118,9 @@ class BGPolicyNetwork(nn.Module):
 
         # Zone type embedding: 0=board, 1=shop, 2=hand, 3=opponent_board
         self.zone_embed = nn.Embedding(4, d_model)
+
+        # Slot position embedding: shared across zones, 10 positions (hand is widest)
+        self.slot_pos_embed = nn.Embedding(10, d_model)
 
         # Learnable CLS token
         self.cls_token = nn.Parameter(torch.zeros(1, 1, d_model))
@@ -133,20 +138,20 @@ class BGPolicyNetwork(nn.Module):
         # Scalar context projection: scalar_dim → d_model
         self.scalar_proj = nn.Linear(scalar_dim, d_model)
 
-        # ── Two-headed policy output (matching BGPolicyV2 structure) ─────────
-        # Both heads receive fused = [CLS ‖ scalar_emb] of size d_model*2
+        # ── Type head: [CLS ‖ scalar] → 8 action-type logits ─────────────────
         self.type_head = nn.Sequential(
             nn.Linear(d_model * 2, d_model),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(d_model, N_ACTION_TYPES),   # → [B, 8]
+            nn.Linear(d_model, N_ACTION_TYPES),
         )
-        self.pointer_head = nn.Sequential(
-            nn.Linear(d_model * 2, d_model),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(d_model, POINTER_DIM),      # → [B, 24]
-        )
+
+        # ── Per-token pointer scorers (replaces global pointer_head MLP) ──────
+        # Each scorer maps a token's Transformer output directly to a scalar score.
+        # Token layout after forward: 0=CLS, 1-7=board, 8-14=shop, 15-24=hand, 25-31=opp
+        self.sell_scorer  = nn.Linear(d_model, 1)   # scores board tokens → sell logits
+        self.buy_scorer   = nn.Linear(d_model, 1)   # scores shop  tokens → buy   logits
+        self.place_scorer = nn.Linear(d_model, 1)   # scores hand  tokens → place logits
 
         # Value head: [CLS ‖ scalar] → scalar value
         self.value_head = nn.Sequential(
@@ -198,7 +203,20 @@ class BGPolicyNetwork(nn.Module):
         else:
             opp_emb = torch.zeros(B, 7, self.d_model, device=device)
 
+        # Slot positional encoding: shared table, applied per zone independently
+        # so slot 0 in the shop and slot 0 on the board share the same "first slot" signal.
+        def _add_slot_pos(emb: torch.Tensor) -> torch.Tensor:
+            n = emb.shape[1]
+            pos_ids = torch.arange(n, device=device)            # [n]
+            return emb + self.slot_pos_embed(pos_ids).unsqueeze(0)  # broadcast over B
+
+        board_emb = _add_slot_pos(board_emb)
+        shop_emb  = _add_slot_pos(shop_emb)
+        hand_emb  = _add_slot_pos(hand_emb)
+        opp_emb   = _add_slot_pos(opp_emb)
+
         # Zone embeddings over 31 card tokens: board:7, shop:7, hand:10, opp:7
+        # Token layout (after CLS prepend): 0=CLS, 1-7=board, 8-14=shop, 15-24=hand, 25-31=opp
         zone_ids = torch.zeros(B, 31, dtype=torch.long, device=device)
         zone_ids[:, :7]    = 0   # board
         zone_ids[:, 7:14]  = 1   # shop
@@ -211,18 +229,25 @@ class BGPolicyNetwork(nn.Module):
 
         # Prepend CLS token → 32 tokens total
         cls    = self.cls_token.expand(B, -1, -1)
-        tokens = torch.cat([cls, tokens], dim=1)      # [B, 32, d_model]
-        tokens = self.transformer(tokens)             # [B, 32, d_model]
-        cls_out = tokens[:, 0, :]                     # [B, d_model]
+        tokens = torch.cat([cls, tokens], dim=1)   # [B, 32, d_model]
+        tokens = self.transformer(tokens)          # [B, 32, d_model]
+        cls_out = tokens[:, 0, :]                  # [B, d_model]
 
         # Scalar context
         scalar_emb = self.scalar_proj(scalar_context)         # [B, d_model]
         fused      = torch.cat([cls_out, scalar_emb], dim=-1) # [B, 2*d_model]
 
-        # Two-headed policy output
-        type_logits    = self.type_head(fused)     # [B, 8]
-        pointer_logits = self.pointer_head(fused)  # [B, 24]
-        value          = self.value_head(fused)    # [B, 1]
+        # Type head and value head use the global CLS+scalar representation
+        type_logits = self.type_head(fused)   # [B, 8]
+        value       = self.value_head(fused)  # [B, 1]
+
+        # Per-token pointer scoring: each scorer acts directly on the token's
+        # Transformer output, which has already attended to all other tokens.
+        # Indices: 1-7=board, 8-14=shop, 15-24=hand  (0=CLS, 25-31=opp unused for pointers)
+        sell_logits  = self.sell_scorer(tokens[:, 1:8, :]).squeeze(-1)    # [B, 7]  board→sell
+        buy_logits   = self.buy_scorer(tokens[:, 8:15, :]).squeeze(-1)    # [B, 7]  shop→buy
+        place_logits = self.place_scorer(tokens[:, 15:25, :]).squeeze(-1) # [B, 10] hand→place
+        pointer_logits = torch.cat([buy_logits, sell_logits, place_logits], dim=-1)  # [B, 24]
 
         if type_mask is not None:
             type_logits = type_logits.masked_fill(~type_mask, float("-inf"))
@@ -362,15 +387,25 @@ class BGPolicyNetwork(nn.Module):
     def load_bc_v2_weights(self, bc_path: str) -> None:
         """Warm-start from a BGPolicyV2 BC checkpoint (bc_v2.pt).
 
-        Direct weight transfers (no row-mapping required):
+        NOTE: This method is a no-op for d_model != 128. The architecture was
+        upgraded to d_model=256 with a per-token pointer head; the old BC weight
+        shapes are incompatible. To re-enable warm-start, retrain the BC model
+        using BGPolicyNetwork directly with the new architecture.
 
+        Legacy transfers (only applied when d_model == 128):
         1. BC type_head [8, 128]   → PPO type_head[-1]    [8, 128]
-        2. BC pointer_head [24, 128] → PPO pointer_head[-1] [24, 128]
-        3. BC shared.4 [128, 128]  → scalar half (cols d_model:) of
-           type_head[0].weight and pointer_head[0].weight  [128, 256]
+        2. BC pointer_head [24, 128] → PPO pointer_head[-1] [24, 128]  (removed)
+        3. BC shared.4 [128, 128]  → scalar half of type_head[0].weight
 
         Requires d_model=128 (the BC hidden size).
         """
+        if self.d_model != 128:
+            logger.warning(
+                "load_bc_v2_weights: skipped — network uses d_model=%d but BC "
+                "checkpoint requires d_model=128. Retrain BC with the new "
+                "architecture to re-enable warm-start.", self.d_model
+            )
+            return
         try:
             ckpt = torch.load(bc_path, map_location="cpu")
             sd   = ckpt["state_dict"]
