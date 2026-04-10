@@ -1,6 +1,15 @@
 # bg_agent — Development Context Log
 
 ---
+### 2026-04-10 — Drop ShopAnalyzer from notebook
+**Files changed:** `explore.ipynb`
+**What was done:** Removed the unused ShopAnalyzer from explore.ipynb — deleted the import/instantiation from the symbolic setup cell, the "Shop Analyzer — Buy Value Estimation" markdown heading, and the analyze_shop demo cell. No other cells depended on it.
+**Current state:** Notebook is coherent end-to-end: dataset EDA → symbolic board analysis → card encoding → BC v2 → PPO forward-pass demo.
+**Open questions / next steps:**
+- ShopAnalyzer still exists as a module in symbolic/; delete or keep for later if buy-value signals are ever fed into the policy.
+---
+
+---
 ### 2026-04-10 — Add nbstripout to keep notebook diffs clean
 **Files changed:** `.gitattributes`, `explore.ipynb`
 **What was done:** Installed `nbstripout` git filter and added `.gitattributes` to apply it to all `*.ipynb` files. Outputs and execution counts are now stripped from notebooks at `git add` time, so future notebook runs won't generate noisy diffs.
