@@ -693,3 +693,11 @@
 **Open questions / next steps:**
 - Run the notebook training cells end-to-end and inspect agent behavior.
 - The live-ps reference bug still affects the stored board/shop/hand token arrays in the observation dict — these are numpy arrays captured at obs-build time so they ARE pre-mutation snapshots, unlike the ps object itself. Only the mask computation was affected.
+
+---
+### 2026-04-10 — Fix training cell to continue across re-runs
+**Files changed:** `explore.ipynb`
+**What was done:** Updated the PPO training cell so re-running it continues training from where it left off. Seed is now derived from `ppo_trainer.total_steps` so each re-run uses fresh game seeds instead of replaying the same games. Lists `game_rewards`/`ppo_losses`/`ppo_values` now accumulate across re-runs (checked via `dir()`) so the training-curve plot shows full history. Weights carry over automatically via the live `policy_train`/`ppo_trainer` objects and the on-disk checkpoint.
+**Current state:** Training cell is re-run-safe. Just run the cell repeatedly to keep training.
+**Open questions / next steps:**
+- Run enough games (200+) to see whether reward improves and value loss stabilises.
