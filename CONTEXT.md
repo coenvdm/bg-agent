@@ -701,3 +701,12 @@
 **Current state:** Training cell is re-run-safe. Just run the cell repeatedly to keep training.
 **Open questions / next steps:**
 - Run enough games (200+) to see whether reward improves and value loss stabilises.
+
+---
+### 2026-04-10 — CPU parallel training via ProcessPoolExecutor
+**Files changed:** `train.py`
+**What was done:** Implemented the previously-stubbed `--workers` flag. Added `_worker_run_game` (module-level, required for Windows `spawn`) which rebuilds all components locally, runs one game with a frozen policy snapshot, and returns `List[Transition]` + game summary. Added `_train_parallel` which dispatches batches of N games via `ProcessPoolExecutor`, merges returned transitions into the main PPO buffer, and triggers updates/checkpoints at the normal intervals. Serial path (workers=1) is unchanged. Benchmarks: forward pass ~9.3ms, game ~2s, 16 cores → expected ~10-12× speedup.
+**Current state:** `python train.py --workers 8 --games 500 --no-firestone` now runs games in parallel. Verified: import OK, serial dry-run OK, parallel dry-run (2 workers) completes and saves checkpoint.
+**Open questions / next steps:**
+- Measure real-world speedup with `--workers 8` vs `--workers 1` over 50 games.
+- Consider adding per-batch wall-clock logging to compare throughput.
