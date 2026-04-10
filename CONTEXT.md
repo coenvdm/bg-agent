@@ -684,3 +684,12 @@
 - Run the training cells and observe whether the agent develops coherent strategies (leveling timing, tribe focus, economy management).
 - Check if value estimates V(s) rise meaningfully as training progresses (indicates the critic is learning).
 - Increase N_GAMES beyond 50 once behavior looks plausible.
+
+---
+### 2026-04-10 — Fix NaN training bug: cache action masks before state mutation
+**Files changed:** `train.py`, `explore.ipynb`
+**What was done:** PPO updates were producing all-NaN network weights on the first update. Root cause: `_get_observation` returns a live reference to `PlayerState`, so by the time `record_transition` is called (after `step_shopping` mutates the state), `build_type_mask(ps)` and `build_pointer_mask(ps, ta)` reflect the POST-action state. For BUY/SELL/PLACE, the chosen pointer slot is no longer occupied, so `pointer_mask[chosen] = False`, giving `log_prob = -inf` for every pointer transition. The update then computed `ratio = exp(new_lp - (-inf)) = inf`, and `inf * ~0_advantage = nan`, corrupting all gradients. Fixed by caching both masks inside `get_action` (before the action is applied) and using the cached values in `record_transition`. Applied the same fix to the `_Agent` and `RecordingAgent` classes in `explore.ipynb`.
+**Current state:** PPO updates now complete cleanly: policy_loss≈0.006, value_loss≈0.187, no NaN. Training is ready to use.
+**Open questions / next steps:**
+- Run the notebook training cells end-to-end and inspect agent behavior.
+- The live-ps reference bug still affects the stored board/shop/hand token arrays in the observation dict — these are numpy arrays captured at obs-build time so they ARE pre-mutation snapshots, unlike the ps object itself. Only the mask computation was affected.

@@ -76,12 +76,19 @@ class PPOAgent:
         """Select an action given an observation dict.
 
         Returns (type_idx, ptr_idx) where ptr_idx is -1 for non-pointer types.
+
+        Caches the action masks computed from the *current* player state so
+        that record_transition can use them without re-reading ps (which will
+        have changed after step_shopping mutates the live object).
         """
         self._last_obs = obs
         ps  = obs["player_state"]
         dev = torch.device(self.device)
 
-        t_mask_t = build_type_mask(ps).unsqueeze(0).to(dev)
+        # Compute and CACHE masks now, before the state is mutated by step_shopping
+        self._cached_type_mask = build_type_mask(ps).numpy()
+
+        t_mask_t = torch.from_numpy(self._cached_type_mask).unsqueeze(0).to(dev)
         p_mask_t = build_pointer_mask(ps, -1).unsqueeze(0).to(dev)  # full occupancy
 
         board_t  = torch.tensor(obs["board_tokens"][None],   dtype=torch.float32, device=dev)
@@ -96,6 +103,8 @@ class PPOAgent:
             type_mask=t_mask_t, pointer_mask=p_mask_t,
             deterministic=self.deterministic, opp_tokens=opp_t,
         )
+        # Cache the pointer mask for the chosen type (also pre-mutation)
+        self._cached_ptr_mask = build_pointer_mask(ps, type_idx).numpy()
         return type_idx, ptr_idx
 
     def record_transition(
@@ -106,12 +115,16 @@ class PPOAgent:
         reward: float,
         done:   bool,
     ) -> None:
-        """Push a completed transition into the PPO rollout buffer."""
+        """Push a completed transition into the PPO rollout buffer.
+
+        Uses masks cached in get_action (pre-mutation) rather than
+        recomputing from obs['player_state'] which is a live reference
+        and will reflect the post-action state by the time this is called.
+        """
         if obs is None:
             return
-        ps        = obs["player_state"]
-        type_mask = build_type_mask(ps).numpy()
-        ptr_mask  = build_pointer_mask(ps, type_action).numpy()
+        type_mask = self._cached_type_mask
+        ptr_mask  = self._cached_ptr_mask
         self.trainer.collect_transition(
             board_tokens   = obs["board_tokens"],
             shop_tokens    = obs["shop_tokens"],
