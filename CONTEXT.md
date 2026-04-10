@@ -1,6 +1,15 @@
 # bg_agent — Development Context Log
 
 ---
+### 2026-04-10 — Add nbstripout to keep notebook diffs clean
+**Files changed:** `.gitattributes`, `explore.ipynb`
+**What was done:** Installed `nbstripout` git filter and added `.gitattributes` to apply it to all `*.ipynb` files. Outputs and execution counts are now stripped from notebooks at `git add` time, so future notebook runs won't generate noisy diffs.
+**Current state:** explore.ipynb is re-committed in stripped form; the filter is active for all future commits.
+**Open questions / next steps:**
+- Any other contributors will need to run `nbstripout --install` once in their clone to activate the filter locally.
+---
+
+---
 ### 2026-04-09 — Notebook execution outputs committed
 **Files changed:** `explore.ipynb`
 **What was done:** Ran explore.ipynb end-to-end after the enc_zone fix; cell outputs and execution counts were updated in the notebook file. Also diagnosed a disk-full issue (C: at 100%) — pip cache (2.5 GB) and Temp (2.9 GB) identified as main culprits.
