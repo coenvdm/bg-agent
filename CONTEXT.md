@@ -710,3 +710,12 @@
 **Open questions / next steps:**
 - Measure real-world speedup with `--workers 8` vs `--workers 1` over 50 games.
 - Consider adding per-batch wall-clock logging to compare throughput.
+
+---
+### 2026-04-10 — Parallel training in notebook
+**Files changed:** `explore.ipynb`
+**What was done:** Replaced the serial training loop in cell 49 with a `ProcessPoolExecutor`-based parallel loop that reuses `_worker_run_game` from `train.py`. Cell 46 gains `ProcessPoolExecutor`, `clear_output`, and `from train import _worker_run_game` imports. Each batch dispatches `N_WORKERS` games simultaneously, merges returned transitions into `ppo_trainer.buffer`, and triggers a PPO update + checkpoint save when an `UPDATE_INTERVAL` boundary is crossed. A `_live_plot()` helper updates the reward and loss charts after every batch using `clear_output(wait=True)`.
+**Current state:** Cell 49 runs parallel training. Set `N_WORKERS = 4` (or `os.cpu_count()`) at the top. Re-running the cell continues training from where it left off.
+**Open questions / next steps:**
+- Benchmark actual wall-clock speedup vs. serial (expect ~N_WORKERS× on 16-core machine).
+- Increase `N_GAMES` to 500+ once the setup is confirmed working.
