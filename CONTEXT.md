@@ -21,6 +21,15 @@
 ---
 
 ---
+### 2026-04-10 — Fix Refreshing Anomaly free-refresh consumption
+**Files changed:** `env/game_loop.py`, `agent/policy.py`
+**What was done:** The Refreshing Anomaly battlecry was setting `ps._free_refreshes` but the reroll handler in `step_shopping` never checked it — free refreshes were silently ignored. Fixed the reroll branch to consume one free refresh before spending gold, and updated `build_type_mask` in `policy.py` so that reroll is masked as valid whenever `_free_refreshes > 0` even if the player has 0 gold.
+**Current state:** Dry-run passes cleanly. Free refreshes from Refreshing Anomaly now work end-to-end.
+**Open questions / next steps:**
+- Smoke-test Refreshing Anomaly in explore.ipynb: play it, confirm `_free_refreshes == 2`, reroll twice without gold deduction.
+---
+
+---
 ### 2026-04-10 — Add nbstripout to keep notebook diffs clean
 **Files changed:** `.gitattributes`, `explore.ipynb`
 **What was done:** Installed `nbstripout` git filter and added `.gitattributes` to apply it to all `*.ipynb` files. Outputs and execution counts are now stripped from notebooks at `git add` time, so future notebook runs won't generate noisy diffs.

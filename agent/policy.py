@@ -469,7 +469,8 @@ def build_type_mask(player_state) -> torch.Tensor:
     if n_shop  > 0 and gold >= _eff_buy_cost and n_hand < 10: mask[0] = True  # buy
     if n_board > 0:                                            mask[1] = True  # sell
     if n_hand  > 0 and n_board < 7:                           mask[2] = True  # place
-    if gold >= _reroll_cost:                                   mask[3] = True  # reroll
+    _free_refreshes = getattr(player_state, "_free_refreshes", 0)
+    if gold >= _reroll_cost or _free_refreshes > 0:            mask[3] = True  # reroll
     mask[4] = True                                                  # freeze
     if tavern_tier < 6 and gold >= level_cost:    mask[5] = True  # level_up
     # hero_power: valid when not used, has charges, enough gold, and hero is active

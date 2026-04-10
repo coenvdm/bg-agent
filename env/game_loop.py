@@ -528,9 +528,13 @@ class BattlegroundsGame:
                         check_and_process_triple(ps, self.tavern_pool)
 
         elif type_action == 3:
-            # reroll
-            if ps.gold >= ps.reroll_cost:
-                ps.gold -= ps.reroll_cost
+            # reroll — consume a free refresh (Refreshing Anomaly) before spending gold
+            _free = getattr(ps, "_free_refreshes", 0)
+            if _free > 0 or ps.gold >= ps.reroll_cost:
+                if _free > 0:
+                    ps._free_refreshes = _free - 1  # type: ignore[attr-defined]
+                else:
+                    ps.gold -= ps.reroll_cost
                 ps.frozen = False
                 ps.shop = self._draw_shop(ps)
                 self.hero_handler.on_refresh(ps)
