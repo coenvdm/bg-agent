@@ -458,6 +458,13 @@ def build_type_mask(player_state) -> torch.Tensor:
     _first_free  = getattr(player_state, "first_buy_free", False)
     _eff_buy_cost = 0 if _first_free else max(0, _buy_cost - _buy_discount)
 
+    # When discover is pending, only BUY (pointer into shop zone = discover slot) is valid
+    _discover = getattr(player_state, "discover_pending", [])
+    if _discover:
+        mask = torch.zeros(N_ACTION_TYPES, dtype=torch.bool)
+        mask[0] = True  # BUY only — pointer selects among the 3 discover options
+        return mask
+
     mask = torch.zeros(N_ACTION_TYPES, dtype=torch.bool)
     if n_shop  > 0 and gold >= _eff_buy_cost and n_hand < 10: mask[0] = True  # buy
     if n_board > 0:                                            mask[1] = True  # sell
@@ -502,9 +509,16 @@ def build_pointer_mask(player_state, type_idx: int) -> torch.Tensor:
         board = getattr(player_state, "board", [])
         hand  = getattr(player_state, "hand",  [])
 
+    _discover = getattr(player_state, "discover_pending", [])
+
     mask = torch.zeros(POINTER_DIM, dtype=torch.bool)
 
-    if type_idx == 0:          # buy → shop zone
+    if type_idx == 0:          # buy → shop zone (or discover zone)
+        if _discover:
+            # Discover in progress: only indices 0..len-1 in the shop zone are valid
+            for i in range(min(len(_discover), SHOP_ZONE_SIZE)):
+                mask[PTR_SHOP_OFF + i] = True
+            return mask
         for i, slot in enumerate(shop[:SHOP_ZONE_SIZE]):
             if _slot_occupied(slot):
                 mask[PTR_SHOP_OFF + i] = True

@@ -122,7 +122,16 @@ class PlayerState:
     last_damage_taken: int = 0
     last_damage_dealt: int = 0
     last_result: Optional[str] = None  # "win" | "loss" | "tie"
-    tribe_buffs: Dict[str, Tuple[int, int]] = field(default_factory=dict)
+    # "This game" tribe buffs — key: tribe ("UNDEAD", "ALL", "BEAST:beetle", …)
+    # value: (atk_bonus, hp_bonus) accumulated from battlecries/deathrattles.
+    # Applied to MinionState.game_atk_bonus / game_hp_bonus when minions enter board.
+    game_buffs: Dict[str, Tuple[int, int]] = field(default_factory=dict)
+    # Blood Gem bonuses (beyond the baseline +1/+1 per gem)
+    blood_gem_atk_bonus: int = 0   # extra attack per Blood Gem (Prickly Piper)
+    blood_gem_hp_bonus:  int = 0   # extra health per Blood Gem (Moon-Bacon Jazzer)
+    # Pending discover choices: non-empty = discover in progress, shopping paused.
+    # Contains up to 3 MinionState options; cleared when agent picks one via BUY.
+    discover_pending: List[MinionState] = field(default_factory=list)
     has_brann: bool = False
     has_titus: bool = False
     has_drakkari: bool = False

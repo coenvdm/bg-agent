@@ -10,6 +10,17 @@
 ---
 
 ---
+### 2026-04-10 — Simulator fidelity overhaul (Phases 1–3)
+**Files changed:** `symbolic/combat_sim.py`, `symbolic/effect_handler.py`, `symbolic/hero_handler.py`, `env/player_state.py`, `env/game_loop.py`, `agent/policy.py`
+**What was done:** Comprehensive simulator fidelity improvements across three phases. Phase 1 (combat accuracy): added on-attack auras (Twilight Watcher, Roaring Recruiter), on-damage auras (Hardy Orca, Iridescent Skyblazer, Trigore), Lord of the Ruins demon-damage aura, Shore Marauder passive, and Monstrous Macaw Rally. Also wired up the `game_buffs` system (`PlayerState`) for tribe-specific permanent buffs (Nerubian Deathswarmer, Dune Dweller, Felemental, Anubarak), and Blood Gem bonus tracking (`blood_gem_atk_bonus`/`blood_gem_hp_bonus`) for Prickly Piper/Moon-Bacon Jazzer. Phase 2 (shop-phase): added sell effects (Fire Baller, Snow Baller, Minted Corsair, Tad), `EffectHandler` now receives `TavernPool` for pool draws; `discover_pending` on `PlayerState` pauses shopping and lets the agent choose via `BUY(0/1/2)` — observation shows discover options in shop slots and action masking in `policy.py` restricts to BUY-only with pointers 0–2 during discover; token/item battlecries (Razorfen Geomancer, Shell Collector, Briarback Drummer, Refreshing Anomaly, Tavern Tempest, Archaedas); discover battlecries (Tiger Shark, Imposing Percussionist, Primalfin Lookout, Rodeo Performer); consume-shop battlecries (Picky Eater, Mind Muck, Furious Driver); shop-phase aura triggers (Timecapn Hooktail, Plankwalker, Mechagnome Interpreter). Phase 3: new combat deathrattles (Bassgill summons 4/5 Murloc, Scourfin +5/+5 to random friendly, Dramaloc +5 ATK to 2 Murlocs, Apexis Guardian +3/+2 to all Mechs); Rafaam post-combat copies a minion from the opponent board to hand; Tess draws a random pool card into the next shop.
+**Current state:** Dry-run passes cleanly (2 games, ~1430 transitions, no errors). All simulator mechanics are wired end-to-end.
+**Open questions / next steps:**
+- Validate new mechanics with targeted explore.ipynb smoke tests (Dragon board + Twilight Watcher; Blood Gem with bonuses; discover flow).
+- P3-A remaining: Vol'jin, Shudderwock, Maiev, Saurfang (targeted hero powers requiring action-space extension).
+- Consider encoding `discover_pending` state explicitly in the scalar context so the policy can distinguish discover from normal shopping.
+---
+
+---
 ### 2026-04-10 — Add nbstripout to keep notebook diffs clean
 **Files changed:** `.gitattributes`, `explore.ipynb`
 **What was done:** Installed `nbstripout` git filter and added `.gitattributes` to apply it to all `*.ipynb` files. Outputs and execution counts are now stripped from notebooks at `git add` time, so future notebook runs won't generate noisy diffs.

@@ -169,8 +169,9 @@ class EffectHandler:
     when card_defs is empty or missing entries.
     """
 
-    def __init__(self, card_defs: dict) -> None:
+    def __init__(self, card_defs: dict, tavern_pool=None) -> None:
         self._card_defs = card_defs
+        self._tavern_pool = tavern_pool  # Optional[TavernPool] for discover/draw BCs
         self._rng = random.Random()
 
     # ------------------------------------------------------------------
@@ -197,8 +198,68 @@ class EffectHandler:
             # "Recruiter" (the generic one that spawns a Recruit token)
             # but NOT "Roaring Recruiter" (an aura card, no battlecry token)
             self._bc_recruiter(ps, minion, times)
+        # ── P1-C: "This game" tribe buff battlecries ─────────────────────────
+        elif "nerubiandeathswarmer" in name_key:
+            self._register_game_buff(ps, "UNDEAD", 1 * times, 0)
+        elif "dunedweller" in name_key:
+            self._register_game_buff(ps, "ELEMENTAL", 1 * times, 1 * times)
+        elif "felemental" in name_key:
+            self._register_game_buff(ps, "ALL", 2 * times, 1 * times)
+        # ── P1-D: Blood Gem bonus battlecries ────────────────────────────────
+        elif "moonbaconjazzer" in name_key:
+            ps.blood_gem_hp_bonus += 1 * times
+        # ── P2-C: Token/item generator battlecries ───────────────────────────
+        elif "razorfengeomancer" in name_key:
+            # Add Blood Gem spells to hand (2 per battlecry fire)
+            for _ in range(2 * times):
+                if len(ps.hand) < 10:
+                    gem = _make_token("Blood Gem", attack=0, health=0, tier=1)
+                    gem.is_spell = True  # type: ignore[attr-defined]
+                    ps.hand.append(gem)
+        elif "shellcollector" in name_key:
+            ps.gold = min(ps.max_gold, ps.gold + 1 * times)
+        elif "briarbackdrummer" in name_key:
+            # Add Blood Gem Barrage spell (AoE Blood Gem) to hand
+            for _ in range(times):
+                if len(ps.hand) < 10:
+                    barrage = _make_token("Blood Gem Barrage", attack=0, health=0, tier=1)
+                    barrage.is_spell = True  # type: ignore[attr-defined]
+                    barrage.is_barrage = True  # type: ignore[attr-defined]
+                    ps.hand.append(barrage)
+        elif "refreshinganomaly" in name_key:
+            ps._free_refreshes = getattr(ps, "_free_refreshes", 0) + 2 * times  # type: ignore[attr-defined]
+        elif "taverntempest" in name_key:
+            self._bc_draw_tribe(ps, tier=ps.tavern_tier, tribe="ELEMENTAL", count=times)
+        elif "archaedas" in name_key:
+            self._bc_discover(ps, tier=5)
+        # ── P2-D: Discover battlecries ───────────────────────────────────────
+        elif "huntingtigershark" in name_key:
+            self._bc_discover(ps, tier=4, tribe="BEAST")
+        elif "imposingpercussionist" in name_key:
+            self._bc_discover(ps, tier=4, tribe="DEMON")
+        elif "primalfinlookout" in name_key:
+            # Only if controlling another Murloc
+            other_murlocs = _friendly_with_tribe(ps.board, "MURLOC", minion, self._card_defs)
+            if other_murlocs:
+                self._bc_discover(ps, tier=5, tribe="MURLOC")
+        elif "rodeo" in name_key and "performer" in name_key:
+            # Approximate: draw a random mid-tier minion
+            self._bc_draw_tribe(ps, tier=min(3, ps.tavern_tier))
+        # ── P2-E: Consume-shop-minion battlecries ────────────────────────────
+        elif "pickyeater" in name_key:
+            self._bc_consume_shop(ps, minion, self._rng, times=times)
+        elif "mindmuck" in name_key:
+            # Highest-ATK friendly Demon consumes
+            demons = _friendly_with_tribe(ps.board, "DEMON", minion, self._card_defs)
+            if demons:
+                gainer = max(demons, key=lambda m: m.attack + m.perm_atk_bonus)
+                self._bc_consume_shop(ps, gainer, self._rng, times=times)
+        elif "furiousdriver" in name_key:
+            # Every other friendly Demon consumes once
+            demons = _friendly_with_tribe(ps.board, "DEMON", minion, self._card_defs)
+            for demon in demons:
+                self._bc_consume_shop(ps, demon, self._rng, times=1)
         # Righteous Protector has no battlecry — static keywords only.
-        # Yo-Ho-Ho / Shifter Zerus / discover-type cards: skip.
 
     def on_sell(self, ps: "PlayerState", minion: "MinionState") -> None:
         """Fire sell-triggered effects for *minion* just removed from board."""
@@ -208,6 +269,19 @@ class EffectHandler:
             self._sell_sellemental(ps)
         elif "goldgrubber" in name_key:
             self._sell_gold_grubber(ps, minion)
+        # ── P1-D: Blood Gem bonus on sell/death ──────────────────────────────
+        elif "pricklypiper" in name_key:
+            ps.blood_gem_atk_bonus += 1
+        # ── P2-A: Missing sell effects ────────────────────────────────────────
+        elif "fireballer" in name_key:
+            _buff_all(ps.board, 1, 0)
+        elif "snowballer" in name_key:
+            _buff_all(ps.board, 0, 1)
+        elif "mintedcorsair" in name_key:
+            ps.gold = min(ps.max_gold, ps.gold + 1)
+        elif "tad" in name_key and len(name_key) <= 4:
+            # Tad: get a random Murloc. Use a flag processed in game_loop.
+            ps._tad_due = True  # type: ignore[attr-defined]
         # Pack Leader sell effect: none (its effect is in combat).
         # Yo-Ho-Ho / Shifter Zerus: skip.
 
@@ -274,3 +348,127 @@ class EffectHandler:
         """Gold Grubber: give a random friendly minion +2/+1."""
         candidates = [m for m in ps.board if m is not sold_minion]
         _buff_random(candidates, 2, 1, self._rng, times=1)
+
+    # ------------------------------------------------------------------
+    # P1-C: "This game" buff registry
+    # ------------------------------------------------------------------
+
+    def _register_game_buff(
+        self, ps: "PlayerState", tribe_key: str, atk: int, hp: int
+    ) -> None:
+        """Register a permanent tribe buff and apply it to current board minions.
+
+        tribe_key: "UNDEAD", "ALL", "ELEMENTAL", "BEAST:beetle", etc.
+        """
+        cur_atk, cur_hp = ps.game_buffs.get(tribe_key, (0, 0))
+        ps.game_buffs[tribe_key] = (cur_atk + atk, cur_hp + hp)
+        # Apply the delta immediately to existing board minions
+        for m in ps.board:
+            if self._matches_tribe_key(m, tribe_key):
+                m.game_atk_bonus += atk
+                m.game_hp_bonus  += hp
+                m.max_health     += hp
+
+    def _matches_tribe_key(self, minion: "MinionState", tribe_key: str) -> bool:
+        """Return True if *minion* matches the tribe_key (e.g. "UNDEAD", "ALL")."""
+        if tribe_key == "ALL":
+            return True
+        if ":" in tribe_key:
+            # Sub-tribe like "BEAST:beetle" — match by token name substring
+            _, token_name = tribe_key.split(":", 1)
+            return token_name.lower() in minion.name.lower()
+        return tribe_key in _minion_tribes(minion, self._card_defs)
+
+    # ------------------------------------------------------------------
+    # P2-B: Discover and pool-draw helpers
+    # ------------------------------------------------------------------
+
+    def _dict_to_minion(self, card: dict) -> "MinionState":
+        """Convert a card dict from TavernPool into a MinionState."""
+        from env.player_state import MinionState
+        m = MinionState(
+            card_id=card.get("card_id", ""),
+            name=card.get("name", ""),
+            attack=card.get("attack", 0),
+            health=card.get("health", 0),
+            max_health=card.get("health", 0),
+            tier=card.get("tier", 1),
+            golden=bool(card.get("golden", False)),
+            divine_shield=bool(card.get("divine_shield", False)),
+            taunt=bool(card.get("taunt", False)),
+            reborn=bool(card.get("reborn", False)),
+            windfury=bool(card.get("windfury", False)),
+        )
+        return m
+
+    def _bc_discover(
+        self, ps: "PlayerState", tier: int, tribe: Optional[str] = None
+    ) -> None:
+        """Draw 3 cards (optionally filtered to tribe) and store in ps.discover_pending.
+
+        Shopping is paused until the agent picks one via BUY(0/1/2).
+        """
+        if self._tavern_pool is None:
+            return
+        candidates = self._tavern_pool.draw(tier, 3)
+        if tribe and candidates:
+            tribe_upper = tribe.upper()
+            tribe_matches = [
+                c for c in candidates
+                if tribe_upper in [t.upper() for t in (c.get("tribes") or [])]
+            ]
+            rejects = [c for c in candidates if c not in tribe_matches]
+            if rejects:
+                self._tavern_pool.return_cards(rejects)
+            candidates = tribe_matches if tribe_matches else candidates
+        if not candidates:
+            return
+        ps.discover_pending = [self._dict_to_minion(c) for c in candidates]
+
+    def _bc_draw_tribe(
+        self, ps: "PlayerState", tier: int, tribe: Optional[str] = None, count: int = 1
+    ) -> None:
+        """Draw *count* random cards (optionally filtered to tribe) into hand."""
+        if self._tavern_pool is None:
+            return
+        drawn = self._tavern_pool.draw(tier, count)
+        for card in drawn:
+            if len(ps.hand) >= 10:
+                self._tavern_pool.return_cards([card])
+                break
+            ps.hand.append(self._dict_to_minion(card))
+
+    # ------------------------------------------------------------------
+    # P2-E: Consume-shop helper
+    # ------------------------------------------------------------------
+
+    def _bc_consume_shop(
+        self,
+        ps: "PlayerState",
+        gainer: "MinionState",
+        rng: random.Random,
+        times: int = 1,
+    ) -> None:
+        """Pop a random card from the shop and add its stats to *gainer*."""
+        if not ps.shop:
+            return
+        for _ in range(times):
+            if not ps.shop:
+                break
+            idx = rng.randrange(len(ps.shop))
+            consumed = ps.shop.pop(idx)
+            gainer.perm_atk_bonus += consumed.attack
+            gainer.perm_hp_bonus  += consumed.health
+            gainer.max_health     += consumed.health
+
+    def on_after_combat(self, ps: "PlayerState", dead_card_ids: List[str]) -> None:
+        """Called after combat with card IDs of minions that died this combat.
+
+        Handles deathrattle-triggered "this game" buffs that need persistence
+        beyond the combat trial (e.g. Anubarak Nerubian King).
+        """
+        for cid in dead_card_ids:
+            cid_lower = cid.lower().replace("_", "").replace(" ", "")
+            # Anubarak Nerubian King: +1 Attack to all Undead this game
+            if "anubarak" in cid_lower or "nerubianking" in cid_lower:
+                self._register_game_buff(ps, "UNDEAD", 1, 0)

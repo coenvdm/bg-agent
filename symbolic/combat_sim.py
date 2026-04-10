@@ -260,6 +260,7 @@ _RALLY_MINIONS = {
     "roaring_recruiter",
     "felstomper",
     "stasis_elemental",
+    "monstrous_macaw",
 }
 
 _KEY_TABLE = str.maketrans(
@@ -426,7 +427,8 @@ def _summon_tokens_with_khadgar(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _fire_rally(attacker: "CombatMinion", side: "CombatSide",
-                rng: random.Random) -> None:
+                rng: random.Random,
+                enemy: Optional["CombatSide"] = None) -> None:
     """Fire the Rally effect for *attacker* if it has one."""
     key = attacker.name_key
     mult = 2 if attacker.golden else 1
@@ -451,6 +453,24 @@ def _fire_rally(attacker: "CombatMinion", side: "CombatSide",
             if m is not attacker:
                 m.attack += 1 * mult
                 m.health += 1 * mult
+
+    elif key == "monstrous_macaw":
+        # Trigger the left-most Deathrattle on the friendly side (excluding self)
+        if enemy is None:
+            return
+        for candidate in side.minions:
+            if candidate is not attacker and candidate.name_key in _DR_EXACT:
+                pos = side.position_of(candidate.uid)
+                tc = (2 if candidate.golden else 1) * (2 if side.has_titus() else 1)
+                rq: list = []
+                _dr_dispatch(candidate, pos, side, enemy, rq, tc)
+                # Process any reborn tokens queued by the triggered DR
+                for (dead_m, dead_pos) in rq:
+                    if not dead_m.reborn_used:
+                        dead_m.reborn_used = True
+                        copy_m = dead_m.make_reborn_copy(side.next_uid())
+                        side.insert_at(dead_pos, copy_m)
+                break
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -802,6 +822,45 @@ def _dr_kangors_apprentice(dead, pos, friendly, enemy, rq, tc):
             friendly.insert_at(pos + slot, clone)
 
 
+@_dr_register("bassgill")
+def _dr_bassgill(dead, pos, friendly, enemy, rq, tc):
+    """Summon a 4/5 Murloc token."""
+    for i in range(tc):
+        friendly.insert_at(pos + i, _make_token(friendly, name="Bassgill Murloc",
+                                                attack=4, health=5, tribes=["MURLOC"]))
+
+
+@_dr_register("scourfin")
+def _dr_scourfin(dead, pos, friendly, enemy, rq, tc):
+    """Give +5/+5 to a random living friendly."""
+    alive = [m for m in friendly.minions if not m.dead]
+    if alive:
+        for _ in range(tc):
+            t = random.choice(alive)
+            t.attack += 5
+            t.health += 5
+
+
+@_dr_register("dramaloc")
+def _dr_dramaloc(dead, pos, friendly, enemy, rq, tc):
+    """Give +5 ATK to up to 2 random friendly Murlocs."""
+    murlocs = [m for m in friendly.minions if not m.dead and m.has_tribe("MURLOC")]
+    for _ in range(tc):
+        targets = random.sample(murlocs, min(2, len(murlocs)))
+        for t in targets:
+            t.attack += 5
+
+
+@_dr_register("apexis_guardian")
+def _dr_apexis_guardian(dead, pos, friendly, enemy, rq, tc):
+    """Give +3/+2 to all friendly Mechs."""
+    mechs = [m for m in friendly.minions if not m.dead and m.has_tribe("MECH")]
+    for _ in range(tc):
+        for m in mechs:
+            m.attack += 3
+            m.health += 2
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Start-of-combat triggers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -944,6 +1003,83 @@ def _pick_target(attacker: CombatMinion, defender_side: CombatSide,
     return rng.choice(pool) if pool else None
 
 
+def _fire_on_attack_auras(attacker: CombatMinion, side: CombatSide) -> None:
+    """Fire auras that trigger when a friendly minion attacks."""
+    if attacker.has_tribe("DRAGON"):
+        for m in side.minions:
+            if m.dead:
+                continue
+            mult = 2 if m.golden else 1
+            nk = m.name_key
+            if "twilight_watcher" in nk:
+                # +1/+3 to all friendly Dragons whenever a Dragon attacks
+                for d in side.minions:
+                    if not d.dead and d.has_tribe("DRAGON"):
+                        d.attack += 1 * mult
+                        d.health += 3 * mult
+            elif "roaring_recruiter" in nk and m is not attacker:
+                # +3/+1 to the attacking Dragon (different from Rally — this is an aura)
+                attacker.attack += 3 * mult
+                attacker.health += 1 * mult
+
+
+def _fire_on_damage_auras(victim: CombatMinion, side: CombatSide,
+                           rng: random.Random) -> None:
+    """Fire auras that trigger when a friendly minion takes damage (shield not popped)."""
+    for m in side.minions:
+        if m.dead:
+            continue
+        mult = 2 if m.golden else 1
+        nk = m.name_key
+        if "hardy_orca" in nk and m is victim:
+            # +1/+1 to all other friendlies when Hardy Orca itself takes damage
+            for other in side.minions:
+                if not other.dead and other is not m:
+                    other.attack += 1 * mult
+                    other.health += 1 * mult
+        elif victim.has_tribe("BEAST"):
+            if "iridescent_skyblazer" in nk:
+                # +3/+1 to a random other friendly Beast whenever a Beast takes damage
+                candidates = [x for x in side.minions
+                              if not x.dead and x is not victim and x.has_tribe("BEAST")]
+                if candidates:
+                    t = rng.choice(candidates)
+                    t.attack += 3 * mult
+                    t.health += 1 * mult
+            elif "trigore" in nk and m is not victim:
+                # Trigore gains +2 Health permanently when another Beast takes damage
+                m.health += 2 * mult
+
+
+def _fire_on_demon_damage(attacker: CombatMinion, side: CombatSide) -> None:
+    """Fire auras that trigger when a friendly Demon deals damage."""
+    for m in side.minions:
+        if m.dead:
+            continue
+        mult = 2 if m.golden else 1
+        if "lord_of_the_ruins" in m.name_key:
+            # +2/+1 to all other friendlies after a Demon deals damage
+            for other in side.minions:
+                if not other.dead and other is not attacker:
+                    other.attack += 2 * mult
+                    other.health += 1 * mult
+
+
+def _apply_passive_auras(side: CombatSide) -> None:
+    """Apply passive auras (constant stat bonuses) before the first attack."""
+    for m in side.minions:
+        if m.dead:
+            continue
+        mult = 2 if m.golden else 1
+        if "shore_marauder" in m.name_key:
+            # +1/+1 to all friendly Pirates and Elementals
+            for other in side.minions:
+                if not other.dead and other is not m:
+                    if other.has_tribe("PIRATE") or other.has_tribe("ELEMENTAL"):
+                        other.attack += 1 * mult
+                        other.health += 1 * mult
+
+
 def _do_attack(
     attacker: CombatMinion,
     attacker_side: CombatSide,
@@ -957,13 +1093,16 @@ def _do_attack(
 
     # Rally: fire before damage is dealt (BG convention)
     if attacker.name_key in _RALLY_MINIONS:
-        _fire_rally(attacker, attacker_side, rng)
+        _fire_rally(attacker, attacker_side, rng, enemy=defender_side)
+
+    # On-attack auras (Twilight Watcher, Roaring Recruiter aura variant)
+    _fire_on_attack_auras(attacker, attacker_side)
 
     t_pos = defender_side.position_of(target.uid)
 
     # Target takes damage from attacker
-    target.take_damage(attacker.attack, venomous_src=attacker.venomous,
-                       killer_uid=attacker.uid)
+    t_shield_popped = target.take_damage(attacker.attack, venomous_src=attacker.venomous,
+                                          killer_uid=attacker.uid)
 
     # Cleave: attacker also damages minions adjacent to the primary target
     if attacker.cleave and t_pos >= 0:
@@ -972,9 +1111,21 @@ def _do_attack(
                                                    venomous_src=attacker.venomous,
                                                    killer_uid=attacker.uid)
 
+    # On-damage auras (Hardy Orca, Iridescent Skyblazer, Trigore)
+    if not t_shield_popped and not target.dead:
+        _fire_on_damage_auras(target, defender_side, rng)
+
+    # On-demon-damage aura (Lord of the Ruins)
+    if attacker.has_tribe("DEMON") and not t_shield_popped:
+        _fire_on_demon_damage(attacker, attacker_side)
+
     # Counter-attack: target retaliates against attacker (primary target only)
-    attacker.take_damage(target.attack, venomous_src=target.venomous,
-                         killer_uid=target.uid)
+    a_shield_popped = attacker.take_damage(target.attack, venomous_src=target.venomous,
+                                            killer_uid=target.uid)
+
+    # On-damage auras for counter-attack (attacker took damage)
+    if not a_shield_popped and not attacker.dead:
+        _fire_on_damage_auras(attacker, attacker_side, rng)
 
     attacker.attacks_this_turn += 1
 
@@ -1064,6 +1215,10 @@ def _combat(
         _apply_soc(side_p, side_o, rng, player_tier)
 
     _resolve_deaths(side_p, side_o, rng, attacker_is_a=True)
+
+    # ── Passive auras (Shore Marauder etc.) — applied once before first attack ─
+    _apply_passive_auras(side_p)
+    _apply_passive_auras(side_o)
 
     # ── Combat loop ──────────────────────────────────────────────────────────
     player_first = rng.random() < 0.5

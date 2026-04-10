@@ -242,7 +242,7 @@ class BattlegroundsGame:
         self.max_rounds      = max_rounds
         self._rng            = random.Random(seed)
         self.encoder         = CardEncoder(card_defs)
-        self.effect_handler  = EffectHandler(card_defs)
+        self.effect_handler  = EffectHandler(card_defs, tavern_pool=self.tavern_pool)
         self.hero_handler    = HeroPowerHandler(card_defs, HERO_DEF_MAP)
 
         # Populated by reset()
@@ -409,6 +409,25 @@ class BattlegroundsGame:
         reward = 0.0
         done = False
 
+        # ── Discover in progress: only BUY(0/1/2) is valid ───────────────────
+        # The observation encodes discover options in shop slots [0-2].
+        if ps.discover_pending:
+            choice_idx = ptr_action - PTR_SHOP_OFF
+            if type_action == 0 and 0 <= choice_idx < len(ps.discover_pending):
+                chosen  = ps.discover_pending[choice_idx]
+                rejects = [m for i, m in enumerate(ps.discover_pending)
+                           if i != choice_idx]
+                # Return unchosen cards to pool as dicts
+                if self._tavern_pool is not None:
+                    self._tavern_pool.return_cards(
+                        [self._minion_to_dict(m) for m in rejects]
+                    )
+                ps.discover_pending = []
+                if len(ps.hand) < 10:
+                    ps.hand.append(chosen)
+            # All other actions are ignored while discover is pending
+            return self._get_observation(player_id), 0.0, False
+
         if type_action == 0:
             # buy: ptr_action is shop slot index (ptr 0-6 → slot 0-6)
             i = ptr_action - PTR_SHOP_OFF
@@ -440,6 +459,13 @@ class BattlegroundsGame:
                     # (TavernPool.draw doesn't filter by tribe, so this is approximate)
                     for card in murlocs:
                         ps.shop.append(self._dict_to_minion(card))
+                # Tad: add a random Murloc to hand
+                if getattr(ps, "_tad_due", False):
+                    ps._tad_due = False  # type: ignore[attr-defined]
+                    if len(ps.hand) < 10:
+                        cards = self.tavern_pool.draw(ps.tavern_tier, 1)
+                        for card in cards:
+                            ps.hand.append(self._dict_to_minion(card))
 
         elif type_action == 2:
             # place: ptr_action is hand slot index (ptr 14-23 → slot 0-9)
@@ -480,9 +506,24 @@ class BattlegroundsGame:
                             # Normal placement with smart positioning
                             pos = _smart_position(minion, ps.board)
                             ps.board.insert(pos, minion)
+                            # Apply accumulated "this game" tribe buffs
+                            self._apply_game_buffs(ps, minion)
                         self._update_multiplier_flags(ps)
                         self.effect_handler.on_play(ps, minion)
                         self.hero_handler.on_play(ps, minion)
+                        # P2-F: Mechagnome Interpreter — +2/+1 to played minion if it's a MECH
+                        minion_tribes = _minion_to_dict(minion).get("tribes") or []
+                        is_mech = (
+                            "MECH" in [t.upper() for t in minion_tribes]
+                            or _minion_to_dict(minion).get("tribe", "").upper() == "MECH"
+                        )
+                        if is_mech:
+                            for aura_m in ps.board:
+                                if "mechagnomeinterpreter" in aura_m.name.lower().replace(" ", "") and aura_m is not minion:
+                                    mult = 2 if aura_m.golden else 1
+                                    minion.perm_atk_bonus += 2 * mult
+                                    minion.perm_hp_bonus  += 1 * mult
+                                    minion.max_health     += 1 * mult
                         from env.triple_system import check_and_process_triple
                         check_and_process_triple(ps, self.tavern_pool)
 
@@ -543,6 +584,27 @@ class BattlegroundsGame:
 
         return self._get_observation(player_id), reward, done
 
+    def _apply_game_buffs(self, ps: PlayerState, minion: MinionState) -> None:
+        """Apply accumulated 'this game' tribe buffs from ps.game_buffs to *minion*.
+
+        Called after a minion is placed on the board so it receives buffs that
+        were registered by earlier battlecries (e.g. Nerubian Deathswarmer).
+        """
+        from symbolic.effect_handler import _minion_tribes as _get_tribes
+        minion_tribes = _get_tribes(minion, self.card_defs)
+        for tribe_key, (atk, hp) in ps.game_buffs.items():
+            if tribe_key == "ALL":
+                match = True
+            elif ":" in tribe_key:
+                _, token_name = tribe_key.split(":", 1)
+                match = token_name.lower() in minion.name.lower()
+            else:
+                match = tribe_key in minion_tribes
+            if match:
+                minion.game_atk_bonus += atk
+                minion.game_hp_bonus  += hp
+                minion.max_health     += hp
+
     def _update_multiplier_flags(self, ps: PlayerState) -> None:
         """Scan the board and set has_brann / has_titus / has_drakkari flags."""
         board_ids = {_minion_to_dict(m).get("card_id", "") for m in ps.board}
@@ -557,16 +619,45 @@ class BattlegroundsGame:
         """Apply a spell card's effect and discard it.  Falls back to no-op for unknown spells."""
         name = minion.name.lower()
         if "blood gem" in name:
-            # Give a random friendly minion +1/+1
+            # Give a random friendly minion +1/+1 (plus Blood Gem bonuses)
             if ps.board:
                 target = self._rng.choice(ps.board)
-                target.attack += 1
-                target.health += 1
-                target.max_health += 1
+                atk_bonus = 1 + ps.blood_gem_atk_bonus
+                hp_bonus  = 1 + ps.blood_gem_hp_bonus
+                target.attack     += atk_bonus
+                target.health     += hp_bonus
+                target.max_health += hp_bonus
+        elif "blood gem barrage" in name:
+            # AoE version: +1/+1 (+bonuses) to ALL friendly board minions
+            atk_bonus = 1 + ps.blood_gem_atk_bonus
+            hp_bonus  = 1 + ps.blood_gem_hp_bonus
+            for m in ps.board:
+                m.attack     += atk_bonus
+                m.health     += hp_bonus
+                m.max_health += hp_bonus
         elif "tavern spell" in name or "coin" in name:
             # Generic tavern spells / coin: refund 1 gold
             ps.gold = min(ps.max_gold, ps.gold + 1)
         # else: no-op for unrecognized spells
+
+        # P2-F: Post-spell aura triggers
+        for aura_m in ps.board:
+            aura_key = aura_m.name.lower().replace(" ", "")
+            if "timecapnhooktail" in aura_key:
+                # +1 ATK to all friendlies whenever a spell is cast
+                mult = 2 if aura_m.golden else 1
+                for m in ps.board:
+                    m.perm_atk_bonus += 1 * mult
+            elif "plankwalker" in aura_key:
+                # +2/+1 to 3 random friendlies per spell cast
+                mult = 2 if aura_m.golden else 1
+                others = [m for m in ps.board if m is not aura_m]
+                if others:
+                    for _ in range(3 * mult):
+                        target = self._rng.choice(others)
+                        target.perm_atk_bonus += 2
+                        target.perm_hp_bonus  += 1
+                        target.max_health     += 1
 
     # ------------------------------------------------------------------
     # Combat phase
@@ -641,6 +732,31 @@ class BattlegroundsGame:
         ps.last_result       = outcome
         ps.last_damage_taken = damage_taken
         ps.last_damage_dealt = int(round(damage_dealt))
+
+        # Fire post-combat hooks: persistent DR effects (e.g. Anubarak)
+        # Pass all board card_ids — the handler decides which ones apply.
+        dead_card_ids = [m.card_id for m in ps.board]
+        self.effect_handler.on_after_combat(ps, dead_card_ids)
+
+        # P3-A: Rafaam post-combat steal — copy random minion from opponent's board
+        if getattr(ps, "_rafaam_active", False):
+            ps._rafaam_active = False  # type: ignore[attr-defined]
+            if outcome == "win" and opp.board and len(ps.hand) < 10:
+                import copy as _copy
+                stolen = _copy.copy(self._rng.choice(opp.board))
+                stolen.perm_atk_bonus = 0
+                stolen.perm_hp_bonus  = 0
+                stolen.game_atk_bonus = 0
+                stolen.game_hp_bonus  = 0
+                ps.hand.append(stolen)
+
+        # P3-A: Tess post-combat draw — add a random card from the pool to next shop
+        if getattr(ps, "_tess_active", False):
+            ps._tess_active = False  # type: ignore[attr-defined]
+            if self.tavern_pool is not None:
+                drawn = self.tavern_pool.draw(ps.tavern_tier, 1)
+                for card in drawn:
+                    ps.shop.append(self._dict_to_minion(card))
 
         # Update per-opponent snapshot with everything we now know about them
         dom_tribe, dom_count = _board_dominant_tribe(opp.board)
@@ -982,7 +1098,9 @@ class BattlegroundsGame:
         )
 
         board_tokens = _encode_zone(ps.board, self.encoder, 7,  **ctx)
-        shop_tokens  = _encode_zone(ps.shop,  self.encoder, 7,  **ctx)
+        # During discover, encode the 3 discover options in shop slots [0-2]
+        shop_source  = ps.discover_pending if ps.discover_pending else ps.shop
+        shop_tokens  = _encode_zone(shop_source, self.encoder, 7,  **ctx)
         hand_tokens  = _encode_zone(ps.hand,  self.encoder, 10, **ctx)
 
         # Look up the announced next opponent's snapshot (None on round 1)
