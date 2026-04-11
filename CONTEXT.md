@@ -800,3 +800,13 @@
 - Monitor whether learning signal improves now that updates are no longer the bottleneck
 - Consider GPU (Colab) for further speedup of both update and inference
 ---
+---
+### 2026-04-11 — Further reduce PPO update cost (UPDATE_INTERVAL=2, batch_size=512, n_epochs=1)
+**Files changed:** `explore.ipynb`
+**What was done:** Diagnosed that PPO backward pass was taking ~13 minutes per update due to ~5,250 backward passes (84K transitions / batch_size=64 × 4 epochs). Changed to UPDATE_INTERVAL=2 (smaller buffer ~17K transitions), batch_size=512, n_epochs=1, reducing backward passes to ~33 per update — roughly 160× fewer. More frequent updates also improve on-policy correctness since data stays fresher.
+**Current state:** Cell 47 has n_epochs=1, batch_size=512. Cell 49 has UPDATE_INTERVAL=2. Expected update time ~30–60s instead of 13+ minutes.
+**Open questions / next steps:**
+- Verify update time is now acceptable after re-running cells 47→49
+- Monitor PPO losses for stability with n_epochs=1
+- If still slow, consider reducing model size (d_model=128, num_layers=2) or moving to Colab GPU
+---
