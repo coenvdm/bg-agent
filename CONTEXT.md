@@ -769,3 +769,13 @@
 - Monitor whether BrokenProcessPool warning appears at 8 workers
 - Continue reward trend — currently ~-2.8 after ~90 games, expect improvement around 200-500 games
 ---
+---
+### 2026-04-11 — Training monitoring session
+**Files changed:** `explore.ipynb`
+**What was done:** Monitored PPO training progress. Diagnosed rising total_loss (0.005→0.040 over 7 updates) as policy taking overly large steps; recommended reducing lr to 1e-4 and clip_eps to 0.15. Confirmed reward trend is essentially flat at -2.6 to -2.7 for last 60+ games — early improvement from -3.3 to -2.7 in first 20 games was likely just learning to avoid illegal actions. Batch time increased to 141s suggesting occasional slow games hitting max_rounds.
+**Current state:** 88 games completed, 19 PPO updates, avg10 reward ~-2.66. No clear learning signal yet — expected at this stage (random init, need 200+ games). Notebook has BrokenProcessPool and TimeoutError recovery.
+**Open questions / next steps:**
+- Reduce lr=1e-4, clip_eps=0.15 before next training run to stabilize policy updates
+- If reward still flat at 200 games, investigate reward signal quality and advantage estimation
+- Consider BC retrain with new arch to provide warm-start and skip the random-init plateau
+---
