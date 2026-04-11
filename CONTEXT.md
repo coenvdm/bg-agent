@@ -739,3 +739,13 @@
 - BC retrain with new arch for faster convergence warm-start
 - Consider in-turn action history LSTM for coherent multi-step turn planning
 ---
+---
+### 2026-04-11 — Worker pool optimizations + notebook scalar-dim fixes
+**Files changed:** `train.py`, `explore.ipynb`
+**What was done:** Fixed notebook cells (policy_header, policy_forward, scalar_header, scalar_viz) that still used 38-dim scalar tensors after the architecture change to 94-dim. Added `_worker_init` pool initializer to train.py so card_defs are sent once per worker process rather than every game call; state_dict is now only recloned after PPO updates. Added `torch.set_num_threads(1)` to `_worker_init` to prevent CPU oversubscription when running many workers.
+**Current state:** Training is running with new architecture (~3.46M params, d_model=256). After ~90 games reward is ~-2.8, PPO losses are decreasing normally. Checkpoint saves after each update so training can resume by re-running cell 47 then 49.
+**Open questions / next steps:**
+- Benchmark N_WORKERS=8 vs 12 with set_num_threads(1) to find optimal worker count on 16-core machine
+- Monitor reward trend over 200-500 games for meaningful improvement above -2.8 baseline
+- BC retrain with new arch (d_model=256, scalar_dim=94) for warm-start once PPO shows plateau
+---
