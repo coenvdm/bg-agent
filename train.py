@@ -276,9 +276,13 @@ _W_DEVICE: str = "cpu"
 
 def _worker_init(card_defs: dict, device: str) -> None:
     """Pool initializer: runs once per worker process on Windows spawn."""
+    import torch as _torch
     global _W_CARD_DEFS, _W_DEVICE
     _W_CARD_DEFS = card_defs
     _W_DEVICE    = device
+    # Prevent PyTorch from spawning multiple internal threads per worker.
+    # With N workers each using 1 thread, total = N threads = one per core.
+    _torch.set_num_threads(1)
 
 
 def _worker_run_game(task: tuple) -> tuple:
