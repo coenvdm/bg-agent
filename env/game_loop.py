@@ -231,6 +231,7 @@ class BattlegroundsGame:
         n_players: int = 8,
         max_rounds: int = 40,
         seed: Optional[int] = None,
+        batched: bool = True,
     ) -> None:
         self.card_defs       = card_defs
         self.agents          = agents or [None] * n_players
@@ -240,6 +241,7 @@ class BattlegroundsGame:
         self.tavern_pool     = tavern_pool
         self.n_players       = n_players
         self.max_rounds      = max_rounds
+        self.batched         = batched
         self._rng            = random.Random(seed)
         self.encoder         = CardEncoder(card_defs)
         self.effect_handler  = EffectHandler(card_defs, tavern_pool=self.tavern_pool)
@@ -855,56 +857,63 @@ class BattlegroundsGame:
                     self.players[pid_b].next_opponent_id = pid_a
 
             # ---- Shopping phase ----------------------------------------
-            # end_turn_buffers: pid → (obs, type_action, ptr_action, step_reward)
-            # End-turn transitions are buffered here and flushed after combat
-            # so the combined step + round reward can be stored together.
+            # end_turn_buffers: pid → tuple buffered for post-combat flush
+            # (sequential) 4-tuple: (obs, type, ptr, step_reward)
+            # (batched)    8-tuple: (obs, type, ptr, step_reward, log_p, val,
+            #                        type_mask_np, ptr_mask_np)
             end_turn_buffers: dict = {}
 
+            # Phase 1 — setup all alive players (fast, no inference)
+            initial_obs: dict = {}
+            round_agents: dict = {}
             for ps in alive_players:
                 ps.round_num = round_num
                 ps.gold      = self._gold_for_round(round_num)
-                # Decrease level_cost by 1 each turn (BG mechanic), floor at 0
                 ps.level_cost = max(0, ps.level_cost - 1)
-                # Reset hero power availability for this turn
                 ps.hero_power_used = False
-                # Redraw shop (respects frozen flag)
                 ps.shop = self._draw_shop(ps)
-                ps.frozen = False  # reset freeze flag after draw
-                # Hero passive: on_start_of_round (may add gold, set cost overrides)
+                ps.frozen = False
                 self.hero_handler.on_start_of_round(ps)
-                # Hero passive: on_refresh fires on initial shop draw too
                 self.hero_handler.on_refresh(ps)
-                # Ysera: inject Dragon into initial shop
                 if getattr(ps, "_ysera_dragon_due", False):
                     ps._ysera_dragon_due = False  # type: ignore[attr-defined]
                     extras = self.tavern_pool.draw(ps.tavern_tier, 1)
                     for card in extras:
                         ps.shop.append(self._dict_to_minion(card))
+                initial_obs[ps.player_id]  = self._get_observation(ps.player_id)
+                round_agents[ps.player_id] = (
+                    active_agents[ps.player_id]
+                    if ps.player_id < len(active_agents) else None
+                )
 
-                obs = self._get_observation(ps.player_id)
-                agent = active_agents[ps.player_id] if ps.player_id < len(active_agents) else None
-
-                # Shopping action loop
-                max_actions = 30  # safety cap to prevent infinite loops
-                for _ in range(max_actions):
-                    prev_obs = obs
-                    type_action, ptr_action = self._get_agent_action(agent, obs, ps)
-                    obs, step_reward, done = self.step_shopping(
-                        ps.player_id, type_action, ptr_action
-                    )
-                    cumulative_rewards[ps.player_id] += step_reward
-                    if done:
-                        # Buffer end_turn; flushed after combat with round reward
-                        end_turn_buffers[ps.player_id] = (
-                            prev_obs, type_action, ptr_action, step_reward
+            # Phase 2 — action loop (batched or sequential)
+            if self.batched and self._agents_support_batching(alive_players, round_agents):
+                self._run_shopping_phase_batched(
+                    alive_players, round_agents, initial_obs,
+                    end_turn_buffers, cumulative_rewards,
+                )
+            else:
+                for ps in alive_players:
+                    obs   = initial_obs[ps.player_id]
+                    agent = round_agents[ps.player_id]
+                    max_actions = 30
+                    for _ in range(max_actions):
+                        prev_obs = obs
+                        type_action, ptr_action = self._get_agent_action(agent, obs, ps)
+                        obs, step_reward, done = self.step_shopping(
+                            ps.player_id, type_action, ptr_action
                         )
-                        break
-                    # Record non-end-turn transitions immediately
-                    if hasattr(agent, "record_transition"):
-                        agent.record_transition(
-                            prev_obs, type_action, ptr_action,
-                            reward=step_reward, done=False,
-                        )
+                        cumulative_rewards[ps.player_id] += step_reward
+                        if done:
+                            end_turn_buffers[ps.player_id] = (
+                                prev_obs, type_action, ptr_action, step_reward
+                            )
+                            break
+                        if hasattr(agent, "record_transition"):
+                            agent.record_transition(
+                                prev_obs, type_action, ptr_action,
+                                reward=step_reward, done=False,
+                            )
 
             # ---- Combat phase (uses same pairings already announced) ----
             # Snapshot ranks BEFORE combat so the delta includes any kills.
@@ -958,13 +967,33 @@ class BattlegroundsGame:
                     # player was just eliminated; False when they survive.
                     buf = end_turn_buffers.pop(pid, None)
                     agent = active_agents[pid] if pid < len(active_agents) else None
-                    if buf is not None and hasattr(agent, "record_transition"):
-                        et_obs, et_type, et_ptr, et_step_reward = buf
-                        agent.record_transition(
-                            et_obs, et_type, et_ptr,
-                            reward=et_step_reward + r,
-                            done=not ps.alive,
-                        )
+                    if buf is not None:
+                        if len(buf) == 8:
+                            # Batched path: pre-computed log_prob and value stored
+                            et_obs, et_type, et_ptr, et_step_reward, \
+                                et_log_p, et_val, et_t_mask, et_p_mask = buf
+                            if hasattr(agent, "record_transition_precomputed"):
+                                agent.record_transition_precomputed(
+                                    et_obs, et_type, et_ptr,
+                                    reward=et_step_reward + r,
+                                    done=not ps.alive,
+                                    log_prob=et_log_p, value=et_val,
+                                    type_mask=et_t_mask, ptr_mask=et_p_mask,
+                                )
+                            elif hasattr(agent, "record_transition"):
+                                agent.record_transition(
+                                    et_obs, et_type, et_ptr,
+                                    reward=et_step_reward + r,
+                                    done=not ps.alive,
+                                )
+                        elif hasattr(agent, "record_transition"):
+                            # Sequential path: 4-tuple
+                            et_obs, et_type, et_ptr, et_step_reward = buf
+                            agent.record_transition(
+                                et_obs, et_type, et_ptr,
+                                reward=et_step_reward + r,
+                                done=not ps.alive,
+                            )
             round_history.append(round_summary)
 
             alive_after = [p for p in self.players if p.alive]
@@ -1067,6 +1096,108 @@ class BattlegroundsGame:
             logger.debug("Agent get_action failed: %s", exc)
 
         return _random_action()
+
+    # ------------------------------------------------------------------
+    # Batched shopping helpers
+    # ------------------------------------------------------------------
+
+    def _agents_support_batching(self, alive_players, round_agents) -> bool:
+        """Return True if all agents expose get_action_batch via their policy."""
+        for ps in alive_players:
+            agent = round_agents.get(ps.player_id)
+            if agent is None:
+                return False
+            policy = getattr(agent, "policy", None)
+            if policy is None or not hasattr(policy, "get_action_batch"):
+                return False
+        return True
+
+    def _run_shopping_phase_batched(
+        self,
+        alive_players,
+        round_agents,
+        initial_obs: dict,
+        end_turn_buffers: dict,
+        cumulative_rewards: dict,
+    ) -> None:
+        """Run the buy-phase for all alive players with batched inference.
+
+        At each step, collects observations for all still-active players,
+        runs a single forward pass for the whole batch, then applies each
+        player's action and removes players that issued END_TURN.
+        """
+        import torch as _torch
+        import numpy as _np
+        from agent.policy import build_type_mask_batch, build_pointer_mask_batch
+
+        first_agent = round_agents[alive_players[0].player_id]
+        policy = first_agent.policy
+
+        current_obs = dict(initial_obs)
+        active = list(alive_players)
+        max_actions = 30
+
+        for _ in range(max_actions):
+            if not active:
+                break
+
+            obs_list      = [current_obs[ps.player_id] for ps in active]
+            player_states = [o["player_state"] for o in obs_list]
+
+            board_t  = _torch.tensor(
+                _np.stack([o["board_tokens"]   for o in obs_list]), dtype=_torch.float32)
+            shop_t   = _torch.tensor(
+                _np.stack([o["shop_tokens"]    for o in obs_list]), dtype=_torch.float32)
+            hand_t   = _torch.tensor(
+                _np.stack([o["hand_tokens"]    for o in obs_list]), dtype=_torch.float32)
+            scalar_t = _torch.tensor(
+                _np.stack([o["scalar_context"] for o in obs_list]), dtype=_torch.float32)
+            opp_arr  = _np.stack([
+                o.get("opp_tokens", _np.zeros((7, 44), dtype=_np.float32))
+                for o in obs_list
+            ])
+            opp_t = _torch.tensor(opp_arr, dtype=_torch.float32)
+
+            t_mask = build_type_mask_batch(player_states)
+            type_acts, ptr_acts, log_probs, values = policy.get_action_batch(
+                board_t, shop_t, hand_t, scalar_t,
+                type_mask=t_mask, opp_tokens=opp_t,
+            )
+            ptr_masks = build_pointer_mask_batch(player_states, type_acts)
+
+            next_active = []
+            for i, ps in enumerate(active):
+                agent     = round_agents[ps.player_id]
+                prev_obs  = obs_list[i]
+                t_a       = int(type_acts[i].item())
+                p_a       = int(ptr_acts[i].item())
+                log_p     = float(log_probs[i].item())
+                val       = float(values[i].item())
+                t_mask_np = t_mask[i].numpy()
+                p_mask_np = ptr_masks[i].numpy()
+
+                next_obs, step_reward, is_done = self.step_shopping(ps.player_id, t_a, p_a)
+                cumulative_rewards[ps.player_id] += step_reward
+
+                if is_done:
+                    end_turn_buffers[ps.player_id] = (
+                        prev_obs, t_a, p_a, step_reward,
+                        log_p, val, t_mask_np, p_mask_np,
+                    )
+                else:
+                    if hasattr(agent, "record_transition_precomputed"):
+                        agent.record_transition_precomputed(
+                            prev_obs, t_a, p_a, step_reward, False,
+                            log_p, val, t_mask_np, p_mask_np,
+                        )
+                    elif hasattr(agent, "record_transition"):
+                        agent.record_transition(
+                            prev_obs, t_a, p_a, reward=step_reward, done=False,
+                        )
+                    current_obs[ps.player_id] = next_obs
+                    next_active.append(ps)
+
+            active = next_active
 
     # ------------------------------------------------------------------
     # Observation builder

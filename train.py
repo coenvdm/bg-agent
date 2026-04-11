@@ -149,6 +149,41 @@ class PPOAgent:
             opp_tokens     = obs.get("opp_tokens"),
         )
 
+    def record_transition_precomputed(
+        self,
+        obs:         dict,
+        type_action: int,
+        ptr_action:  int,
+        reward:      float,
+        done:        bool,
+        log_prob:    float,
+        value:       float,
+        type_mask:   np.ndarray,
+        ptr_mask:    np.ndarray,
+    ) -> None:
+        """Store a transition using pre-computed log_prob and value.
+
+        Skips the evaluate_actions() forward pass — called from the batched
+        shopping loop where log_prob/value come from get_action_batch().
+        """
+        if obs is None:
+            return
+        self.trainer.store_transition(
+            board_tokens   = obs["board_tokens"],
+            shop_tokens    = obs["shop_tokens"],
+            hand_tokens    = obs["hand_tokens"],
+            scalar_context = obs["scalar_context"],
+            type_action    = type_action,
+            ptr_action     = ptr_action,
+            type_mask      = type_mask,
+            pointer_mask   = ptr_mask,
+            reward         = reward,
+            done           = done,
+            log_prob       = log_prob,
+            value          = value,
+            opp_tokens     = obs.get("opp_tokens"),
+        )
+
 
 # -------------------------------------------------------------------------
 # Card definitions loader
@@ -258,6 +293,7 @@ def run_one_game(
         tavern_pool     = components["tavern_pool"],
         n_players       = N_PLAYERS,
         seed            = (seed + game_idx) if seed is not None else None,
+        batched         = True,
     )
 
     result = game.run_game()
@@ -348,6 +384,7 @@ def _worker_run_game(task: tuple) -> tuple:
         tavern_pool      = tavern_pool,
         n_players        = N_PLAYERS,
         seed             = seed,
+        batched          = True,
     )
     result = game.run_game()
 

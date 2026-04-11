@@ -270,6 +270,48 @@ class PPOTrainer:
         self.buffer.add(t)
         self.total_steps += 1
 
+    def store_transition(
+        self,
+        board_tokens:   np.ndarray,
+        shop_tokens:    np.ndarray,
+        hand_tokens:    np.ndarray,
+        scalar_context: np.ndarray,
+        type_action:    int,
+        ptr_action:     int,
+        type_mask:      np.ndarray,
+        pointer_mask:   np.ndarray,
+        reward:         float,
+        done:           bool,
+        log_prob:       float,
+        value:          float,
+        opp_tokens:     Optional[np.ndarray] = None,
+    ) -> None:
+        """Store a transition with pre-computed log_prob and value.
+
+        Skips the evaluate_actions() forward pass — use this when log_prob and
+        value were already computed by get_action_batch() to avoid redundant
+        inference.
+        """
+        if opp_tokens is None:
+            opp_tokens = np.zeros((7, 44), dtype=np.float32)
+        t = Transition(
+            board_tokens=board_tokens,
+            shop_tokens=shop_tokens,
+            hand_tokens=hand_tokens,
+            opp_tokens=opp_tokens,
+            scalar_context=scalar_context,
+            type_mask=type_mask,
+            pointer_mask=pointer_mask,
+            type_action=type_action,
+            ptr_action=ptr_action,
+            reward=reward,
+            done=done,
+            value=value,
+            log_prob=log_prob,
+        )
+        self.buffer.add(t)
+        self.total_steps += 1
+
     # ------------------------------------------------------------------
     # PPO update
     # ------------------------------------------------------------------

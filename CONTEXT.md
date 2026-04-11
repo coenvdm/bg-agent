@@ -779,3 +779,14 @@
 - If reward still flat at 200 games, investigate reward signal quality and advantage estimation
 - Consider BC retrain with new arch to provide warm-start and skip the random-init plateau
 ---
+---
+### 2026-04-11 — Player-action batching + GPU support
+**Files changed:** `agent/policy.py`, `agent/ppo.py`, `env/game_loop.py`, `train.py`, `explore.ipynb`
+**What was done:** Implemented synchronous player-action batching to eliminate B=1 sequential Transformer calls during the shopping phase. `get_action_batch()` added to BGPolicyNetwork runs a single forward pass for all alive players simultaneously; `build_type_mask_batch()` and `build_pointer_mask_batch()` stack per-player masks. `PPOTrainer.store_transition()` accepts pre-computed log_prob/value to skip redundant `evaluate_actions()` call. `BattlegroundsGame._run_shopping_phase_batched()` implements the synchronous step loop (dynamic batch shrinks as players end turns). Workers always use CPU; main-process PPO update uses CUDA if available (auto-detected in cell 46). `run_one_game()` in train.py updated to pass `batched=True`. Dry-run passed: 2 games, ~15s each, no NaN.
+**Current state:** Batching fully implemented and dry-run verified. Notebook cells 46/47/49 updated for CUDA auto-detect and batched training. Workers use `set_num_threads(1)` and `batched=True`. Expected ~3-5× inference speedup vs sequential B=1 path.
+**Open questions / next steps:**
+- Restart notebook kernel, re-run cells 46→47→49, measure actual batch time speedup
+- Compare batch_time at 8 workers before vs after batching (target <60s vs old ~140s)
+- If batch time still slow, profile whether bottleneck shifted to observation building or IPC
+- Clear .pyc cache before restarting to ensure workers pick up new game_loop.py code
+---
