@@ -790,3 +790,13 @@
 - If batch time still slow, profile whether bottleneck shifted to observation building or IPC
 - Clear .pyc cache before restarting to ensure workers pick up new game_loop.py code
 ---
+---
+### 2026-04-11 — Reduce PPO update cost (batch_size=256, n_epochs=2)
+**Files changed:** `explore.ipynb`
+**What was done:** Diagnosed that the PPO backward pass was the dominant bottleneck (~14 minutes per update) rather than game collection. With n_epochs=4 and batch_size=64, ~750 mini-batch backward passes were being run through the Transformer per update on CPU. Reduced to n_epochs=2, batch_size=256, cutting backward passes to ~94 per update (~8× fewer).
+**Current state:** PPO config updated in cell 47. Update should now take seconds instead of minutes. Existing checkpoint will be loaded automatically.
+**Open questions / next steps:**
+- Verify update time drops to <30s after applying new config
+- Monitor whether learning signal improves now that updates are no longer the bottleneck
+- Consider GPU (Colab) for further speedup of both update and inference
+---
