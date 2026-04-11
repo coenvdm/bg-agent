@@ -749,3 +749,13 @@
 - Monitor reward trend over 200-500 games for meaningful improvement above -2.8 baseline
 - BC retrain with new arch (d_model=256, scalar_dim=94) for warm-start once PPO shows plateau
 ---
+---
+### 2026-04-11 — Add batch timeout to prevent silent hangs with many workers
+**Files changed:** `explore.ipynb`
+**What was done:** Added a 300s timeout to `_pool.map()` in the training cell so that if any worker hangs (infinite game loop, matchmaker deadlock, etc.) the batch is skipped rather than blocking silently forever. Investigated CPU utilization with 12 workers on Ryzen 7 4800U (8 physical / 16 logical cores); recommended N_WORKERS=12 given 58% utilization at 8 workers.
+**Current state:** Training cell has timeout safety. Worker pool uses `_worker_init` with `set_num_threads(1)` and 300s per-batch timeout.
+**Open questions / next steps:**
+- Identify root cause of worker hang (infinite action loop or matchmaker deadlock in game_loop.py)
+- Monitor whether timeout is triggered — if so, add logging to identify which game state causes the hang
+- Continue reward trend monitoring toward 200-500 game target
+---
