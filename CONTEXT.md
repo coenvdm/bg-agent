@@ -759,3 +759,13 @@
 - Monitor whether timeout is triggered — if so, add logging to identify which game state causes the hang
 - Continue reward trend monitoring toward 200-500 game target
 ---
+---
+### 2026-04-11 — Fix BrokenProcessPool crash + add OOM recovery
+**Files changed:** `explore.ipynb`
+**What was done:** Added BrokenProcessPool exception handler to the training cell so that if a worker process is killed by the OS (likely OOM with 12 workers), the pool is rebuilt and training continues rather than crashing. Also confirmed the 300s timeout handler was in the disk version but not being used (stale kernel). Diagnosed 25-minute hang as stale kernel running old cell without timeout. Reduced recommended N_WORKERS to 8 to avoid RAM exhaustion on Ryzen 7 4800U.
+**Current state:** Training cell handles both TimeoutError and BrokenProcessPool gracefully. N_WORKERS=8 is the safe default for this machine.
+**Open questions / next steps:**
+- Check RAM usage in Task Manager while training at 8 workers; if <80% try 10
+- Monitor whether BrokenProcessPool warning appears at 8 workers
+- Continue reward trend — currently ~-2.8 after ~90 games, expect improvement around 200-500 games
+---
