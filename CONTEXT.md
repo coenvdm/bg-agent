@@ -860,3 +860,12 @@
 - Watch weight magnitude graph — should start at ~0.15 and grow slowly
 - With AdamW(weight_decay=1e-4) expect weights to stabilize below 1.0 long-term
 ---
+---
+### 2026-04-12 — Fix embedding init + NaN-only checkpoint check
+**Files changed:** `agent/policy.py`, `explore.ipynb`
+**What was done:** Discovered that max_w=4.4 on "fresh" model was from Embedding layers using default N(0,1) init (expected max ~3.7 for 4×256 params). Fixed by adding `nn.init.normal_(std=0.02)` for Embedding layers in _init_weights(). Changed checkpoint health check from magnitude threshold to NaN-only detection, since magnitude alone can't distinguish fresh from corrupt weights. Corrupt checkpoints are now automatically deleted.
+**Current state:** Fresh model now initializes with max_w~0.15. Checkpoint check uses NaN detection only. AdamW(weight_decay=1e-4) keeps weights stable during training.
+**Open questions / next steps:**
+- Restart kernel, delete checkpoints, re-run cells 46→47→49
+- Watch weight magnitude — should start ~0.15 and grow slowly, stabilize below ~1.0
+---

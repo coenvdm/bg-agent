@@ -170,6 +170,8 @@ class BGPolicyNetwork(nn.Module):
                 nn.init.xavier_uniform_(m.weight)
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.Embedding):
+                nn.init.normal_(m.weight, std=0.02)
 
     # ── Forward ───────────────────────────────────────────────────────────────
 
