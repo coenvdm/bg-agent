@@ -1310,14 +1310,22 @@ class BattlegroundsGame:
             tier_rank / 8.0,
         ], dtype=np.float32)
 
-        scalar_ctx = np.concatenate([own_scalar, all_opp_scalar, lobby_scalar])  # [86]
+        # Economy features the policy needs but can't infer from card tokens
+        economy_scalar = np.array([
+            ps.gold / 10.0,                          # current gold (0-10)
+            float(ps.frozen),                         # froze this turn
+            ps.level_cost / 10.0,                    # gold needed to level
+            float(ps.hero_power_used),               # hero power already spent
+        ], dtype=np.float32)
+
+        scalar_ctx = np.concatenate([own_scalar, all_opp_scalar, lobby_scalar, economy_scalar])  # [98]
 
         return {
             "board_tokens":   board_tokens,   # [7, 44]
             "shop_tokens":    shop_tokens,    # [7, 44]
             "hand_tokens":    hand_tokens,    # [10, 44]
             "opp_tokens":     opp_tokens,     # [7, 44]  next opponent's last board
-            "scalar_context": scalar_ctx,     # [86]
+            "scalar_context": scalar_ctx,     # [98]
             "player_id":      player_id,
             "player_state":   ps,
         }

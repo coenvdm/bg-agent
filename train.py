@@ -243,7 +243,7 @@ def build_components(
         d_model=256,
         nhead=8,
         num_layers=4,
-        scalar_dim=94,
+        scalar_dim=98,
         dropout=0.1,
     ).to(device)
 
@@ -363,7 +363,7 @@ def _worker_run_game(task: tuple) -> tuple:
 
     policy = BGPolicyNetwork(
         card_dim=44, d_model=256, nhead=8, num_layers=4,
-        scalar_dim=94, dropout=0.1,
+        scalar_dim=98, dropout=0.1,
     ).to(device)
     policy.load_state_dict(state_dict)
 

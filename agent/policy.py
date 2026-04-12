@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 
 # ── Input dimensions ──────────────────────────────────────────────────────────
 CARD_DIM   = 44
-SCALAR_DIM = 94   # 24 own-board + 64 all-opponents (8×8, own slot zeroed) + 6 lobby
+SCALAR_DIM = 98   # 24 own-board + 64 all-opponents (8×8, own slot zeroed) + 6 lobby + 4 economy
 
 # ── Action type space (matches BGPolicyV2) ────────────────────────────────────
 N_ACTION_TYPES    = 8
