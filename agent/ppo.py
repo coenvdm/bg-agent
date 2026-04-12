@@ -37,7 +37,8 @@ class PPOConfig:
     value_coef: float = 0.5    # value loss coefficient
     entropy_coef: float = 0.01 # entropy bonus coefficient
     max_grad_norm: float = 0.5 # gradient clipping norm
-    n_epochs: int = 4          # PPO update epochs per rollout
+    n_epochs: int = 4          # PPO update epochs per rollout (KL early-stop may cut short)
+    target_kl: float = 0.02    # KL divergence threshold for early stopping epochs
     batch_size: int = 64
     device: str = "cpu"
 
@@ -54,7 +55,7 @@ class Transition:
     shop_tokens:    np.ndarray   # [7,  44]
     hand_tokens:    np.ndarray   # [10, 44]
     opp_tokens:     np.ndarray   # [7,  44] last seen opponent board
-    scalar_context: np.ndarray   # [38]
+    scalar_context: np.ndarray   # [98]
     type_mask:      np.ndarray   # [8]  bool — valid action types
     pointer_mask:   np.ndarray   # [24] bool — valid pointer slots (zone+occupancy)
     type_action:    int          # 0-7
@@ -354,6 +355,10 @@ class PPOTrainer:
             cfg.gamma, cfg.gae_lambda, last_value
         )
 
+        # Clip returns before value-function fitting to prevent loss spikes when
+        # the reward distribution shifts (e.g. new shaping terms added mid-run).
+        ret_np = np.clip(ret_np, -10.0, 10.0)
+
         # Normalise advantages
         adv_mean = adv_np.mean()
         adv_std  = adv_np.std() + 1e-8
@@ -372,7 +377,8 @@ class PPOTrainer:
         }
 
         self.policy.train()
-        for _ in range(cfg.n_epochs):
+        for epoch_i in range(cfg.n_epochs):
+            epoch_kl = 0.0
             random.shuffle(indices)
             for start in range(0, n, cfg.batch_size):
                 batch_idx = indices[start: start + cfg.batch_size]
@@ -399,22 +405,34 @@ class PPOTrainer:
                 )
                 new_values = new_values.squeeze(-1)  # [B]
 
-                # Skip mini-batch if forward pass produced NaN/Inf (numerical overflow)
-                if (torch.isnan(new_log_probs).any() or torch.isnan(new_values).any()
-                        or torch.isinf(new_log_probs).any() or torch.isinf(new_values).any()):
-                    logger.warning("NaN/Inf detected in evaluate_actions — skipping mini-batch")
+                # Skip only on true NaN (not -inf: ratio=exp(-inf)=0 is handled fine
+                # by the clipped surrogate and does not propagate NaN to the loss)
+                if torch.isnan(new_log_probs).any() or torch.isnan(new_values).any():
+                    logger.warning("NaN detected in evaluate_actions — skipping mini-batch")
                     continue
 
-                # Importance-sampling ratio
-                ratio = torch.exp(new_log_probs - b_old_lp)
+                # Importance-sampling ratio — clamp log_probs to avoid exp(+inf)
+                # when old_log_prob is -inf (stale near-zero-prob transitions)
+                new_log_probs_c = new_log_probs.clamp(min=-20.0)
+                b_old_lp_c      = b_old_lp.clamp(min=-20.0)
+                ratio = torch.exp(new_log_probs_c - b_old_lp_c)
+
+                # KL early stopping: approximate KL(old||new) = mean(old_lp - new_lp).
+                # If the policy has drifted too far from the data, stop updating —
+                # further gradient steps would be on stale importance weights.
+                with torch.no_grad():
+                    approx_kl = (b_old_lp_c - new_log_probs_c).mean().item()
+                epoch_kl = max(epoch_kl, approx_kl)
+                if approx_kl > cfg.target_kl:
+                    break  # stop this epoch early
 
                 # Clipped surrogate objective
                 surr1 = ratio * b_adv
                 surr2 = torch.clamp(ratio, 1.0 - cfg.clip_eps, 1.0 + cfg.clip_eps) * b_adv
                 policy_loss = -torch.min(surr1, surr2).mean()
 
-                # Value loss (unclipped)
-                value_loss = 0.5 * (b_ret - new_values).pow(2).mean()
+                # Value loss — plain MSE (no value clipping).
+                value_loss = 0.5 * (new_values - b_ret).pow(2).mean()
 
                 # Entropy bonus
                 entropy_loss = -entropy.mean()
@@ -425,7 +443,7 @@ class PPOTrainer:
                     + cfg.entropy_coef * entropy_loss
                 )
 
-                if not torch.isfinite(total_loss) or total_loss.abs() > 1e6:
+                if not torch.isfinite(total_loss) or total_loss.abs() > 50:
                     logger.warning("Abnormal loss %.3e — skipping mini-batch", total_loss.item())
                     continue
 
@@ -438,6 +456,10 @@ class PPOTrainer:
                 epoch_metrics["value_loss"].append(float(value_loss.item()))
                 epoch_metrics["entropy"].append(float(-entropy_loss.item()))
                 epoch_metrics["total_loss"].append(float(total_loss.item()))
+
+            if epoch_kl > cfg.target_kl:
+                logger.debug("KL early stop at epoch %d (kl=%.4f)", epoch_i, epoch_kl)
+                break  # stop remaining epochs too
 
         self.buffer.clear()
         self.update_count += 1

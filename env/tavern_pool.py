@@ -52,8 +52,11 @@ class TavernPool:
             tier = card_def.get("tier", 1)
             n_copies = COPIES_PER_TIER.get(tier, 1)
             for _ in range(n_copies):
-                # Store a shallow copy so callers can't mutate the master def.
-                self._pool.append(dict(card_def))
+                # Store a shallow copy with card_id injected as a field so that
+                # _dict_to_minion and _slot_occupied can find it on drawn cards.
+                copy = dict(card_def)
+                copy["card_id"] = card_id
+                self._pool.append(copy)
         self._rng.shuffle(self._pool)
 
     # ------------------------------------------------------------------
