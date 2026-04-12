@@ -261,6 +261,31 @@ class BattlegroundsGame:
         """Gold available = min(2 + round_num, 10)."""
         return min(2 + round_num, 10)
 
+    def _end_of_turn_reward(self, ps) -> float:
+        """Shared reward shaping applied at the end of every shopping phase.
+
+        Board presence bonus : +0.10 per minion (max +0.70 for a full board).
+        Empty-board penalty  : -0.30 if the board is empty — breaks level-then-
+                               end-turn degenerate policy.
+        Hand penalty         : -0.08 per card left in hand — cards in hand don't
+                               fight; discourages buying without placing.
+        Gold efficiency      : -0.05 * unspent_gold (scaled down over rounds).
+        """
+        r = 0.0
+        board_size = len(ps.board)
+        hand_size  = len(ps.hand)
+        # Board presence: reward having minions to fight with
+        r += 0.10 * board_size
+        # Empty-board penalty: doing nothing useful is actively bad
+        if board_size == 0:
+            r -= 0.30
+        # Hand penalty: bought cards that aren't placed don't help in combat
+        r -= 0.08 * hand_size
+        # Unspent gold penalty (fades to 20% by round 16+)
+        gold_scale = max(0.2, 1.0 - (ps.round_num - 1) / 15.0)
+        r -= 0.05 * ps.gold * gold_scale
+        return r
+
     def _level_cost_for_tier(self, current_tier: int) -> int:
         """Base upgrade cost: tier1→5, tier2→7, tier3→8, tier4→9, tier5→10."""
         costs = {1: 5, 2: 7, 3: 8, 4: 9, 5: 10, 6: 0}
@@ -537,6 +562,10 @@ class BattlegroundsGame:
                     ps._free_refreshes = _free - 1  # type: ignore[attr-defined]
                 else:
                     ps.gold -= ps.reroll_cost
+                    # Escalating penalty: 1-2 rerolls ok, 3+ gets expensive fast
+                    _n_rerolls = getattr(ps, "_rerolls_this_turn", 0)
+                    reward -= 0.05 + 0.05 * max(0, _n_rerolls - 2)
+                    ps._rerolls_this_turn = _n_rerolls + 1  # type: ignore[attr-defined]
                 ps.frozen = False
                 ps.shop = self._draw_shop(ps)
                 self.hero_handler.on_refresh(ps)
@@ -871,6 +900,7 @@ class BattlegroundsGame:
                 ps.gold      = self._gold_for_round(round_num)
                 ps.level_cost = max(0, ps.level_cost - 1)
                 ps.hero_power_used = False
+                ps._rerolls_this_turn = 0  # type: ignore[attr-defined]
                 ps.shop = self._draw_shop(ps)
                 ps.frozen = False
                 self.hero_handler.on_start_of_round(ps)
