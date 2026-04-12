@@ -841,3 +841,12 @@
 - If weight magnitude climbs toward 2.0+, lower lr further to 5e-6
 - Consider Colab for faster training once stability is confirmed
 ---
+---
+### 2026-04-12 — Fix corrupt checkpoint reinitialization (cls_token NaN)
+**Files changed:** `explore.ipynb`
+**What was done:** Workers were crashing with ValueError because the checkpoint reinitialization via apply(reset_parameters) missed the cls_token bare nn.Parameter, which stayed NaN and propagated through attention to all outputs. Fixed by recreating the entire BGPolicyNetwork and PPOTrainer from scratch when the checkpoint is corrupt, rather than trying to reset in-place.
+**Current state:** Cell 47 now correctly detects NaN/corrupt checkpoints and fully reinitializes. Starting from scratch since all checkpoints are corrupt.
+**Open questions / next steps:**
+- Delete bg_agent_ppo.pt before re-running to avoid loading corrupt checkpoint, or let the NaN guard handle it
+- Monitor max_weight plot to ensure AdamW keeps weights stable
+---
