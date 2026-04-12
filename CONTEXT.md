@@ -1,6 +1,13 @@
 # bg_agent — Development Context Log
 
 ---
+### 2026-04-12 — Fix workers using CUDA instead of CPU
+**Files changed:** `explore.ipynb`
+**What was done:** Workers were being initialised with `DEVICE` ('cuda') instead of hardcoded 'cpu', causing a device mismatch error (mat1 on cpu vs weights on cuda:0). Fixed by passing `'cpu'` explicitly to `_worker_init` in all ProcessPoolExecutor calls. GPU is only used by the main-process PPO update.
+**Current state:** Workers run on CPU, PPO update runs on CUDA — correct split for spawn-based multiprocessing.
+**Open questions / next steps:**
+- Confirm training runs cleanly on the vast.ai instance after `git pull`
+---
 ### 2026-04-12 — Fix CUDA fork bug on Linux (vast.ai)
 **Files changed:** `explore.ipynb`
 **What was done:** Workers were crashing with RuntimeError on Linux because ProcessPoolExecutor defaults to `fork`, which inherits the parent's CUDA context and corrupts it in child processes. Fixed by creating `_MP_CONTEXT = multiprocessing.get_context('spawn')` in cell 46 and passing `mp_context=_MP_CONTEXT` to all ProcessPoolExecutor calls in cell 49. Also bumped N_WORKERS=4, UPDATE_INTERVAL=4 for the multi-core vast.ai instance, and improved error messages to include the exception text.
