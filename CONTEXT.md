@@ -1,6 +1,14 @@
 # bg_agent — Development Context Log
 
 ---
+### 2026-04-12 — Add high-weight warning to PPO update print
+**Files changed:** `explore.ipynb`
+**What was done:** Added `WARNING: high weights` suffix to the PPO update print line when `max_w > 2.0`, making weight divergence immediately visible in the output without needing to watch the plot.
+**Current state:** Training running; `max_w` printed every update, warning appears if it crosses 2.0.
+**Open questions / next steps:**
+- Monitor value loss trend with lr=3e-5
+- If max_w stays near 1.0, consider whether lr can be increased further
+---
 ### 2026-04-12 — Fix NameError for game_lengths and groupby
 **Files changed:** `explore.ipynb`
 **What was done:** Fixed two NameErrors: (1) history init guard in cell 49 now checks each list independently so a kernel with existing `game_rewards` but no `game_lengths` no longer crashes; (2) added `from itertools import groupby` to cells 54 and 55 which use `groupby` without importing it.
