@@ -598,27 +598,24 @@ class BattlegroundsGame:
                 self.hero_handler.on_tavern_upgrade(ps)
 
         elif type_action == 6:
-            # hero_power: active no-pointer heroes (Phase 2)
+            # hero_power: mark as used unconditionally so passive/unsupported heroes
+            # can't be spammed — the mask won't offer it again this turn.
+            ps.hero_power_used = True
             hdef = HERO_DEF_MAP.get(ps.hero_card_id, {})
             ptype = hdef.get("power_type", "null")
             cost  = ps.hero_power_cost
             if (
-                not ps.hero_power_used
-                and ptype == "active_noptr"
+                ptype == "active_noptr"
                 and ps.gold >= cost
                 and (ps.hero_power_charges == -1 or ps.hero_power_charges > 0)
             ):
                 ps.gold -= cost
-                ps.hero_power_used = True
                 if ps.hero_power_charges > 0:
                     ps.hero_power_charges -= 1
                 self.hero_handler.activate_no_pointer(ps, self.tavern_pool)
 
         elif type_action == 7:
-            # end_turn — penalize unspent gold (gold efficiency signal).
-            # Scale by round: full penalty early, fades to 20% by round 16+.
-            gold_scale = max(0.2, 1.0 - (ps.round_num - 1) / 15.0)
-            reward -= 0.05 * ps.gold * gold_scale
+            reward += self._end_of_turn_reward(ps)
             self.hero_handler.on_end_turn(ps)
             done = True
 
