@@ -831,3 +831,13 @@
 - Consider adding periodic backup checkpoints to a separate file every 5 updates
 - Reward had reached avg10≈-1.844 before the instability — should resume from there
 ---
+---
+### 2026-04-12 — Clean up notebook training cells + backup checkpoints + weight monitor
+**Files changed:** `explore.ipynb`
+**What was done:** Updated cell 47 with stable hyperparameters (lr=1e-5, clip_eps=0.10, entropy_coef=0.01) and added NaN/large-weight detection on checkpoint load with automatic reinitialization if weights are bad. Updated cell 49 with: N_WORKERS=2, UPDATE_INTERVAL=2, backup checkpoint every 5 updates to bg_agent_ppo_backup.pt, weight magnitude tracking per update, third plot panel showing max|weight| over time with red danger-zone line at 3.0, broader Exception catch for worker errors.
+**Current state:** Training cells are clean and stable. Starting fresh from random init (checkpoint was corrupted by NaN divergence). Previous run reached avg10≈-1.844 before divergence — expect to recover that within ~100 games.
+**Open questions / next steps:**
+- Monitor max_weight plot — should stay well below 3.0 with AdamW(weight_decay=1e-4)
+- If weight magnitude climbs toward 2.0+, lower lr further to 5e-6
+- Consider Colab for faster training once stability is confirmed
+---
