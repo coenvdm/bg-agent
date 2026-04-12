@@ -1,0 +1,12 @@
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pt
+*.pth
+data/
+logs/
+.env
+.git/
+*.ipynb
+*.ipynb_checkpoints/
