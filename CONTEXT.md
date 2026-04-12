@@ -1,6 +1,14 @@
 # bg_agent — Development Context Log
 
 ---
+### 2026-04-12 — Pre-training prep: robust checkpoint loading + n_epochs=4
+**Files changed:** `explore.ipynb`
+**What was done:** Wrapped `load_checkpoint` in a try/except so incompatible checkpoints (e.g. old 94-dim scalar context) are automatically deleted and training restarts fresh rather than crashing. Bumped `n_epochs=4` — safe now that KL early stopping (target_kl=0.02) will cut epochs short when the policy drifts too far.
+**Current state:** Notebook is ready for a clean training run on the vast.ai instance after `git pull`.
+**Open questions / next steps:**
+- Monitor value loss trajectory with the new reward shaping (board presence, reroll penalty)
+- Check whether KL early stopping triggers (look for "KL early stop" in PPO logs)
+---
 ### 2026-04-12 — Scalar context expanded to 98 dims; reward shaping overhaul; PPO improvements
 **Files changed:** `agent/policy.py`, `agent/ppo.py`, `env/game_loop.py`, `env/tavern_pool.py`, `train.py`, `explore.ipynb`
 **What was done:**
