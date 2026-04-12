@@ -821,3 +821,13 @@
 - Monitor whether reward trend resumes from -2.2 baseline
 - Consider adding weight magnitude logging to the training cell
 ---
+---
+### 2026-04-12 — Strengthen NaN/Inf guard in PPO update loop
+**Files changed:** `agent/ppo.py`
+**What was done:** The previous NaN guard only checked for `torch.isnan()`, but the 6×10^16 loss spike was caused by large (finite) value predictions from weights at magnitude 3.75, making `value_loss = 0.5×(returns−values)²` enormous. Extended the guard to also skip mini-batches with Inf values or total_loss > 1e6. Also provided a weight rescaling recipe (`scale = 0.3/max_w`) to bring loaded checkpoint weights back to safe magnitudes without losing learned directions.
+**Current state:** ppo.py now skips NaN, Inf, and abnormally large loss mini-batches. User needs to rescale weights and clear buffer before resuming. AdamW with weight_decay=1e-4 is in place to prevent future weight growth.
+**Open questions / next steps:**
+- Verify training is stable after weight rescaling (max_w should stay below ~1.0 with AdamW)
+- Consider adding periodic backup checkpoints to a separate file every 5 updates
+- Reward had reached avg10≈-1.844 before the instability — should resume from there
+---

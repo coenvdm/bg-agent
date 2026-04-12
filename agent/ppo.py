@@ -399,9 +399,10 @@ class PPOTrainer:
                 )
                 new_values = new_values.squeeze(-1)  # [B]
 
-                # Skip mini-batch if forward pass produced NaN (numerical overflow)
-                if torch.isnan(new_log_probs).any() or torch.isnan(new_values).any():
-                    logger.warning("NaN detected in evaluate_actions — skipping mini-batch")
+                # Skip mini-batch if forward pass produced NaN/Inf (numerical overflow)
+                if (torch.isnan(new_log_probs).any() or torch.isnan(new_values).any()
+                        or torch.isinf(new_log_probs).any() or torch.isinf(new_values).any()):
+                    logger.warning("NaN/Inf detected in evaluate_actions — skipping mini-batch")
                     continue
 
                 # Importance-sampling ratio
@@ -423,6 +424,10 @@ class PPOTrainer:
                     + cfg.value_coef  * value_loss
                     + cfg.entropy_coef * entropy_loss
                 )
+
+                if not torch.isfinite(total_loss) or total_loss.abs() > 1e6:
+                    logger.warning("Abnormal loss %.3e — skipping mini-batch", total_loss.item())
+                    continue
 
                 self.optimizer.zero_grad()
                 total_loss.backward()
