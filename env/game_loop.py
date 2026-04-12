@@ -445,9 +445,9 @@ class BattlegroundsGame:
                 rejects = [m for i, m in enumerate(ps.discover_pending)
                            if i != choice_idx]
                 # Return unchosen cards to pool as dicts
-                if self._tavern_pool is not None:
-                    self._tavern_pool.return_cards(
-                        [self._minion_to_dict(m) for m in rejects]
+                if self.tavern_pool is not None:
+                    self.tavern_pool.return_cards(
+                        [_minion_to_dict(m) for m in rejects]
                     )
                 ps.discover_pending = []
                 if len(ps.hand) < 10:
@@ -1160,7 +1160,7 @@ class BattlegroundsGame:
         """
         import torch as _torch
         import numpy as _np
-        from agent.policy import build_type_mask_batch, build_pointer_mask_batch
+        from agent.policy import build_type_mask_batch, build_pointer_mask_batch, build_pointer_mask
 
         first_agent = round_agents[alive_players[0].player_id]
         policy = first_agent.policy
@@ -1190,10 +1190,13 @@ class BattlegroundsGame:
             ])
             opp_t = _torch.tensor(opp_arr, dtype=_torch.float32)
 
-            t_mask = build_type_mask_batch(player_states)
+            t_mask   = build_type_mask_batch(player_states)
+            # Full occupancy mask (type_idx=-1): marks every occupied slot across
+            # all zones so get_action_batch can restrict pointers to valid targets.
+            occ_mask = _torch.stack([build_pointer_mask(ps, -1) for ps in player_states])
             type_acts, ptr_acts, log_probs, values = policy.get_action_batch(
                 board_t, shop_t, hand_t, scalar_t,
-                type_mask=t_mask, opp_tokens=opp_t,
+                type_mask=t_mask, pointer_mask=occ_mask, opp_tokens=opp_t,
             )
             ptr_masks = build_pointer_mask_batch(player_states, type_acts)
 
