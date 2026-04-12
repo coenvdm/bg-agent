@@ -1,6 +1,15 @@
 # bg_agent — Development Context Log
 
 ---
+### 2026-04-12 — vast.ai GPU setup prep + fix lr regression
+**Files changed:** `explore.ipynb`
+**What was done:** Re-fixed `lr=3e-5` in cell 47 after it silently reverted to `1e-4` when the groupby Bash JSON edit rewrote the notebook. DEVICE already auto-detects CUDA so no other notebook changes needed for GPU. Advised vast.ai setup: PyTorch image, port 8888, `git clone`, `pip install hslog hearthstone`, then upload checkpoint if resuming.
+**Current state:** Notebook is GPU-ready; workers stay on CPU, PPO update runs on CUDA when available.
+**Open questions / next steps:**
+- Run on vast.ai GPU instance to confirm PPO update speedup
+- Increase N_WORKERS to 4–8 on the instance (more CPU cores available)
+- Watch for lr regression again if raw JSON edits are made to the notebook
+---
 ### 2026-04-12 — Move max_w to per-game batch status line
 **Files changed:** `explore.ipynb`
 **What was done:** Moved `max_w` and the high-weight warning from the PPO update print line (which gets cleared by `clear_output`) to the per-game batch line that persists below the plot. `_max_w` is now initialised before the loop and updated after each PPO update.
