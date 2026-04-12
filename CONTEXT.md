@@ -1,6 +1,13 @@
 # bg_agent — Development Context Log
 
 ---
+### 2026-04-12 — Move max_w to per-game batch status line
+**Files changed:** `explore.ipynb`
+**What was done:** Moved `max_w` and the high-weight warning from the PPO update print line (which gets cleared by `clear_output`) to the per-game batch line that persists below the plot. `_max_w` is now initialised before the loop and updated after each PPO update.
+**Current state:** Every batch line shows `max_w=X.XXXX` and appends `WARNING: high weights` if above 2.0.
+**Open questions / next steps:**
+- Monitor value loss and max_w trends with lr=3e-5
+---
 ### 2026-04-12 — Add high-weight warning to PPO update print
 **Files changed:** `explore.ipynb`
 **What was done:** Added `WARNING: high weights` suffix to the PPO update print line when `max_w > 2.0`, making weight divergence immediately visible in the output without needing to watch the plot.
