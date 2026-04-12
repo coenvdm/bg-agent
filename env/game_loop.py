@@ -577,8 +577,13 @@ class BattlegroundsGame:
                         ps.shop.append(self._dict_to_minion(card))
 
         elif type_action == 4:
-            # freeze
+            # freeze — semantically "I'm done shopping; save this shop for next turn".
+            # Immediately ends the turn so the agent can't freeze then keep buying.
+            # Applies the same end-of-turn effects as END_TURN.
             ps.frozen = True
+            reward += self._end_of_turn_reward(ps)
+            self.hero_handler.on_end_turn(ps)
+            done = True
 
         elif type_action == 5:
             # level_up (Millhouse adds 1 to cost)
