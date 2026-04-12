@@ -850,3 +850,13 @@
 - Delete bg_agent_ppo.pt before re-running to avoid loading corrupt checkpoint, or let the NaN guard handle it
 - Monitor max_weight plot to ensure AdamW keeps weights stable
 ---
+---
+### 2026-04-12 — Lower checkpoint corruption threshold to 2.0
+**Files changed:** `explore.ipynb`
+**What was done:** Checkpoint loaded with max_w=4.2 (below old threshold of 10) causing immediate loss divergence. Lowered the threshold to 2.0 so any checkpoint with weights above that is discarded and training reinitializes. Xavier init gives max_w ~0.15, so 2.0 gives ample headroom for legitimate checkpoints while rejecting unstable ones.
+**Current state:** Cell 47 rejects checkpoints with max_w > 2.0. User must delete corrupt checkpoints and restart from scratch.
+**Open questions / next steps:**
+- Delete bg_agent_ppo.pt and bg_agent_ppo_backup.pt before re-running cell 47
+- Watch weight magnitude graph — should start at ~0.15 and grow slowly
+- With AdamW(weight_decay=1e-4) expect weights to stabilize below 1.0 long-term
+---
