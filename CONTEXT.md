@@ -1,6 +1,14 @@
 # bg_agent — Development Context Log
 
 ---
+### 2026-04-12 — Fix CUDA fork bug on Linux (vast.ai)
+**Files changed:** `explore.ipynb`
+**What was done:** Workers were crashing with RuntimeError on Linux because ProcessPoolExecutor defaults to `fork`, which inherits the parent's CUDA context and corrupts it in child processes. Fixed by creating `_MP_CONTEXT = multiprocessing.get_context('spawn')` in cell 46 and passing `mp_context=_MP_CONTEXT` to all ProcessPoolExecutor calls in cell 49. Also bumped N_WORKERS=4, UPDATE_INTERVAL=4 for the multi-core vast.ai instance, and improved error messages to include the exception text.
+**Current state:** Notebook should run cleanly on the vast.ai 2× RTX 5060 Ti instance.
+**Open questions / next steps:**
+- Confirm training starts on the instance after the fix
+- Monitor GPU utilisation during PPO update (should be high)
+---
 ### 2026-04-12 — Complete requirements.txt for vast.ai deployment
 **Files changed:** `requirements.txt`
 **What was done:** Added `torch`, `numpy`, and `matplotlib` to requirements.txt (previously only had `hslog` and `hearthstone`). All other imports are stdlib so no further packages needed.
