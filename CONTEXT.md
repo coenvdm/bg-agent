@@ -1,6 +1,13 @@
 # bg_agent — Development Context Log
 
 ---
+### 2026-04-12 — Fix NameError for game_lengths and groupby
+**Files changed:** `explore.ipynb`
+**What was done:** Fixed two NameErrors: (1) history init guard in cell 49 now checks each list independently so a kernel with existing `game_rewards` but no `game_lengths` no longer crashes; (2) added `from itertools import groupby` to cells 54 and 55 which use `groupby` without importing it.
+**Current state:** Recording analysis cells and training loop are both runnable without NameErrors.
+**Open questions / next steps:**
+- Monitor value loss trend with lr=3e-5
+---
 ### 2026-04-12 — Auto-adjusting y-axis on PPO loss plot
 **Files changed:** `explore.ipynb`
 **What was done:** Added `_trimmed_ylim()` helper that computes the 5th–95th percentile of all loss values and sets the loss plot y-axis to that window with 15% margin. Early spikes no longer dominate the scale; the window auto-contracts as losses stabilise. Log scale was rejected because total_loss can go negative.
