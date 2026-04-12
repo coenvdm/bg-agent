@@ -1,6 +1,15 @@
 # bg_agent — Development Context Log
 
 ---
+### 2026-04-12 — Increase PPO learning rate to 3e-5
+**Files changed:** `explore.ipynb`
+**What was done:** Increased `lr` in `_make_ppo_trainer` from `1e-5` to `3e-5`. At `1e-5`, AdamW's `weight_decay=1e-4` was nearly cancelling the gradient signal, causing value loss to climb monotonically over 28 updates with weights frozen near 1.0 (LayerNorm floor). `3e-5` is 3× below the divergence point seen with vanilla Adam at `1e-4`, but large enough for AdamW to make meaningful weight updates.
+**Current state:** Notebook cell 47 updated; training can be resumed from the existing checkpoint with the new lr.
+**Open questions / next steps:**
+- Monitor `max_w` over the next 10 updates — expect slow rise from 1.0 to 1.1–1.3
+- Value loss should plateau or drop within 5–10 updates; if it continues climbing, consider `lr=1e-4` with tighter `clip_eps=0.05`
+- Long-term: batched inference (`get_action_batch`) plan still pending for CPU throughput improvement
+---
 ### 2026-04-10 — Drop ShopAnalyzer from notebook
 **Files changed:** `explore.ipynb`
 **What was done:** Removed the unused ShopAnalyzer from explore.ipynb — deleted the import/instantiation from the symbolic setup cell, the "Shop Analyzer — Buy Value Estimation" markdown heading, and the analyze_shop demo cell. No other cells depended on it.
