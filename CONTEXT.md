@@ -1,6 +1,13 @@
 # bg_agent — Development Context Log
 
 ---
+### 2026-04-12 — Complete requirements.txt for vast.ai deployment
+**Files changed:** `requirements.txt`
+**What was done:** Added `torch`, `numpy`, and `matplotlib` to requirements.txt (previously only had `hslog` and `hearthstone`). All other imports are stdlib so no further packages needed.
+**Current state:** `pip install -r requirements.txt` is sufficient to run the full codebase on a fresh PyTorch Docker image.
+**Open questions / next steps:**
+- Run notebook on vast.ai 2× RTX 5060 Ti instance and confirm `Training device: cuda`
+---
 ### 2026-04-12 — vast.ai GPU setup prep + fix lr regression
 **Files changed:** `explore.ipynb`
 **What was done:** Re-fixed `lr=3e-5` in cell 47 after it silently reverted to `1e-4` when the groupby Bash JSON edit rewrote the notebook. DEVICE already auto-detects CUDA so no other notebook changes needed for GPU. Advised vast.ai setup: PyTorch image, port 8888, `git clone`, `pip install hslog hearthstone`, then upload checkpoint if resuming.
