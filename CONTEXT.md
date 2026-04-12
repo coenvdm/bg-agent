@@ -810,3 +810,14 @@
 - Monitor PPO losses for stability with n_epochs=1
 - If still slow, consider reducing model size (d_model=128, num_layers=2) or moving to Colab GPU
 ---
+---
+### 2026-04-12 — Fix NaN divergence: AdamW + NaN guard in update loop
+**Files changed:** `agent/ppo.py`
+**What was done:** Training diverged at update ~22 with a 2×10^6 loss spike, causing weights to become NaN. Root cause: Adam optimizer has no weight decay, allowing weights to drift to magnitude ~3.75 over 73 updates, which causes attention score overflow (Q×K^T → exp overflow → NaN in softmax) during the training-mode forward pass. Fixed by switching to AdamW with weight_decay=1e-4 to keep weights bounded. Also added a NaN guard in the update mini-batch loop to skip corrupted mini-batches rather than crashing with ValueError.
+**Current state:** ppo.py uses AdamW(weight_decay=1e-4). NaN mini-batches are skipped with a warning. User needs to reload checkpoint, reset optimizer to AdamW(lr=3e-5), clear buffer, and resume training. Reward had improved from -2.7 to -2.2 before divergence.
+**Open questions / next steps:**
+- Verify training is stable after AdamW switch (watch max weight magnitude over next 50 updates)
+- Consider adding periodic backup checkpoints (every 5 updates to separate file) to recover from future divergence
+- Monitor whether reward trend resumes from -2.2 baseline
+- Consider adding weight magnitude logging to the training cell
+---

@@ -194,7 +194,7 @@ class PPOTrainer:
     def __init__(self, policy: BGPolicyNetwork, config: PPOConfig) -> None:
         self.policy  = policy
         self.config  = config
-        self.optimizer = torch.optim.Adam(policy.parameters(), lr=config.lr)
+        self.optimizer = torch.optim.AdamW(policy.parameters(), lr=config.lr, weight_decay=1e-4)
         self.buffer  = RolloutBuffer()
         self.total_steps  = 0
         self.update_count = 0
@@ -398,6 +398,11 @@ class PPOTrainer:
                     b_t_acts, b_p_acts, b_t_mask, b_p_mask, b_opp,
                 )
                 new_values = new_values.squeeze(-1)  # [B]
+
+                # Skip mini-batch if forward pass produced NaN (numerical overflow)
+                if torch.isnan(new_log_probs).any() or torch.isnan(new_values).any():
+                    logger.warning("NaN detected in evaluate_actions — skipping mini-batch")
+                    continue
 
                 # Importance-sampling ratio
                 ratio = torch.exp(new_log_probs - b_old_lp)
