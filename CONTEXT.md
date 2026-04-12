@@ -1,6 +1,14 @@
 # bg_agent — Development Context Log
 
 ---
+### 2026-04-12 — Auto-adjusting y-axis on PPO loss plot
+**Files changed:** `explore.ipynb`
+**What was done:** Added `_trimmed_ylim()` helper that computes the 5th–95th percentile of all loss values and sets the loss plot y-axis to that window with 15% margin. Early spikes no longer dominate the scale; the window auto-contracts as losses stabilise. Log scale was rejected because total_loss can go negative.
+**Current state:** All three training panels auto-scale appropriately; loss plot ignores outliers while preserving full data.
+**Open questions / next steps:**
+- Monitor whether value loss descends with lr=3e-5
+- Game length plot should trend upward as policy improves
+---
 ### 2026-04-12 — Replace weight magnitude plot with game length plot
 **Files changed:** `explore.ipynb`
 **What was done:** Swapped the third training plot panel from weight magnitude to game length (rounds per game), with a 10-game rolling average and last-50 game average in the title. Max weight magnitude is now printed per-update in the text output (`max_w=X.XXXX`) rather than plotted. Removed the `ppo_max_weights` tracking list accordingly.
