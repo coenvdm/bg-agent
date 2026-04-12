@@ -1,6 +1,14 @@
 # bg_agent — Development Context Log
 
 ---
+### 2026-04-12 — Replace weight magnitude plot with game length plot
+**Files changed:** `explore.ipynb`
+**What was done:** Swapped the third training plot panel from weight magnitude to game length (rounds per game), with a 10-game rolling average and last-50 game average in the title. Max weight magnitude is now printed per-update in the text output (`max_w=X.XXXX`) rather than plotted. Removed the `ppo_max_weights` tracking list accordingly.
+**Current state:** Training loop plots reward, PPO losses, and game length. Weight magnitude visible in the per-update print line.
+**Open questions / next steps:**
+- Game length should increase as the policy improves (better play = longer games)
+- Monitor whether value loss starts descending with lr=3e-5
+---
 ### 2026-04-12 — Increase PPO learning rate to 3e-5
 **Files changed:** `explore.ipynb`
 **What was done:** Increased `lr` in `_make_ppo_trainer` from `1e-5` to `3e-5`. At `1e-5`, AdamW's `weight_decay=1e-4` was nearly cancelling the gradient signal, causing value loss to climb monotonically over 28 updates with weights frozen near 1.0 (LayerNorm floor). `3e-5` is 3× below the divergence point seen with vanilla Adam at `1e-4`, but large enough for AdamW to make meaningful weight updates.
