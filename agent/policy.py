@@ -172,6 +172,11 @@ class BGPolicyNetwork(nn.Module):
                     nn.init.zeros_(m.bias)
             elif isinstance(m, nn.Embedding):
                 nn.init.normal_(m.weight, std=0.02)
+        # Zero-init the value head output layer so initial estimates start near 0.
+        # Without this, Xavier init can produce outputs of ±50+ which dwarf the
+        # clipped return targets ([-10, 10]) and make value_loss >> 50 from step 1.
+        nn.init.zeros_(self.value_head[-1].weight)
+        nn.init.zeros_(self.value_head[-1].bias)
 
     # ── Forward ───────────────────────────────────────────────────────────────
 
@@ -529,9 +534,9 @@ def build_type_mask(player_state) -> torch.Tensor:
     1 sell       : board non-empty
     2 place      : hand non-empty AND len(board) < 7
     3 reroll     : gold >= 1
-    4 freeze     : always valid
+    4 freeze     : shop not already frozen this turn
     5 level_up   : tavern_tier < 6 AND gold >= level_cost
-    6 hero_power : always valid
+    6 hero_power : not used this turn AND charges > 0 AND gold >= cost AND hero active
     7 end_turn   : always valid
     """
     if isinstance(player_state, dict):

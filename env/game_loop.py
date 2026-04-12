@@ -1134,10 +1134,13 @@ class BattlegroundsGame:
     # ------------------------------------------------------------------
 
     def _agents_support_batching(self, alive_players, round_agents) -> bool:
-        """Return True if all agents expose get_action_batch via their policy."""
+        """Return True if all agents expose get_action_batch via their policy
+        and none have opted out via supports_batching = False."""
         for ps in alive_players:
             agent = round_agents.get(ps.player_id)
             if agent is None:
+                return False
+            if not getattr(agent, "supports_batching", True):
                 return False
             policy = getattr(agent, "policy", None)
             if policy is None or not hasattr(policy, "get_action_batch"):
@@ -1163,7 +1166,7 @@ class BattlegroundsGame:
         from agent.policy import build_type_mask_batch, build_pointer_mask_batch, build_pointer_mask
 
         first_agent = round_agents[alive_players[0].player_id]
-        policy = first_agent.policy
+        dev = next(first_agent.policy.parameters()).device
 
         current_obs = dict(initial_obs)
         active = list(alive_players)
@@ -1176,28 +1179,56 @@ class BattlegroundsGame:
             obs_list      = [current_obs[ps.player_id] for ps in active]
             player_states = [o["player_state"] for o in obs_list]
 
-            board_t  = _torch.tensor(
-                _np.stack([o["board_tokens"]   for o in obs_list]), dtype=_torch.float32)
-            shop_t   = _torch.tensor(
-                _np.stack([o["shop_tokens"]    for o in obs_list]), dtype=_torch.float32)
-            hand_t   = _torch.tensor(
-                _np.stack([o["hand_tokens"]    for o in obs_list]), dtype=_torch.float32)
-            scalar_t = _torch.tensor(
-                _np.stack([o["scalar_context"] for o in obs_list]), dtype=_torch.float32)
-            opp_arr  = _np.stack([
-                o.get("opp_tokens", _np.zeros((7, 44), dtype=_np.float32))
-                for o in obs_list
-            ])
-            opp_t = _torch.tensor(opp_arr, dtype=_torch.float32)
+            # Group active players by policy object so each distinct policy
+            # gets one batched forward pass.  All-same-policy (common case)
+            # → one pass, identical to the old behaviour.  Current + historical
+            # snapshot → two passes, one per group.
+            _groups: dict = {}  # id(policy) → (policy_obj, [local_indices])
+            for _gi, _ps in enumerate(active):
+                _pol = round_agents[_ps.player_id].policy
+                _key = id(_pol)
+                if _key not in _groups:
+                    _groups[_key] = (_pol, [])
+                _groups[_key][1].append(_gi)
 
-            t_mask   = build_type_mask_batch(player_states)
-            # Full occupancy mask (type_idx=-1): marks every occupied slot across
-            # all zones so get_action_batch can restrict pointers to valid targets.
-            occ_mask = _torch.stack([build_pointer_mask(ps, -1) for ps in player_states])
-            type_acts, ptr_acts, log_probs, values = policy.get_action_batch(
-                board_t, shop_t, hand_t, scalar_t,
-                type_mask=t_mask, pointer_mask=occ_mask, opp_tokens=opp_t,
-            )
+            _n = len(active)
+            _type_buf = [None] * _n
+            _ptr_buf  = [None] * _n
+            _lp_buf   = [None] * _n
+            _val_buf  = [None] * _n
+
+            for _pol, _g_idxs in _groups.values():
+                _g_obs    = [obs_list[i] for i in _g_idxs]
+                _g_states = [player_states[i] for i in _g_idxs]
+                _board_g  = _torch.tensor(
+                    _np.stack([o["board_tokens"]   for o in _g_obs]), dtype=_torch.float32, device=dev)
+                _shop_g   = _torch.tensor(
+                    _np.stack([o["shop_tokens"]    for o in _g_obs]), dtype=_torch.float32, device=dev)
+                _hand_g   = _torch.tensor(
+                    _np.stack([o["hand_tokens"]    for o in _g_obs]), dtype=_torch.float32, device=dev)
+                _scalar_g = _torch.tensor(
+                    _np.stack([o["scalar_context"] for o in _g_obs]), dtype=_torch.float32, device=dev)
+                _opp_g    = _torch.tensor(
+                    _np.stack([o.get("opp_tokens", _np.zeros((7, 44), dtype=_np.float32))
+                               for o in _g_obs]), dtype=_torch.float32, device=dev)
+                _t_mask_g   = build_type_mask_batch(_g_states).to(dev)
+                _occ_mask_g = _torch.stack(
+                    [build_pointer_mask(_s, -1) for _s in _g_states]).to(dev)
+                _ta, _pa, _lp, _vl = _pol.get_action_batch(
+                    _board_g, _shop_g, _hand_g, _scalar_g,
+                    type_mask=_t_mask_g, pointer_mask=_occ_mask_g, opp_tokens=_opp_g,
+                )
+                for _j, _i in enumerate(_g_idxs):
+                    _type_buf[_i] = _ta[_j]
+                    _ptr_buf[_i]  = _pa[_j]
+                    _lp_buf[_i]   = _lp[_j]
+                    _val_buf[_i]  = _vl[_j]
+
+            type_acts = _torch.stack(_type_buf)
+            ptr_acts  = _torch.stack(_ptr_buf)
+            log_probs = _torch.stack(_lp_buf)
+            values    = _torch.stack(_val_buf)
+            t_mask    = build_type_mask_batch(player_states).to(dev)
             ptr_masks = build_pointer_mask_batch(player_states, type_acts)
 
             next_active = []
@@ -1208,8 +1239,8 @@ class BattlegroundsGame:
                 p_a       = int(ptr_acts[i].item())
                 log_p     = float(log_probs[i].item())
                 val       = float(values[i].item())
-                t_mask_np = t_mask[i].numpy()
-                p_mask_np = ptr_masks[i].numpy()
+                t_mask_np = t_mask[i].cpu().numpy()
+                p_mask_np = ptr_masks[i].cpu().numpy()
 
                 next_obs, step_reward, is_done = self.step_shopping(ps.player_id, t_a, p_a)
                 cumulative_rewards[ps.player_id] += step_reward
