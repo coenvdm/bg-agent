@@ -1,6 +1,22 @@
 # bg_agent — Development Context Log
 
 ---
+### 2026-04-12 — Scalar context expanded to 98 dims; reward shaping overhaul; PPO improvements
+**Files changed:** `agent/policy.py`, `agent/ppo.py`, `env/game_loop.py`, `env/tavern_pool.py`, `train.py`, `explore.ipynb`
+**What was done:**
+- **Scalar context 94→98**: added 4 economy features (current gold, frozen flag, level cost, hero_power_used) that the policy needs but can't infer from card tokens alone.
+- **Reward shaping**: added `_end_of_turn_reward()` helper used by both END_TURN and FREEZE — gives board presence bonus (+0.10/minion), empty-board penalty (-0.30), hand penalty (-0.08/card), and gold efficiency penalty. Added escalating reroll penalty (flat -0.05, then +0.05 per reroll beyond 2).
+- **Freeze fix**: FREEZE action now sets done=True (immediately ends shopping phase) and the type mask checks `ps.frozen` so the agent can't freeze a shop twice.
+- **Hero power fix**: `ps.hero_power_used = True` moved before the condition check so passive/unsupported heroes can't be spammed.
+- **PPO**: added KL early stopping (target_kl=0.02), return clipping [-10, 10], clamped log-probs to prevent exp() overflow, tightened abnormal-loss guard from 1e6 to 50.
+- **TavernPool**: card_id now injected into each pool card copy so drawn cards carry their id.
+- **Bug fix**: discover reject path now uses `self.tavern_pool` and module-level `_minion_to_dict`; batched inference loop passes occupancy mask to `get_action_batch`.
+**Current state:** All changes organised into 7 separate commits with detailed messages. Training on vast.ai 2× RTX 5060 Ti in progress.
+**Open questions / next steps:**
+- Monitor value loss with new reward shaping — board presence bonus may change the value distribution significantly
+- Verify KL early stopping triggers as expected (check logs for "KL early stop" messages)
+- scalar_dim=98 is a breaking change for old checkpoints — fresh training run needed
+---
 ### 2026-04-12 — Fix workers using CUDA instead of CPU
 **Files changed:** `explore.ipynb`
 **What was done:** Workers were being initialised with `DEVICE` ('cuda') instead of hardcoded 'cpu', causing a device mismatch error (mat1 on cpu vs weights on cuda:0). Fixed by passing `'cpu'` explicitly to `_worker_init` in all ProcessPoolExecutor calls. GPU is only used by the main-process PPO update.
