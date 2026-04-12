@@ -869,3 +869,11 @@
 - Restart kernel, delete checkpoints, re-run cells 46→47→49
 - Watch weight magnitude — should start ~0.15 and grow slowly, stabilize below ~1.0
 ---
+---
+### 2026-04-12 — Fix PPO_BACKUP_PATH NameError + clean up cell dependencies
+**Files changed:** `explore.ipynb`
+**What was done:** PPO_BACKUP_PATH was defined in cell 49 but referenced in cell 47, causing NameError. Moved PPO_BACKUP_PATH to cell 46 (alongside PPO_PATH). Removed duplicate definition from cell 49. Also moved `import os` from cell 47 to cell 46.
+**Current state:** All path constants defined in cell 46. Cells 47 and 49 have no hidden dependencies.
+**Open questions / next steps:**
+- Restart kernel, re-run 46→47→49. Cell 47 should print max_w~0.15 for fresh init.
+---
