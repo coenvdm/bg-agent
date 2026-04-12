@@ -47,7 +47,46 @@ from symbolic.firestone_client import FirestoneClient
 # -------------------------------------------------------------------------
 CARD_DEFS_PATH = Path(__file__).parent / "bg_card_definitions.json"
 PIPELINE_SCRIPT = Path(__file__).parent / "bg_card_pipeline.py"
-N_PLAYERS = 8
+N_PLAYERS       = 8
+N_TRAIN_PLAYERS = 2   # player slots per game that use the current policy and collect transitions
+
+
+# -------------------------------------------------------------------------
+# Snapshot pool for historical self-play
+# -------------------------------------------------------------------------
+
+class SnapshotPool:
+    """Rolling buffer of past policy state_dicts for historical self-play.
+
+    Each game pairs N_TRAIN_PLAYERS current-policy agents against
+    (N_PLAYERS - N_TRAIN_PLAYERS) agents frozen at a past checkpoint.
+    This breaks the echo-chamber that forms when all players share the same
+    evolving policy.
+
+    Usage::
+
+        pool = SnapshotPool(capacity=20)
+        pool.add(policy.state_dict())   # call every SNAPSHOT_EVERY updates
+        opp_sd = pool.sample()          # None when pool is empty → fall back
+    """
+
+    def __init__(self, capacity: int = 20) -> None:
+        self.capacity   = capacity
+        self._snapshots: List[dict] = []
+
+    def add(self, state_dict: dict) -> None:
+        """Append a CPU clone of *state_dict*; evict the oldest if over capacity."""
+        snap = {k: v.detach().cpu().clone() for k, v in state_dict.items()}
+        self._snapshots.append(snap)
+        if len(self._snapshots) > self.capacity:
+            self._snapshots.pop(0)
+
+    def sample(self) -> Optional[dict]:
+        """Return a uniformly sampled snapshot, or None if the pool is empty."""
+        return random.choice(self._snapshots) if self._snapshots else None
+
+    def __len__(self) -> int:
+        return len(self._snapshots)
 
 
 # -------------------------------------------------------------------------
@@ -183,6 +222,61 @@ class PPOAgent:
             value          = value,
             opp_tokens     = obs.get("opp_tokens"),
         )
+
+
+# -------------------------------------------------------------------------
+# Static (historical) agent — acts but never records transitions
+# -------------------------------------------------------------------------
+
+class StaticAgent:
+    """Wraps a frozen policy snapshot; acts in the game but collects no data.
+
+    Provides the same get_action / record_transition* interface as PPOAgent
+    so game_loop.py can call it without type-checking.  Transition methods
+    are intentional no-ops: historical opponents only provide diverse
+    opposition, they don't contribute to the PPO buffer.
+    """
+
+    def __init__(
+        self,
+        policy: BGPolicyNetwork,
+        player_id: int,
+        device: str = "cpu",
+    ) -> None:
+        self.policy    = policy
+        self.player_id = player_id
+        self.device    = device
+        self._cached_type_mask: Optional[np.ndarray] = None
+        self._cached_ptr_mask:  Optional[np.ndarray] = None
+
+    def get_action(self, obs: dict) -> tuple:
+        ps  = obs["player_state"]
+        dev = torch.device(self.device)
+
+        self._cached_type_mask = build_type_mask(ps).numpy()
+        t_mask_t = torch.from_numpy(self._cached_type_mask).unsqueeze(0).to(dev)
+        p_mask_t = build_pointer_mask(ps, -1).unsqueeze(0).to(dev)
+
+        board_t  = torch.tensor(obs["board_tokens"][None],   dtype=torch.float32, device=dev)
+        shop_t   = torch.tensor(obs["shop_tokens"][None],    dtype=torch.float32, device=dev)
+        hand_t   = torch.tensor(obs["hand_tokens"][None],    dtype=torch.float32, device=dev)
+        scalar_t = torch.tensor(obs["scalar_context"][None], dtype=torch.float32, device=dev)
+        opp_np   = obs.get("opp_tokens")
+        opp_t    = torch.tensor(opp_np[None], dtype=torch.float32, device=dev) if opp_np is not None else None
+
+        with torch.no_grad():
+            type_idx, ptr_idx, _, _ = self.policy.get_action(
+                board_t, shop_t, hand_t, scalar_t,
+                type_mask=t_mask_t, pointer_mask=p_mask_t, opp_tokens=opp_t,
+            )
+        self._cached_ptr_mask = build_pointer_mask(ps, type_idx).numpy()
+        return type_idx, ptr_idx
+
+    def record_transition(self, *_a, **_kw) -> None:  # no-op
+        pass
+
+    def record_transition_precomputed(self, *_a, **_kw) -> None:  # no-op
+        pass
 
 
 # -------------------------------------------------------------------------
@@ -324,14 +418,15 @@ def _worker_init(card_defs: dict, device: str) -> None:
 def _worker_run_game(task: tuple) -> tuple:
     """Run one self-play game in a subprocess.
 
-    Receives a frozen policy snapshot, rebuilds all components locally, runs
-    the game, and returns the collected transitions (already contain value +
-    log_prob computed with the behaviour policy, so main can merge them
-    directly into the PPO buffer without another forward pass).
+    N_TRAIN_PLAYERS slots use the current policy and collect PPO transitions;
+    the remaining slots use a frozen historical snapshot (opp_sd) and act
+    without recording data.  When opp_sd is None all slots are training agents
+    (pool-empty warm-up or CLI single-policy mode).
 
     Parameters (unpacked from *task*)
     ---------------------------------
-    state_dict : dict           — policy.state_dict() snapshot
+    current_sd : dict           — current policy.state_dict() snapshot
+    opp_sd     : dict | None    — historical snapshot for opponent slots
     seed       : int | None     — per-game RNG seed
 
     card_defs and device are read from the per-process globals set by
@@ -340,14 +435,14 @@ def _worker_run_game(task: tuple) -> tuple:
     Returns
     -------
     (transitions, summary_dict)
-      transitions  : List[Transition]
+      transitions  : List[Transition]   — only from training-agent slots
       summary_dict : {"placements": dict, "final_rewards": dict, "n_rounds": int}
     """
     import random as _random
     import numpy as _np
     import torch as _torch
 
-    state_dict, seed = task
+    current_sd, opp_sd, seed = task
     card_defs = _W_CARD_DEFS
     device    = _W_DEVICE
 
@@ -361,19 +456,37 @@ def _worker_run_game(task: tuple) -> tuple:
     board_comp  = SymbolicBoardComputer(card_defs)
     firestone   = FirestoneClient(firestone_path=None, mock_mode=True)
 
-    policy = BGPolicyNetwork(
+    # Current policy — used by training agents, records transitions
+    current_policy = BGPolicyNetwork(
         card_dim=44, d_model=256, nhead=8, num_layers=4,
         scalar_dim=98, dropout=0.1,
     ).to(device)
-    policy.load_state_dict(state_dict)
+    current_policy.load_state_dict(current_sd)
 
     ppo_config  = PPOConfig(device=device)
-    ppo_trainer = PPOTrainer(policy, ppo_config)
+    ppo_trainer = PPOTrainer(current_policy, ppo_config)
 
-    agents = [
-        PPOAgent(policy, ppo_trainer, player_id=pid, device=device)
-        for pid in range(N_PLAYERS)
-    ]
+    if opp_sd is not None:
+        # Historical policy — frozen opponents, no gradient, no transitions
+        opp_policy = BGPolicyNetwork(
+            card_dim=44, d_model=256, nhead=8, num_layers=4,
+            scalar_dim=98, dropout=0.1,
+        ).to(device)
+        opp_policy.load_state_dict(opp_sd)
+        opp_policy.eval()
+        # Randomise which player slots are training agents each game so the
+        # training agent sees the full range of table positions over time.
+        train_pids = set(_random.sample(range(N_PLAYERS), N_TRAIN_PLAYERS))
+    else:
+        opp_policy = None
+        train_pids = set(range(N_PLAYERS))  # all train when pool is empty
+
+    agents = []
+    for pid in range(N_PLAYERS):
+        if pid in train_pids:
+            agents.append(PPOAgent(current_policy, ppo_trainer, player_id=pid, device=device))
+        else:
+            agents.append(StaticAgent(opp_policy, player_id=pid, device=device))
 
     game = BattlegroundsGame(
         card_defs        = card_defs,
@@ -448,6 +561,9 @@ def _train_parallel(
     update_count = 0
     game_idx     = 0
 
+    snapshot_pool = SnapshotPool(capacity=20)
+    snapshot_every = 10  # add a snapshot every N PPO updates
+
     with ProcessPoolExecutor(
         max_workers=n_workers,
         initializer=_worker_init,
@@ -466,9 +582,11 @@ def _train_parallel(
 
             # Use total_steps as seed offset so each re-run gets fresh seeds
             seed_base = ppo_trainer.total_steps
+            opp_sd = snapshot_pool.sample()  # None until pool has entries
             tasks = [
                 (
                     sd,
+                    opp_sd,
                     (args.seed + seed_base + i) if args.seed is not None else None,
                 )
                 for i in range(batch_n)
@@ -501,6 +619,9 @@ def _train_parallel(
                     metrics = ppo_trainer.update(last_value=0.0)
                     update_count += 1
                     sd_stale = True   # weights changed — reclone before next batch
+                    if update_count % snapshot_every == 0:
+                        snapshot_pool.add(policy.state_dict())
+                        logger.info("Snapshot added (pool size=%d)", len(snapshot_pool))
                     log_update_metrics(update_count, metrics)
 
                     nan_count = sum(

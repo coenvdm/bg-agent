@@ -35,7 +35,7 @@ class PPOConfig:
     gae_lambda: float = 0.95   # GAE λ
     clip_eps: float = 0.2      # PPO clip epsilon
     value_coef: float = 0.5    # value loss coefficient
-    entropy_coef: float = 0.01 # entropy bonus coefficient
+    entropy_coef: float = 0.05 # entropy bonus coefficient
     max_grad_norm: float = 0.5 # gradient clipping norm
     n_epochs: int = 4          # PPO update epochs per rollout (KL early-stop may cut short)
     target_kl: float = 0.02    # KL divergence threshold for early stopping epochs
@@ -364,6 +364,12 @@ class PPOTrainer:
         adv_std  = adv_np.std() + 1e-8
         adv_np   = (adv_np - adv_mean) / adv_std
 
+        # Normalise returns so value-function targets stay on a consistent unit
+        # scale across updates (same idea as advantage normalisation).
+        ret_mean = ret_np.mean()
+        ret_std  = ret_np.std() + 1e-8
+        ret_np   = (ret_np - ret_mean) / ret_std
+
         data  = self.buffer.to_tensors(cfg.device)
         dev   = torch.device(cfg.device)
         adv_t = torch.tensor(adv_np, dtype=torch.float32, device=dev)
@@ -399,10 +405,16 @@ class PPOTrainer:
                 b_adv      = adv_t[idx_t]
                 b_ret      = ret_t[idx_t]
 
+                # Evaluate in eval mode (dropout off) so new_log_probs are
+                # directly comparable to old_log_probs, which were also computed
+                # in eval mode during collection.  Gradients still flow normally
+                # through an eval-mode forward pass.
+                self.policy.eval()
                 new_log_probs, new_values, entropy = self.policy.evaluate_actions(
                     b_board, b_shop, b_hand, b_scalar,
                     b_t_acts, b_p_acts, b_t_mask, b_p_mask, b_opp,
                 )
+                self.policy.train()
                 new_values = new_values.squeeze(-1)  # [B]
 
                 # Skip only on true NaN (not -inf: ratio=exp(-inf)=0 is handled fine
@@ -443,7 +455,7 @@ class PPOTrainer:
                     + cfg.entropy_coef * entropy_loss
                 )
 
-                if not torch.isfinite(total_loss) or total_loss.abs() > 50:
+                if not torch.isfinite(total_loss):
                     logger.warning("Abnormal loss %.3e — skipping mini-batch", total_loss.item())
                     continue
 
