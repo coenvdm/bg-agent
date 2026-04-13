@@ -31,7 +31,7 @@ class PPOConfig:
     """Hyperparameters for the PPO trainer."""
 
     lr: float = 3e-4
-    gamma: float = 0.99        # discount factor
+    gamma: float = 0.997       # discount factor — long episodes (~120 steps) need high gamma
     gae_lambda: float = 0.95   # GAE λ
     clip_eps: float = 0.2      # PPO clip epsilon
     value_coef: float = 0.5    # value loss coefficient

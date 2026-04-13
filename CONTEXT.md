@@ -997,3 +997,12 @@
 - Monitor whether the empty-board penalty alone is sufficient to encourage buying, or if a weaker board-quality signal is still needed.
 - Consider whether `FINAL_PLACEMENT_REWARD` magnitudes need retuning now that the signal fires earlier.
 ---
+---
+### 2026-04-13 — Increase PPO discount factor to reduce placement reward decay
+**Files changed:** `agent/ppo.py`
+**What was done:** Raised `gamma` from `0.99` to `0.997` in `PPOConfig`. With ~120 steps per game, `gamma=0.99` discounted the final placement reward to ~30% of face value by the time it reached early decisions, making per-round combat signals systematically louder. At `0.997` the same reward retains ~70% of its value.
+**Current state:** Discount factor is `0.997`; `gae_lambda` remains at `0.95`.
+**Open questions / next steps:**
+- Monitor value loss during training — higher gamma increases return variance and can make the value function harder to fit.
+- If training becomes unstable, drop `gae_lambda` from `0.95` toward `0.90` to reduce variance without touching gamma.
+---
