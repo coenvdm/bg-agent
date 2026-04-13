@@ -33,7 +33,8 @@ logger = logging.getLogger(__name__)
 # -------------------------------------------------------------------------
 from agent.card_encoder import CardEncoder
 from agent.policy import (BGPolicyNetwork, N_ACTION_TYPES, POINTER_DIM,
-                          build_type_mask, build_pointer_mask)
+                          build_type_mask, build_pointer_mask,
+                          PTR_SHOP_OFF, PTR_BOARD_OFF, PTR_HAND_OFF)
 from agent.ppo import PPOConfig, PPOTrainer
 from env.game_loop import BattlegroundsGame, GameResult
 from env.matchmaker import Matchmaker
@@ -63,30 +64,52 @@ class SnapshotPool:
     This breaks the echo-chamber that forms when all players share the same
     evolving policy.
 
+    Two snapshot tiers:
+      - Rolling  : recent snapshots, evicted when capacity is exceeded.
+      - Milestone: protected snapshots that are never evicted; preserve
+                   long-term behavioral diversity (e.g. early-training styles).
+
     Usage::
 
         pool = SnapshotPool(capacity=20)
-        pool.add(policy.state_dict())   # call every SNAPSHOT_EVERY updates
-        opp_sd = pool.sample()          # None when pool is empty → fall back
+        pool.add(policy.state_dict())                    # rolling
+        pool.add(policy.state_dict(), is_milestone=True) # protected
+        opp_sds = pool.sample_n(5)   # five independent draws
     """
 
     def __init__(self, capacity: int = 20) -> None:
-        self.capacity   = capacity
-        self._snapshots: List[dict] = []
+        self.capacity    = capacity
+        self._snapshots:  List[dict] = []   # rolling, evictable
+        self._milestones: List[dict] = []   # protected, never evicted
 
-    def add(self, state_dict: dict) -> None:
-        """Append a CPU clone of *state_dict*; evict the oldest if over capacity."""
+    def add(self, state_dict: dict, *, is_milestone: bool = False) -> None:
+        """Append a CPU clone of *state_dict* to the rolling buffer.
+
+        If *is_milestone* is True, also add to the protected milestone list.
+        """
         snap = {k: v.detach().cpu().clone() for k, v in state_dict.items()}
         self._snapshots.append(snap)
         if len(self._snapshots) > self.capacity:
             self._snapshots.pop(0)
+        if is_milestone:
+            self._milestones.append(
+                {k: v.detach().cpu().clone() for k, v in state_dict.items()}
+            )
 
     def sample(self) -> Optional[dict]:
         """Return a uniformly sampled snapshot, or None if the pool is empty."""
-        return random.choice(self._snapshots) if self._snapshots else None
+        pool = self._snapshots + self._milestones
+        return random.choice(pool) if pool else None
+
+    def sample_n(self, n: int) -> List[Optional[dict]]:
+        """Return *n* independently sampled snapshots (with replacement)."""
+        pool = self._snapshots + self._milestones
+        if not pool:
+            return [None] * n
+        return [random.choice(pool) for _ in range(n)]
 
     def __len__(self) -> int:
-        return len(self._snapshots)
+        return len(self._snapshots) + len(self._milestones)
 
 
 # -------------------------------------------------------------------------
@@ -279,6 +302,81 @@ class StaticAgent:
         pass
 
 
+class HeuristicAgent:
+    """Leveling-focused scripted opponent for population diversity anchoring.
+
+    Provides the same get_action / record_transition* interface as StaticAgent
+    so game_loop.py requires zero changes.  Uses no policy network — pure
+    rule-based logic — so it is cheap and always picklable.
+
+    Setting supports_batching = False opts this agent out of the batched
+    shopping phase (game_loop._agents_support_batching checks this flag),
+    causing the game to fall back to the sequential path.  The sequential path
+    calls get_action() per player per step, which is exactly what this class
+    implements.
+
+    Priority order each step:
+      1. Level up  — if affordable and currently below tier 4
+      2. Buy       — highest-tier minion available in the shop
+      3. Place     — any card sitting in hand onto the board
+      4. Sell      — weakest board minion when board is full and a buy is possible
+      5. End turn
+    """
+
+    supports_batching = False  # forces sequential shopping path in game_loop
+
+    def __init__(self, player_id: int) -> None:
+        self.player_id = player_id
+
+    def get_action(self, obs: dict) -> tuple:
+        ps        = obs["player_state"]
+        type_mask = build_type_mask(ps)
+
+        def valid(t: int) -> bool:
+            return bool(type_mask[t].item())
+
+        # 1. Level up (type 5) — mask already verifies gold >= cost
+        if ps.tavern_tier < 4 and valid(5):
+            return 5, 0
+
+        # 2. Buy highest-tier shop minion (type 0)
+        if valid(0):
+            best_idx, best_tier = -1, -1
+            for i, m in enumerate(ps.shop):
+                if m is not None and getattr(m, "card_id", ""):
+                    t = getattr(m, "tier", 1)
+                    if t > best_tier:
+                        best_tier, best_idx = t, i
+            if best_idx >= 0:
+                return 0, PTR_SHOP_OFF + best_idx
+
+        # 3. Place any card from hand onto the board (type 2)
+        if valid(2):
+            for i, m in enumerate(ps.hand):
+                if m is not None and getattr(m, "card_id", ""):
+                    return 2, PTR_HAND_OFF + i
+
+        # 4. Sell weakest board minion if board is full and a buy is possible (type 1)
+        if valid(1) and len(ps.board) >= 7 and valid(0):
+            worst_idx, worst_power = -1, float("inf")
+            for i, m in enumerate(ps.board):
+                if m is not None and getattr(m, "card_id", ""):
+                    power = getattr(m, "attack", 0) + getattr(m, "health", 0)
+                    if power < worst_power:
+                        worst_power, worst_idx = power, i
+            if worst_idx >= 0:
+                return 1, PTR_BOARD_OFF + worst_idx
+
+        # 5. End turn
+        return 7, 0
+
+    def record_transition(self, *_a, **_kw) -> None:  # no-op
+        pass
+
+    def record_transition_precomputed(self, *_a, **_kw) -> None:  # no-op
+        pass
+
+
 # -------------------------------------------------------------------------
 # Card definitions loader
 # -------------------------------------------------------------------------
@@ -418,16 +516,17 @@ def _worker_init(card_defs: dict, device: str) -> None:
 def _worker_run_game(task: tuple) -> tuple:
     """Run one self-play game in a subprocess.
 
-    N_TRAIN_PLAYERS slots use the current policy and collect PPO transitions;
-    the remaining slots use a frozen historical snapshot (opp_sd) and act
-    without recording data.  When opp_sd is None all slots are training agents
-    (pool-empty warm-up or CLI single-policy mode).
+    N_TRAIN_PLAYERS slots use the current policy and collect PPO transitions.
+    The remaining slots use per-slot opponent entries from opp_sds:
+      - dict   : frozen historical BGPolicyNetwork snapshot → StaticAgent
+      - "heuristic" : HeuristicAgent (no network, leveling-focused)
+      - None   : promote to PPOAgent (warm-up fallback when pool is empty)
 
     Parameters (unpacked from *task*)
     ---------------------------------
-    current_sd : dict           — current policy.state_dict() snapshot
-    opp_sd     : dict | None    — historical snapshot for opponent slots
-    seed       : int | None     — per-game RNG seed
+    current_sd : dict                    — current policy.state_dict() snapshot
+    opp_sds    : List[dict | str | None] — one entry per opponent slot
+    seed       : int | None              — per-game RNG seed
 
     card_defs and device are read from the per-process globals set by
     _worker_init, so they are NOT re-pickled on every call.
@@ -442,7 +541,7 @@ def _worker_run_game(task: tuple) -> tuple:
     import numpy as _np
     import torch as _torch
 
-    current_sd, opp_sd, seed = task
+    current_sd, opp_sds, seed = task
     card_defs = _W_CARD_DEFS
     device    = _W_DEVICE
 
@@ -466,27 +565,42 @@ def _worker_run_game(task: tuple) -> tuple:
     ppo_config  = PPOConfig(device=device)
     ppo_trainer = PPOTrainer(current_policy, ppo_config)
 
-    if opp_sd is not None:
-        # Historical policy — frozen opponents, no gradient, no transitions
-        opp_policy = BGPolicyNetwork(
-            card_dim=44, d_model=256, nhead=8, num_layers=4,
-            scalar_dim=98, dropout=0.1,
-        ).to(device)
-        opp_policy.load_state_dict(opp_sd)
-        opp_policy.eval()
-        # Randomise which player slots are training agents each game so the
-        # training agent sees the full range of table positions over time.
-        train_pids = set(_random.sample(range(N_PLAYERS), N_TRAIN_PLAYERS))
+    # Randomise which player slots are training agents each game so the
+    # training agent sees the full range of table positions over time.
+    # If all opp_sds entries are None (warm-up), promote all slots to training.
+    all_none = all(e is None for e in opp_sds)
+    if all_none:
+        train_pids = set(range(N_PLAYERS))
     else:
-        opp_policy = None
-        train_pids = set(range(N_PLAYERS))  # all train when pool is empty
+        train_pids = set(_random.sample(range(N_PLAYERS), N_TRAIN_PLAYERS))
 
-    agents = []
-    for pid in range(N_PLAYERS):
-        if pid in train_pids:
-            agents.append(PPOAgent(current_policy, ppo_trainer, player_id=pid, device=device))
+    opp_pids = [pid for pid in range(N_PLAYERS) if pid not in train_pids]
+
+    agents: List[Any] = [None] * N_PLAYERS
+    for pid in train_pids:
+        agents[pid] = PPOAgent(current_policy, ppo_trainer, player_id=pid, device=device)
+
+    # Build opponent agents; deduplicate policy networks by state_dict identity
+    # to avoid loading the same weights into multiple BGPolicyNetwork instances.
+    _policy_cache: Dict[int, Any] = {}
+    for slot_i, pid in enumerate(opp_pids):
+        entry = opp_sds[slot_i]
+        if entry == "heuristic":
+            agents[pid] = HeuristicAgent(player_id=pid)
+        elif entry is None:
+            # Pool still empty for this slot — promote to training agent
+            agents[pid] = PPOAgent(current_policy, ppo_trainer, player_id=pid, device=device)
         else:
-            agents.append(StaticAgent(opp_policy, player_id=pid, device=device))
+            sd_id = id(entry)
+            if sd_id not in _policy_cache:
+                pol = BGPolicyNetwork(
+                    card_dim=44, d_model=256, nhead=8, num_layers=4,
+                    scalar_dim=98, dropout=0.1,
+                ).to(device)
+                pol.load_state_dict(entry)
+                pol.eval()
+                _policy_cache[sd_id] = pol
+            agents[pid] = StaticAgent(_policy_cache[sd_id], player_id=pid, device=device)
 
     game = BattlegroundsGame(
         card_defs        = card_defs,
@@ -561,8 +675,16 @@ def _train_parallel(
     update_count = 0
     game_idx     = 0
 
-    snapshot_pool = SnapshotPool(capacity=20)
-    snapshot_every = 10  # add a snapshot every N PPO updates
+    snapshot_pool  = SnapshotPool(capacity=20)
+    snapshot_every = 10   # rolling snapshot every N PPO updates
+    milestone_every = 50  # protected milestone snapshot every N PPO updates
+
+    # Opponent slot composition per game:
+    #   N_HEURISTIC_SLOTS slots always use HeuristicAgent (leveling anchor)
+    #   remaining slots sample independently from the snapshot pool
+    N_OPP_SLOTS      = N_PLAYERS - N_TRAIN_PLAYERS   # 6
+    N_HEURISTIC_SLOTS = 1
+    n_policy_slots    = N_OPP_SLOTS - N_HEURISTIC_SLOTS  # 5
 
     with ProcessPoolExecutor(
         max_workers=n_workers,
@@ -580,13 +702,18 @@ def _train_parallel(
                 sd = {k: v.detach().cpu().clone() for k, v in policy.state_dict().items()}
                 sd_stale = False
 
+            # Build per-slot opponent list: 5 independent policy snapshots + 1 heuristic.
+            # Each game in the batch shares the same opp_sds; within-batch diversity
+            # comes from different RNG seeds (card draws, pairings).
+            policy_sds = snapshot_pool.sample_n(n_policy_slots)
+            opp_sds    = policy_sds + ["heuristic"] * N_HEURISTIC_SLOTS
+
             # Use total_steps as seed offset so each re-run gets fresh seeds
             seed_base = ppo_trainer.total_steps
-            opp_sd = snapshot_pool.sample()  # None until pool has entries
             tasks = [
                 (
                     sd,
-                    opp_sd,
+                    opp_sds,
                     (args.seed + seed_base + i) if args.seed is not None else None,
                 )
                 for i in range(batch_n)
@@ -620,8 +747,15 @@ def _train_parallel(
                     update_count += 1
                     sd_stale = True   # weights changed — reclone before next batch
                     if update_count % snapshot_every == 0:
-                        snapshot_pool.add(policy.state_dict())
-                        logger.info("Snapshot added (pool size=%d)", len(snapshot_pool))
+                        is_milestone = (update_count % milestone_every == 0)
+                        snapshot_pool.add(policy.state_dict(), is_milestone=is_milestone)
+                        if is_milestone:
+                            logger.info(
+                                "Milestone snapshot added (update=%d, milestones=%d)",
+                                update_count, len(snapshot_pool._milestones),
+                            )
+                        else:
+                            logger.info("Rolling snapshot added (pool size=%d)", len(snapshot_pool))
                     log_update_metrics(update_count, metrics)
 
                     nan_count = sum(

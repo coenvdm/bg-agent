@@ -1006,3 +1006,13 @@
 - Monitor value loss during training — higher gamma increases return variance and can make the value function harder to fit.
 - If training becomes unstable, drop `gae_lambda` from `0.95` toward `0.90` to reduce variance without touching gamma.
 ---
+---
+### 2026-04-13 — Population diversity / league training system
+**Files changed:** `train.py`
+**What was done:** Added three coordinated changes to break the self-play echo chamber that prevented the agent from discovering leveling strategies. (1) Upgraded `SnapshotPool` with protected milestone snapshots (every 50 PPO updates) that are never evicted, alongside the existing rolling buffer; added `sample_n(n)` for per-slot independent sampling. (2) Added `HeuristicAgent` — a scripted leveling-focused opponent that permanently occupies one opponent slot per game; it uses `build_type_mask` as its validity oracle and sets `supports_batching = False` to opt out of batched inference. (3) Updated `_worker_run_game` to accept a per-slot `opp_sds` list (dict/`"heuristic"`/None) with policy-network deduplication; updated `_train_parallel` to compose `opp_sds = sample_n(5) + ["heuristic"]` each batch.
+**Current state:** Every game now contains one permanent heuristic leveling opponent and five independently-sampled historical policy opponents. Milestone snapshots preserve behavioral diversity across long training runs.
+**Open questions / next steps:**
+- Run training and check logs for `LEVEL_UP` action frequency — should increase within a few hundred games.
+- The heuristic forces sequential shopping (no batched forward pass) — monitor throughput, expect ~1.5–2× slowdown per game.
+- If leveling is still not discovered, consider increasing `N_HEURISTIC_SLOTS` to 2.
+---
