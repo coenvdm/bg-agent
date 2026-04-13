@@ -48,8 +48,11 @@ from symbolic.firestone_client import FirestoneClient
 # -------------------------------------------------------------------------
 CARD_DEFS_PATH = Path(__file__).parent / "bg_card_definitions.json"
 PIPELINE_SCRIPT = Path(__file__).parent / "bg_card_pipeline.py"
-N_PLAYERS       = 8
-N_TRAIN_PLAYERS = 2   # player slots per game that use the current policy and collect transitions
+N_PLAYERS         = 8
+N_TRAIN_PLAYERS   = 2   # player slots per game that use the current policy and collect transitions
+N_HEURISTIC_SLOTS = 1   # opponent slots permanently assigned to HeuristicAgent
+SNAPSHOT_EVERY    = 10  # rolling snapshot every N PPO updates
+MILESTONE_EVERY   = 50  # protected milestone snapshot every N PPO updates
 
 
 # -------------------------------------------------------------------------
@@ -676,15 +679,12 @@ def _train_parallel(
     game_idx     = 0
 
     snapshot_pool  = SnapshotPool(capacity=20)
-    snapshot_every = 10   # rolling snapshot every N PPO updates
-    milestone_every = 50  # protected milestone snapshot every N PPO updates
 
     # Opponent slot composition per game:
     #   N_HEURISTIC_SLOTS slots always use HeuristicAgent (leveling anchor)
     #   remaining slots sample independently from the snapshot pool
-    N_OPP_SLOTS      = N_PLAYERS - N_TRAIN_PLAYERS   # 6
-    N_HEURISTIC_SLOTS = 1
-    n_policy_slots    = N_OPP_SLOTS - N_HEURISTIC_SLOTS  # 5
+    N_OPP_SLOTS    = N_PLAYERS - N_TRAIN_PLAYERS          # 6
+    n_policy_slots = N_OPP_SLOTS - N_HEURISTIC_SLOTS      # 5
 
     with ProcessPoolExecutor(
         max_workers=n_workers,
@@ -746,8 +746,8 @@ def _train_parallel(
                     metrics = ppo_trainer.update(last_value=0.0)
                     update_count += 1
                     sd_stale = True   # weights changed — reclone before next batch
-                    if update_count % snapshot_every == 0:
-                        is_milestone = (update_count % milestone_every == 0)
+                    if update_count % SNAPSHOT_EVERY == 0:
+                        is_milestone = (update_count % MILESTONE_EVERY == 0)
                         snapshot_pool.add(policy.state_dict(), is_milestone=is_milestone)
                         if is_milestone:
                             logger.info(

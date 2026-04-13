@@ -1,6 +1,13 @@
 # bg_agent — Development Context Log
 
 ---
+### 2026-04-13 — Sync notebook and promote training constants to module level
+**Files changed:** `train.py`, `explore.ipynb`
+**What was done:** Moved `N_HEURISTIC_SLOTS`, `SNAPSHOT_EVERY`, and `MILESTONE_EVERY` from local variables inside `_train_parallel` to module-level constants in `train.py` so the notebook can import them. Updated `explore.ipynb` cells 46/47/49: cell 46 imports all constants from `train.py` (removing the local `N_PLAYERS = 8` duplicate); cell 47 fixes `gamma=0.99` → `0.997`; cell 49 removes the local `SNAPSHOT_EVERY` definition, adds `n_policy_slots` computation, replaces the old single `opp_sd = snapshot_pool.sample()` pattern with `sample_n` + heuristic sentinel, and adds milestone snapshot support.
+**Current state:** Notebook and train.py are in sync. All training constants have a single source of truth in train.py.
+**Open questions / next steps:**
+- Run training from notebook to verify no import errors and worker processes start correctly.
+---
 ### 2026-04-13 — Dockerfile and vast.ai deployment setup
 **Files changed:** `Dockerfile`, `.dockerignore`
 **What was done:** Created a Dockerfile based on `pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime` with all project dependencies and a `.dockerignore` to exclude weights, logs, and notebooks from the image. Discussed vast.ai template setup, SSH key auth for VSCode Remote-SSH, and Git LFS as the recommended approach for tracking `.pt` checkpoints across instances.
