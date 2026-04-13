@@ -657,24 +657,53 @@ def log_update_metrics(update_idx: int, metrics: dict) -> None:
 # -------------------------------------------------------------------------
 
 def _train_parallel(
-    args,
     n_games: int,
     policy: BGPolicyNetwork,
     ppo_trainer: PPOTrainer,
     card_defs: dict,
-    update_interval: int,
-    checkpoint_interval: int,
+    *,
+    n_workers: int = 1,
+    update_interval: int = 10,
+    checkpoint_interval: int = 100,
+    checkpoint_path: Optional[str] = None,
+    seed: Optional[int] = None,
+    device: str = "cpu",
+    on_batch: Optional[Any] = None,
+    on_update: Optional[Any] = None,
+    batch_timeout: int = 300,
 ) -> None:
     """Run self-play games in parallel using ProcessPoolExecutor.
 
-    Games are dispatched in batches of *args.workers*.  Each worker receives
-    a frozen copy of the current policy weights, runs one game, and returns
-    its collected transitions.  The main process merges all transitions into
+    Games are dispatched in batches of *n_workers*.  Each worker receives a
+    frozen copy of the current policy weights, runs one game, and returns its
+    collected transitions.  The main process merges all transitions into
     ppo_trainer.buffer and runs PPO updates at the normal interval.
+
+    Parameters
+    ----------
+    n_games            : total games to play
+    policy             : the policy network being trained
+    ppo_trainer        : PPOTrainer instance
+    card_defs          : card definitions dict
+    n_workers          : number of parallel worker processes
+    update_interval    : trigger a PPO update every this many games
+    checkpoint_interval: save a checkpoint every this many games
+    checkpoint_path    : path for automatic checkpoint saves (None = skip)
+    seed               : base RNG seed (None = non-deterministic)
+    device             : torch device string for the main process
+    on_batch(game_idx, summaries, transitions, elapsed)
+                       : optional callback fired after every batch of games.
+                         *game_idx* is the total games completed so far.
+                         *summaries* is a list of per-game summary dicts.
+                         *transitions* is a list of per-game Transition lists
+                         (already added to the PPO buffer).
+                         *elapsed* is the batch wall-clock time in seconds.
+    on_update(metrics, update_count)
+                       : optional callback fired after every PPO update.
+    batch_timeout      : per-batch timeout in seconds (default 300)
     """
     from concurrent.futures import ProcessPoolExecutor
 
-    n_workers    = args.workers
     update_count = 0
     game_idx     = 0
 
@@ -686,11 +715,12 @@ def _train_parallel(
     N_OPP_SLOTS    = N_PLAYERS - N_TRAIN_PLAYERS          # 6
     n_policy_slots = N_OPP_SLOTS - N_HEURISTIC_SLOTS      # 5
 
-    with ProcessPoolExecutor(
+    pool = ProcessPoolExecutor(
         max_workers=n_workers,
         initializer=_worker_init,
-        initargs=(card_defs, args.device),
-    ) as pool:
+        initargs=(card_defs, device),
+    )
+    try:
         # Snapshot weights once; only re-clone after each PPO update
         sd = {k: v.detach().cpu().clone() for k, v in policy.state_dict().items()}
         sd_stale = False
@@ -703,8 +733,6 @@ def _train_parallel(
                 sd_stale = False
 
             # Build per-slot opponent list: 5 independent policy snapshots + 1 heuristic.
-            # Each game in the batch shares the same opp_sds; within-batch diversity
-            # comes from different RNG seeds (card draws, pairings).
             policy_sds = snapshot_pool.sample_n(n_policy_slots)
             opp_sds    = policy_sds + ["heuristic"] * N_HEURISTIC_SLOTS
 
@@ -714,21 +742,41 @@ def _train_parallel(
                 (
                     sd,
                     opp_sds,
-                    (args.seed + seed_base + i) if args.seed is not None else None,
+                    (seed + seed_base + i) if seed is not None else None,
                 )
                 for i in range(batch_n)
             ]
 
             t0 = time.time()
-            worker_results = list(pool.map(_worker_run_game, tasks))
-            batch_elapsed  = time.time() - t0
+            try:
+                worker_results = list(pool.map(_worker_run_game, tasks,
+                                               timeout=batch_timeout))
+            except TimeoutError:
+                logger.warning("Batch timed out after %ds — skipping", batch_timeout)
+                game_idx += batch_n
+                continue
+            except Exception as exc:
+                logger.warning("Worker error (%s: %s) — rebuilding pool", type(exc).__name__, exc)
+                pool.shutdown(wait=False)
+                pool = ProcessPoolExecutor(
+                    max_workers=n_workers,
+                    initializer=_worker_init,
+                    initargs=(card_defs, device),
+                )
+                game_idx += batch_n
+                continue
+            batch_elapsed = time.time() - t0
 
-            # Merge transitions and log each game
+            # Merge transitions into buffer; collect per-game data for callbacks
+            batch_summaries:    List[dict] = []
+            batch_transitions:  List[list] = []
             for i, (transitions, summary) in enumerate(worker_results):
                 g = game_idx + i + 1
                 for t in transitions:
                     ppo_trainer.buffer.add(t)
                     ppo_trainer.total_steps += 1
+                batch_summaries.append(summary)
+                batch_transitions.append(transitions)
 
                 winner_id   = min(summary["placements"], key=summary["placements"].get)
                 mean_reward = float(np.mean(list(summary["final_rewards"].values())))
@@ -739,6 +787,9 @@ def _train_parallel(
 
             prev_game_idx = game_idx
             game_idx     += batch_n
+
+            if on_batch is not None:
+                on_batch(game_idx, batch_summaries, batch_transitions, batch_elapsed)
 
             # PPO update if we crossed an update_interval boundary
             if (game_idx // update_interval) > (prev_game_idx // update_interval):
@@ -764,13 +815,18 @@ def _train_parallel(
                     )
                     logger.info("NaN params after update: %d", nan_count)
 
+                    if on_update is not None:
+                        on_update(metrics, update_count)
+
             # Checkpoint if we crossed a checkpoint_interval boundary
-            if args.checkpoint:
+            if checkpoint_path:
                 if (game_idx // checkpoint_interval) > (prev_game_idx // checkpoint_interval):
                     ppo_trainer.save_checkpoint(
-                        args.checkpoint, extra={"game": game_idx}
+                        checkpoint_path, extra={"game": game_idx}
                     )
-                    logger.info("Checkpoint saved at game %d → %s", game_idx, args.checkpoint)
+                    logger.info("Checkpoint saved at game %d → %s", game_idx, checkpoint_path)
+    finally:
+        pool.shutdown(wait=True)
 
 
 # -------------------------------------------------------------------------
@@ -827,8 +883,13 @@ def train(args: argparse.Namespace) -> None:
 
     if n_workers > 1:
         _train_parallel(
-            args, n_games, policy, ppo_trainer, card_defs,
-            update_interval, checkpoint_interval,
+            n_games, policy, ppo_trainer, card_defs,
+            n_workers=n_workers,
+            update_interval=update_interval,
+            checkpoint_interval=checkpoint_interval,
+            checkpoint_path=args.checkpoint,
+            seed=args.seed,
+            device=args.device,
         )
     else:
         for game_idx in range(1, n_games + 1):

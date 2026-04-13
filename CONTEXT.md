@@ -1,6 +1,13 @@
 # bg_agent — Development Context Log
 
 ---
+### 2026-04-13 — Refactor _train_parallel to accept callbacks; simplify notebook
+**Files changed:** `train.py`, `explore.ipynb`
+**What was done:** Replaced the `args` namespace parameter in `_train_parallel` with explicit keyword arguments (`n_workers`, `seed`, `device`, `checkpoint_path`, etc.) and added two optional callbacks: `on_batch(game_idx, summaries, transitions, elapsed)` fired after every batch, and `on_update(metrics, update_count)` fired after every PPO update. Also moved pool rebuilding error handling and timeout into `_train_parallel`. Notebook cell 49 now just defines `_on_batch` and `_on_update` closures (handling plotting, list appending, and checkpoint saving) and calls `_train_parallel` directly — the worker loop, snapshot management, and PPO update trigger no longer live in the notebook.
+**Current state:** `_train_parallel` is the single implementation of the parallel training loop. The notebook is a thin orchestration layer: config, callbacks, and plots only.
+**Open questions / next steps:**
+- Run notebook training cell to verify callbacks fire correctly and plots update as before.
+---
 ### 2026-04-13 — Sync notebook and promote training constants to module level
 **Files changed:** `train.py`, `explore.ipynb`
 **What was done:** Moved `N_HEURISTIC_SLOTS`, `SNAPSHOT_EVERY`, and `MILESTONE_EVERY` from local variables inside `_train_parallel` to module-level constants in `train.py` so the notebook can import them. Updated `explore.ipynb` cells 46/47/49: cell 46 imports all constants from `train.py` (removing the local `N_PLAYERS = 8` duplicate); cell 47 fixes `gamma=0.99` → `0.997`; cell 49 removes the local `SNAPSHOT_EVERY` definition, adds `n_policy_slots` computation, replaces the old single `opp_sd = snapshot_pool.sample()` pattern with `sample_n` + heuristic sentinel, and adds milestone snapshot support.
