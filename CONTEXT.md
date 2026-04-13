@@ -987,3 +987,13 @@
 **Open questions / next steps:**
 - Restart kernel, re-run 46→47→49. Cell 47 should print max_w~0.15 for fresh init.
 ---
+---
+### 2026-04-13 — Fix board-fill degenerate policy via reward shaping
+**Files changed:** `env/game_loop.py`
+**What was done:** Removed the flat `+0.10 * board_size` reward from `_end_of_turn_reward` — it was causing the agent to fill the board with weak minions and never sell, since the dense per-slot reward dominated all sparse combat signals. Also moved `FINAL_PLACEMENT_REWARD` from end-of-game to the moment of elimination: when a player dies their placement is immediately known, so the reward now fires on the same transition that has `done=True`, shortening the credit assignment gap significantly. Surviving players still receive their placement reward at game end as before.
+**Current state:** `_end_of_turn_reward` no longer rewards board presence; empty-board penalty, hand penalty, and gold efficiency penalty remain. Eliminated players get their placement signal immediately; no double-counting.
+**Open questions / next steps:**
+- Re-run training to verify the board-fill policy no longer emerges.
+- Monitor whether the empty-board penalty alone is sufficient to encourage buying, or if a weaker board-quality signal is still needed.
+- Consider whether `FINAL_PLACEMENT_REWARD` magnitudes need retuning now that the signal fires earlier.
+---

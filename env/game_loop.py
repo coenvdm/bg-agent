@@ -264,7 +264,6 @@ class BattlegroundsGame:
     def _end_of_turn_reward(self, ps) -> float:
         """Shared reward shaping applied at the end of every shopping phase.
 
-        Board presence bonus : +0.10 per minion (max +0.70 for a full board).
         Empty-board penalty  : -0.30 if the board is empty — breaks level-then-
                                end-turn degenerate policy.
         Hand penalty         : -0.08 per card left in hand — cards in hand don't
@@ -274,8 +273,6 @@ class BattlegroundsGame:
         r = 0.0
         board_size = len(ps.board)
         hand_size  = len(ps.hand)
-        # Board presence: reward having minions to fight with
-        r += 0.10 * board_size
         # Empty-board penalty: doing nothing useful is actively bad
         if board_size == 0:
             r -= 0.30
@@ -992,6 +989,10 @@ class BattlegroundsGame:
                         result=result_info["result"],
                         max_health=ps.max_health,
                     )
+                    # Fire placement reward immediately on elimination so the
+                    # agent doesn't have to wait until game end for this signal.
+                    if pid in new_dead:
+                        r += FINAL_PLACEMENT_REWARD.get(ps.placement, -4.0)
                     cumulative_rewards[pid] += r
 
                     # Flush the buffered end-turn transition with the combined
@@ -1044,12 +1045,14 @@ class BattlegroundsGame:
             place += 1
 
         # Final placement rewards + terminal transitions
+        # Eliminated players already received their placement reward at the
+        # moment of elimination; only survivors get it here.
         placements: Dict[int, int] = {}
         final_rewards: Dict[int, float] = {}
         for ps in self.players:
             placement = ps.placement if ps.placement is not None else self.n_players
             placements[ps.player_id] = placement
-            final_r = FINAL_PLACEMENT_REWARD.get(placement, -4.0)
+            final_r = FINAL_PLACEMENT_REWARD.get(placement, -4.0) if ps.alive else 0.0
             final_rewards[ps.player_id] = cumulative_rewards[ps.player_id] + final_r
 
             # Terminal transition: delivers the placement reward as a done=True
