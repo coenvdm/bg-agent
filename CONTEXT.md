@@ -1,6 +1,14 @@
 # bg_agent — Development Context Log
 
 ---
+### 2026-04-13 — Dockerfile and vast.ai deployment setup
+**Files changed:** `Dockerfile`, `.dockerignore`
+**What was done:** Created a Dockerfile based on `pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime` with all project dependencies and a `.dockerignore` to exclude weights, logs, and notebooks from the image. Discussed vast.ai template setup, SSH key auth for VSCode Remote-SSH, and Git LFS as the recommended approach for tracking `.pt` checkpoints across instances.
+**Current state:** Dockerfile is committed and pushed. SSH key auth is configured for the vast.ai instance. Model weights are not yet tracked — Git LFS setup is pending.
+**Open questions / next steps:**
+- Set up Git LFS for `*.pt` checkpoint tracking so weights persist across instances
+- Decide on checkpoint sync strategy (Git LFS vs Hugging Face Hub vs rclone)
+---
 ### 2026-04-12 — Pre-training prep: robust checkpoint loading + n_epochs=4
 **Files changed:** `explore.ipynb`
 **What was done:** Wrapped `load_checkpoint` in a try/except so incompatible checkpoints (e.g. old 94-dim scalar context) are automatically deleted and training restarts fresh rather than crashing. Bumped `n_epochs=4` — safe now that KL early stopping (target_kl=0.02) will cut epochs short when the policy drifts too far.
