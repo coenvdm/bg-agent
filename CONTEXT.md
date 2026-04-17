@@ -1030,3 +1030,12 @@
 - The heuristic forces sequential shopping (no batched forward pass) — monitor throughput, expect ~1.5–2× slowdown per game.
 - If leveling is still not discovered, consider increasing `N_HEURISTIC_SLOTS` to 2.
 ---
+---
+### 2026-04-17 — Add CARDS.md card pool reference document
+**Files changed:** `CARDS.md`
+**What was done:** Added CARDS.md containing all 264 active Battlegrounds pool minions across 7 tiers, scraped from HearthstoneJSON API. This file is referenced from CLAUDE.md as the authoritative card listing for use when working on `bg_card_pipeline.py`, the symbolic layer specs, or any card-specific logic.
+**Current state:** CARDS.md is now tracked in the repo alongside CLAUDE.md. No code changes were made.
+**Open questions / next steps:**
+- Regenerate CARDS.md after each patch by re-running the HearthstoneJSON scraper filtered on `isBattlegroundsPoolMinion: true`.
+- Apply the pending `env/tavern_pool.py.rej` patch (injects `card_id` into drawn card dicts) manually — the hunk was rejected and needs to be applied by hand.
+---
