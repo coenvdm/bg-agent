@@ -1039,3 +1039,14 @@
 - Regenerate CARDS.md after each patch by re-running the HearthstoneJSON scraper filtered on `isBattlegroundsPoolMinion: true`.
 - Apply the pending `env/tavern_pool.py.rej` patch (injects `card_id` into drawn card dicts) manually — the hunk was rejected and needs to be applied by hand.
 ---
+---
+### 2026-04-17 — Season refresh: update card pool to 270 minions + trinket system
+**Files changed:** `CARDS.md`, `bg_card_pipeline.py`, `bg_card_definitions.json`
+**What was done:** Scraped the new season's card pool from HearthstoneJSON API. Updated CARDS.md from 264 → 270 minions with all tier/stat/text changes (major new cards: Chromadrake cycle, Bounty Pirate package, Mrrglton Murloc duo, etc.; removed: all Volumizers, Anub'arak, Bird Buddy, Young Murk-Eye, Rampager, and ~30 others). Added Trinkets section (177 trinkets: 116 Lesser, 61 Greater). Fully replaced TIER_CARDS embedded dict in bg_card_pipeline.py. Updated MULTIPLIER_CARDS (removed young_murk-eye, added balinda_stonehearth/hot-air_surveyor/maelstrom_emergent) and AURA_CARDS (removed shore_marauder/lord_of_the_ruins/mechagnome_interpreter, added tidemistress_athissa/one-amalgam_tour_group). Extended fetch_hearthstone_json to also pull BATTLEGROUND_TRINKET cards and build a trinket list in the JSON output. Pipeline now outputs 270 cards with 0 API drift.
+**Current state:** bg_card_definitions.json is freshly generated and synced with the live API (270 minions, 213 trinkets). CARDS.md is the authoritative per-card reference for the symbolic layer.
+**Open questions / next steps:**
+- Anomalies are out this season (confirmed via API — no BATTLEGROUND_ANOMALY cards in pool).
+- Trinkets in HearthstoneJSON have no Lesser/Greater pool flag yet — currently filtered by cost (1-3 = Lesser, 4+ = Greater); verify against in-game trinket shop once live data is available.
+- Update symbolic layer DEATHRATTLE_SPECS/AURA_SPECS/TRIGGER_SPECS for new cards (especially Chromadrake cycle, Floating Watcher, Kangor's Apprentice).
+- CLAUDE.md Key Multiplier and Key Aura tables need updating to reflect new cards.
+---
