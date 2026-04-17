@@ -1050,3 +1050,11 @@
 - Update symbolic layer DEATHRATTLE_SPECS/AURA_SPECS/TRIGGER_SPECS for new cards (especially Chromadrake cycle, Floating Watcher, Kangor's Apprentice).
 - CLAUDE.md Key Multiplier and Key Aura tables need updating to reflect new cards.
 ---
+---
+### 2026-04-17 — Notebook kernel metadata update (no code change)
+**Files changed:** `explore.ipynb`
+**What was done:** Opening explore.ipynb in a different Python environment (3.9.5 vs 3.12.12) caused Jupyter to update the kernelspec display name and version metadata. No cells or code were modified.
+**Current state:** Notebook is functionally identical; only kernel metadata differs.
+**Open questions / next steps:**
+- No action needed. Kernel version mismatch won't affect execution if the required packages are installed.
+---
