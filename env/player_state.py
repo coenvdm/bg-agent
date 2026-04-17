@@ -140,6 +140,13 @@ class PlayerState:
     opponent_snapshots: Dict[int, OpponentSnapshot] = field(default_factory=dict)
     # Set at the start of each round (before shopping) once pairings are known.
     next_opponent_id: Optional[int] = None
+    # ── Trinket state ────────────────────────────────────────────────────────
+    # card_ids of equipped trinkets (max 2: one Lesser, one Greater)
+    equipped_trinkets: List[str] = field(default_factory=list)
+    # True while a trinket offer is pending (player must pick before shopping)
+    trinket_offer_pending: bool = False
+    # Spells granted by Spellcraft and trinket passives (effect_id → payload)
+    active_spells: Dict[str, dict] = field(default_factory=dict)
 
     @property
     def total_health(self) -> int:

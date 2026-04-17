@@ -82,6 +82,9 @@ class CombatMinion:
     # avenge_triggered ensures it fires at most once per combat.
     avenge_threshold:  int  = field(default=0,     repr=False)
     avenge_triggered:  bool = field(default=False, repr=False)
+    # Informational: stats contributed by Magnetic merges (already folded into attack/health)
+    magnetic_bonus_atk: int = field(default=0, repr=False)
+    magnetic_bonus_hp:  int = field(default=0, repr=False)
 
     # ── helpers ─────────────────────────────────────────────────────────────
 
@@ -538,6 +541,20 @@ def _fire_end_of_turn(side: "CombatSide", rng: random.Random) -> None:
                 t = rng.choice(candidates)
                 t.attack += 2 * mult
                 t.health += 2 * mult
+
+        elif key == "skeletalstrafer":
+            # +1/+1 to all friendly minions
+            for x in side.minions:
+                if not x.dead:
+                    x.attack += 1 * mult
+                    x.health += 1 * mult
+
+        elif key == "earthsongshaman":
+            # Blood Gem effect on all friendlies (simplified as +1/+1 per trigger)
+            for x in side.minions:
+                if not x.dead:
+                    x.attack += 1 * mult
+                    x.health += 1 * mult
 
 
 # ─────────────────────────────────────────────────────────────────────────────

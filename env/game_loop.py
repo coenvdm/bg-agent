@@ -25,6 +25,7 @@ from symbolic.board_computer import SymbolicBoardComputer
 from symbolic.firestone_client import FirestoneClient
 from symbolic.effect_handler import EffectHandler
 from symbolic.hero_handler import HeroPowerHandler
+from env.trinket_handler import TrinketHandler
 from agent.card_encoder import CardEncoder
 from agent.hero_encoder import HERO_DEF_MAP, NULL_HERO_ID
 
@@ -246,6 +247,7 @@ class BattlegroundsGame:
         self.encoder         = CardEncoder(card_defs)
         self.effect_handler  = EffectHandler(card_defs, tavern_pool=self.tavern_pool)
         self.hero_handler    = HeroPowerHandler(card_defs, HERO_DEF_MAP)
+        self.trinket_handler = TrinketHandler(card_defs, rng=self._rng if hasattr(self, "_rng") else None)
 
         # Populated by reset()
         self.players: List[PlayerState] = []
@@ -433,6 +435,19 @@ class BattlegroundsGame:
         reward = 0.0
         done = False
 
+        # ── Trinket offer in progress: BUY(0/1/2) picks, END_TURN declines ─────
+        if ps.trinket_offer_pending:
+            if type_action == 0:  # BUY → pick trinket by shop slot index
+                choice_idx = ptr_action - PTR_SHOP_OFF
+                self.trinket_handler.select(ps, choice_idx)
+            else:  # any other action (including END_TURN) declines the offer
+                self.trinket_handler.decline(ps)
+                if type_action == 7:
+                    reward += self._end_of_turn_reward(ps)
+                    self.hero_handler.on_end_turn(ps)
+                    done = True
+            return self._get_observation(player_id), reward, done
+
         # ── Discover in progress: only BUY(0/1/2) is valid ───────────────────
         # The observation encodes discover options in shop slots [0-2].
         if ps.discover_pending:
@@ -465,6 +480,7 @@ class BattlegroundsGame:
                 else:
                     ps.buy_discount = 0  # consume one-shot discount
                 self.hero_handler.on_buy(ps, minion)
+                self.effect_handler.on_buy(ps, minion)
                 from env.triple_system import check_and_process_triple
                 check_and_process_triple(ps, self.tavern_pool)
 
@@ -771,6 +787,7 @@ class BattlegroundsGame:
         # Pass all board card_ids — the handler decides which ones apply.
         dead_card_ids = [m.card_id for m in ps.board]
         self.effect_handler.on_after_combat(ps, dead_card_ids)
+        self.trinket_handler.apply_on_combat_end(ps, outcome)
 
         # P3-A: Rafaam post-combat steal — copy random minion from opponent's board
         if getattr(ps, "_rafaam_active", False):
@@ -904,6 +921,8 @@ class BattlegroundsGame:
                 ps.frozen = False
                 self.hero_handler.on_start_of_round(ps)
                 self.hero_handler.on_refresh(ps)
+                self.trinket_handler.maybe_offer(ps, round_num)
+                self.trinket_handler.apply_on_round_start(ps)
                 if getattr(ps, "_ysera_dragon_due", False):
                     ps._ysera_dragon_due = False  # type: ignore[attr-defined]
                     extras = self.tavern_pool.draw(ps.tavern_tier, 1)

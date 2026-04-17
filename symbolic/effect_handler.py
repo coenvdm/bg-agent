@@ -178,12 +178,58 @@ class EffectHandler:
     # Public API
     # ------------------------------------------------------------------
 
+    def on_buy(self, ps: "PlayerState", minion: "MinionState") -> None:
+        """Fire on-buy effects for *minion* just purchased from the shop.
+
+        Currently handles Spellcraft: grants the associated spell to hand.
+        """
+        cdef = _match_def(minion, self._card_defs)
+        if not cdef:
+            return
+        if cdef.get("trigger_type") != "spellcraft":
+            return
+        name_key = minion.name.lower().replace(" ", "")
+        # Map each Spellcraft card to its associated spell token
+        if "deepbluecrooner" in name_key:
+            spell = _make_token("Siren Song", 0, 0, tier=minion.tier)
+            spell.is_spell = True  # type: ignore[attr-defined]
+            spell._spellcraft_effect = ("buff_one", 1, 2, "this_combat")  # type: ignore[attr-defined]
+        elif "reefriffer" in name_key:
+            spell = _make_token("Riff", 0, 0, tier=minion.tier)
+            spell.is_spell = True  # type: ignore[attr-defined]
+            spell._spellcraft_effect = ("buff_one_tier", ps.tavern_tier, ps.tavern_tier, "this_combat")  # type: ignore[attr-defined]
+        elif "privatechef" in name_key:
+            spell = _make_token("Catering", 0, 0, tier=minion.tier)
+            spell.is_spell = True  # type: ignore[attr-defined]
+            spell._spellcraft_effect = ("discover_same_tribe", None, None, "instant")  # type: ignore[attr-defined]
+        elif "tranquilmeditative" in name_key:
+            spell = _make_token("Inner Peace", 0, 0, tier=minion.tier)
+            spell.is_spell = True  # type: ignore[attr-defined]
+            spell._spellcraft_effect = ("spell_buff_bonus", 1, 1, "this_game")  # type: ignore[attr-defined]
+        else:
+            # Generic spellcraft: grant a 1/1 spell token
+            spell_name = cdef.get("name", minion.name) + " Spell"
+            spell = _make_token(spell_name, 0, 0, tier=minion.tier)
+            spell.is_spell = True  # type: ignore[attr-defined]
+        if len(ps.hand) < 10:
+            ps.hand.append(spell)
+
     def on_play(self, ps: "PlayerState", minion: "MinionState") -> None:
         """Fire battlecry for *minion* just played from hand to board."""
+        # If this is a spell being cast from hand, route to spell handler
+        if getattr(minion, "is_spell", False):
+            self._cast_spell(ps, minion)
+            return
+
         name_key = minion.name.lower().replace(" ", "")
 
         # Determine how many times battlecry fires (1 normally, 2 with Brann)
         times = 2 if ps.has_brann else 1
+
+        # Fire Kalecgos passive on OTHER battlecries
+        if getattr(ps, "_kalecgos_active", False) and "kalecgos" not in name_key:
+            dragons = _friendly_with_tribe(ps.board, "DRAGON", None, self._card_defs)
+            _buff_all(dragons, 2, 2)
 
         # Dispatch by normalised name (partial matching where noted)
         if "murozond" in name_key:
@@ -259,6 +305,60 @@ class EffectHandler:
             demons = _friendly_with_tribe(ps.board, "DEMON", minion, self._card_defs)
             for demon in demons:
                 self._bc_consume_shop(ps, demon, self._rng, times=1)
+        # ── Murloc tribe battlecries ──────────────────────────────────────────
+        elif "kingbagurgle" in name_key:
+            # Give all other friendly Murlocs +2/+3
+            murlocs = _friendly_with_tribe(ps.board, "MURLOC", minion, self._card_defs)
+            _buff_all(murlocs, 2 * times, 3 * times)
+            # Also buff Murlocs in hand
+            for m in ps.hand:
+                if "MURLOC" in _minion_tribes(m, self._card_defs):
+                    _buff_minion(m, 2 * times, 3 * times)
+        elif "mamamrrglton" in name_key:
+            count = getattr(ps, "_mrrglton_count", 0) + 1
+            ps._mrrglton_count = count  # type: ignore[attr-defined]
+            atk_per = 3 + (count - 1)
+            murlocs = _friendly_with_tribe(ps.board, "MURLOC", minion, self._card_defs)
+            _buff_all(murlocs, atk_per * times, 0)
+        elif "papamrrglton" in name_key:
+            count = getattr(ps, "_mrrglton_count", 0) + 1
+            ps._mrrglton_count = count  # type: ignore[attr-defined]
+            hp_per = 3 + (count - 1)
+            murlocs = _friendly_with_tribe(ps.board, "MURLOC", minion, self._card_defs)
+            _buff_all(murlocs, 0, hp_per * times)
+        # ── Dragon tribe battlecries ──────────────────────────────────────────
+        elif "kalecgos" in name_key:
+            # Passive: after you trigger a battlecry, give your Dragons +2/+2
+            ps._kalecgos_active = True  # type: ignore[attr-defined]
+        elif "draconicwarden" in name_key:
+            # Get a random Chromadrake (draw a random Dragon from pool)
+            self._bc_draw_tribe(ps, tier=min(3, ps.tavern_tier), tribe="DRAGON")
+        # ── Quilboar tribe battlecries ────────────────────────────────────────
+        elif "gemsmuggler" in name_key:
+            # Play 2 Blood Gems on all other minions
+            others = [m for m in ps.board if m is not minion]
+            for _ in range(times):
+                for m in others:
+                    self._apply_blood_gem(ps, m, count=2)
+        elif "sanguinechampion" in name_key:
+            # Blood Gems give an extra +1/+1 this game
+            ps.blood_gem_atk_bonus += 1 * times
+            ps.blood_gem_hp_bonus  += 1 * times
+        # ── Economy / utility battlecries ─────────────────────────────────────
+        elif "orchestra" in name_key or "orccestra" in name_key:
+            count = getattr(ps, "_orchestra_count", 0) + 1
+            ps._orchestra_count = count  # type: ignore[attr-defined]
+            candidates = [m for m in ps.board if m is not minion]
+            if candidates:
+                for _ in range(times):
+                    target = self._rng.choice(candidates)
+                    _buff_minion(target, 2 * count, 2 * count)
+        elif "highkeeperr" in name_key or "highkeeper" in name_key:
+            # Get a random Tier 6 minion
+            self._bc_draw_tribe(ps, tier=6)
+        elif "endjinn" in name_key or "en-djinn" in name_key or "endjinnblazer" in name_key:
+            # Passive: after the Tavern is refreshed, buff a random shop minion +8/+8
+            ps._endjinn_active = True  # type: ignore[attr-defined]
         # Righteous Protector has no battlecry — static keywords only.
 
     def on_sell(self, ps: "PlayerState", minion: "MinionState") -> None:
@@ -282,6 +382,19 @@ class EffectHandler:
         elif "tad" in name_key and len(name_key) <= 4:
             # Tad: get a random Murloc. Use a flag processed in game_loop.
             ps._tad_due = True  # type: ignore[attr-defined]
+        elif "sunbaconrelaxer" in name_key:
+            # Get 2 Blood Gems
+            for _ in range(2):
+                if len(ps.hand) < 10:
+                    gem = _make_token("Blood Gem", attack=0, health=0, tier=1)
+                    gem.is_spell = True  # type: ignore[attr-defined]
+                    ps.hand.append(gem)
+        elif "riverskipper" in name_key:
+            # Get a random Tier 1 minion
+            self._bc_draw_tribe(ps, tier=1)
+        elif "patientscout" in name_key:
+            # Discover a Tier 1 minion
+            self._bc_discover(ps, tier=1)
         # Pack Leader sell effect: none (its effect is in combat).
         # Yo-Ho-Ho / Shifter Zerus: skip.
 
@@ -460,6 +573,55 @@ class EffectHandler:
             gainer.perm_atk_bonus += consumed.attack
             gainer.perm_hp_bonus  += consumed.health
             gainer.max_health     += consumed.health
+
+    # ------------------------------------------------------------------
+    # Blood Gem helper
+    # ------------------------------------------------------------------
+
+    def _apply_blood_gem(
+        self, ps: "PlayerState", target: "MinionState", count: int = 1
+    ) -> None:
+        """Apply *count* Blood Gems to *target*, respecting ps bonuses."""
+        atk = (1 + ps.blood_gem_atk_bonus) * count
+        hp  = (1 + ps.blood_gem_hp_bonus)  * count
+        _buff_minion(target, atk, hp)
+
+    # ------------------------------------------------------------------
+    # Spell casting
+    # ------------------------------------------------------------------
+
+    def _cast_spell(self, ps: "PlayerState", spell: "MinionState") -> None:
+        """Apply the effect of a spell card played from hand."""
+        effect = getattr(spell, "_spellcraft_effect", None)
+        if effect is None:
+            # Blood Gem: +1/+1 (with bonuses) to a chosen minion (use random for sim)
+            if "blood gem" in spell.name.lower():
+                if ps.board:
+                    self._apply_blood_gem(ps, self._rng.choice(ps.board))
+            # Blood Gem Barrage: Blood Gem on all board minions
+            elif getattr(spell, "is_barrage", False):
+                for m in ps.board:
+                    self._apply_blood_gem(ps, m)
+            return
+
+        kind = effect[0]
+        if kind == "buff_one":
+            # +atk/+hp to a random friendly minion (this_combat only — use perm for sim)
+            _, atk, hp, _ = effect
+            if ps.board:
+                _buff_minion(self._rng.choice(ps.board), atk, hp)
+        elif kind == "buff_one_tier":
+            # +tavern_tier/+tavern_tier to a random friendly
+            _, atk, hp, _ = effect
+            if ps.board:
+                _buff_minion(self._rng.choice(ps.board), atk, hp)
+        elif kind == "spell_buff_bonus":
+            # Tavern spells give +1/+1 extra this game
+            _, atk, hp, _ = effect
+            ps.blood_gem_atk_bonus += atk
+            ps.blood_gem_hp_bonus  += hp
+        elif kind == "discover_same_tribe":
+            self._bc_discover(ps, tier=ps.tavern_tier)
 
     def on_after_combat(self, ps: "PlayerState", dead_card_ids: List[str]) -> None:
         """Called after combat with card IDs of minions that died this combat.

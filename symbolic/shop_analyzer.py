@@ -35,6 +35,7 @@ class ShopCardValue:
     scaling_value: float    # long-term / permanent-effect estimate
     total_value: float      # weighted sum of the above components
     recommendation: str     # "strong_buy" | "consider" | "pass"
+    aura_context: str = "neutral"  # "reduces_dependency" | "adds_aura_redundancy" | "neutral"
 
 
 class ShopAnalyzer:
@@ -92,6 +93,7 @@ class ShopAnalyzer:
             active_multiplier_names.add("drakkari")
 
         results: List[ShopCardValue] = []
+        aura_dep = getattr(board_features, "total_aura_dependency", 0.0)
 
         for card in shop_cards:
             cid = card.get("card_id", "")
@@ -99,9 +101,9 @@ class ShopAnalyzer:
             name = (cdef.get("name") if cdef else None) or card.get("name", cid)
 
             base_power = self._estimate_card_power(card, cdef)
-            synergy_bonus = self._synergy_bonus(card, cdef, board_features)
+            synergy_bonus = self._synergy_bonus(card, cdef, board_features, aura_dep)
             tempo_value = self._tempo_value(cdef)
-            scaling_value = self._scaling_value(cdef)
+            scaling_value = self._scaling_value(cdef, board_features)
 
             # Penalty: if a multiplier of this type is already active, buying a
             # second copy is much weaker (golden synergy aside, treat as penalty).
@@ -117,12 +119,25 @@ class ShopAnalyzer:
                 + _W_SCALING * scaling_value
             )
 
+            # Slight penalty for over-committing to aura strategy
+            if cdef and cdef.get("is_aura") and aura_dep > 0.6:
+                total_value = max(0.0, total_value - 0.05)
+
             if total_value > _STRONG_BUY_THRESH:
                 recommendation = "strong_buy"
             elif total_value > _CONSIDER_THRESH:
                 recommendation = "consider"
             else:
                 recommendation = "pass"
+
+            # Aura context label
+            is_aura_card = bool(cdef and cdef.get("is_aura"))
+            if is_aura_card and aura_dep >= 0.3:
+                aura_context = "adds_aura_redundancy"
+            elif not is_aura_card and aura_dep >= 0.5:
+                aura_context = "reduces_dependency"
+            else:
+                aura_context = "neutral"
 
             results.append(
                 ShopCardValue(
@@ -134,6 +149,7 @@ class ShopAnalyzer:
                     scaling_value=round(scaling_value, 4),
                     total_value=round(total_value, 4),
                     recommendation=recommendation,
+                    aura_context=aura_context,
                 )
             )
 
@@ -175,6 +191,7 @@ class ShopAnalyzer:
         card: dict,
         cdef: Optional[dict],
         board_features: "BoardFeatures",
+        aura_dep: float = 0.0,
     ) -> float:
         """Tribe-synergy bonus: +0.3 if the card shares the dominant tribe
         on a synergistic board (>= 4 of that tribe already out).
@@ -196,6 +213,14 @@ class ShopAnalyzer:
             if board_features.dominant_tribe in card_tribes:
                 bonus += 0.30
 
+        # Aura source bonus: rewards adding aura redundancy to a fragile board
+        if cdef and cdef.get("is_aura"):
+            bonus += 0.25 if aura_dep >= 0.3 else 0.15
+
+        # Non-aura cards are more resilient when board has high aura dependency
+        elif aura_dep >= 0.5:
+            bonus += 0.10
+
         return min(bonus, 0.50)  # cap to prevent overshooting
 
     def _tempo_value(self, cdef: Optional[dict]) -> float:
@@ -216,7 +241,7 @@ class ShopAnalyzer:
             "on_buy": 0.05,
         }.get(trigger, 0.05)
 
-    def _scaling_value(self, cdef: Optional[dict]) -> float:
+    def _scaling_value(self, cdef: Optional[dict], board_features: "BoardFeatures" = None) -> float:
         """Long-term scaling estimate based on effect duration and board-scaling."""
         if not cdef:
             return 0.05
@@ -229,6 +254,18 @@ class ShopAnalyzer:
 
         if cdef.get("scales_with_board"):
             base += 0.10
+
+        if cdef.get("is_multiplier"):
+            base += 0.15
+
+        if cdef.get("trigger_type") == "battlecry" and cdef.get("effect_duration") == "this_game":
+            base += 0.08
+
+        # Tribal synergy card scales better in synergistic boards
+        if board_features is not None and board_features.is_synergistic and board_features.dominant_tribe:
+            card_tribes = [t.upper() for t in cdef.get("tribes", [])]
+            if board_features.dominant_tribe in card_tribes:
+                base += 0.05
 
         return base
 
