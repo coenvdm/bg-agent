@@ -138,3 +138,11 @@ Fixed NaN divergence: switched to AdamW(weight_decay=1e-4), added NaN/Inf/large-
 **Open questions / next steps:**
 - Monitor that future sessions correctly use the bash append method.
 ---
+
+---
+### 2026-04-18 — Trinket agent integration: observation + masks + scalar dims
+**Files changed:** `agent/policy.py`, `env/game_loop.py`, `train.py`, `explore.ipynb`
+**What was done:** Wired trinket state into the agent's perception. Added `trinket_offer_pending` guard to `build_type_mask` (BUY + END_TURN only during offer) and `build_pointer_mask` (shop slots 0-2 valid during offer). Updated `_get_observation` to display pending trinket offer cards in shop zone (mirroring discover_pending pattern) and to expose 2 new economy dims: `n_equipped_trinkets/2` and `trinket_offer_pending` flag. Expanded `SCALAR_DIM` from 98→100 and updated all three `scalar_dim=98` hardcodes in `train.py` to `100`. Refreshed notebook cells 43/44/47 to reflect the 100-dim layout and new SCALAR_LABELS (including economy + trinket labels).
+**Current state:** Agent can now observe its trinkets and respond to trinket offer screens; the policy network, PPO training code, and notebook are all aligned on SCALAR_DIM=100.
+**Open questions / next steps:** Pre-existing `TavernPool.draw` bug (string tier comparison) blocks full `BattlegroundsGame.reset()` integration tests — fix card_tier typing in `tavern_pool.py`; consider add `trinket_rarity` as a feature dim in the card encoder so the agent distinguishes lesser vs greater trinkets in the shop zone.
+---

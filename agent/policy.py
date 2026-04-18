@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 
 # ── Input dimensions ──────────────────────────────────────────────────────────
 CARD_DIM   = 44
-SCALAR_DIM = 98   # 24 own-board + 64 all-opponents (8×8, own slot zeroed) + 6 lobby + 4 economy
+SCALAR_DIM = 100  # 24 own-board + 64 all-opponents (8×8, own slot zeroed) + 6 lobby + 6 economy
 
 # ── Action type space (matches BGPolicyV2) ────────────────────────────────────
 N_ACTION_TYPES    = 8
@@ -564,6 +564,14 @@ def build_type_mask(player_state) -> torch.Tensor:
     _first_free  = getattr(player_state, "first_buy_free", False)
     _eff_buy_cost = 0 if _first_free else max(0, _buy_cost - _buy_discount)
 
+    # Trinket offer pending: only BUY (select) or END_TURN (decline) are valid
+    _trinket_pending = getattr(player_state, "trinket_offer_pending", False)
+    if _trinket_pending:
+        mask = torch.zeros(N_ACTION_TYPES, dtype=torch.bool)
+        mask[0] = True  # BUY → select trinket from shop slots 0-2
+        mask[7] = True  # END_TURN → decline offer
+        return mask
+
     # When discover is pending, only BUY (pointer into shop zone = discover slot) is valid
     _discover = getattr(player_state, "discover_pending", [])
     if _discover:
@@ -617,11 +625,17 @@ def build_pointer_mask(player_state, type_idx: int) -> torch.Tensor:
         board = getattr(player_state, "board", [])
         hand  = getattr(player_state, "hand",  [])
 
-    _discover = getattr(player_state, "discover_pending", [])
+    _trinket_pending = getattr(player_state, "trinket_offer_pending", False)
+    _discover        = getattr(player_state, "discover_pending", [])
 
     mask = torch.zeros(POINTER_DIM, dtype=torch.bool)
 
-    if type_idx == 0:          # buy → shop zone (or discover zone)
+    if type_idx == 0:          # buy → shop zone (trinket offer / discover / normal)
+        if _trinket_pending:
+            # Trinket offer: up to 3 choices encoded in shop slots 0-2
+            for i in range(3):
+                mask[PTR_SHOP_OFF + i] = True
+            return mask
         if _discover:
             # Discover in progress: only indices 0..len-1 in the shop zone are valid
             for i in range(min(len(_discover), SHOP_ZONE_SIZE)):

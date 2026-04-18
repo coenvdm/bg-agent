@@ -667,6 +667,17 @@ class BattlegroundsGame:
         ps.has_drakkari = any("drakkari" in cid.lower() or "TB_BaconUps_090" in cid
                               for cid in board_ids)
 
+    def _trinket_id_to_minion_dict(self, card_id: str) -> dict:
+        """Build a minimal card dict for a trinket card_id (used in shop zone encoding)."""
+        cdef = self.card_defs.get(card_id, {})
+        return {
+            "card_id": card_id,
+            "name": cdef.get("name", card_id),
+            "attack": 0,
+            "health": 0,
+            "tier": 0,
+        }
+
     def _cast_spell(self, ps: PlayerState, minion: MinionState) -> None:
         """Apply a spell card's effect and discard it.  Falls back to no-op for unknown spells."""
         name = minion.name.lower()
@@ -1327,8 +1338,14 @@ class BattlegroundsGame:
         )
 
         board_tokens = _encode_zone(ps.board, self.encoder, 7,  **ctx)
-        # During discover, encode the 3 discover options in shop slots [0-2]
-        shop_source  = ps.discover_pending if ps.discover_pending else ps.shop
+        # During trinket offer / discover, replace shop zone with the choice options
+        if ps.trinket_offer_pending:
+            offered = self.trinket_handler.get_pending_offer(ps.player_id)
+            shop_source = [self._trinket_id_to_minion_dict(cid) for cid in offered]
+        elif ps.discover_pending:
+            shop_source = ps.discover_pending
+        else:
+            shop_source = ps.shop
         shop_tokens  = _encode_zone(shop_source, self.encoder, 7,  **ctx)
         hand_tokens  = _encode_zone(ps.hand,  self.encoder, 10, **ctx)
 
@@ -1404,15 +1421,17 @@ class BattlegroundsGame:
             tier_rank / 8.0,
         ], dtype=np.float32)
 
-        # Economy features the policy needs but can't infer from card tokens
+        # Economy features the policy needs but can't infer from card tokens (6 dims)
         economy_scalar = np.array([
-            ps.gold / 10.0,                          # current gold (0-10)
-            float(ps.frozen),                         # froze this turn
-            ps.level_cost / 10.0,                    # gold needed to level
-            float(ps.hero_power_used),               # hero power already spent
+            ps.gold / 10.0,                               # current gold (0-10)
+            float(ps.frozen),                              # froze this turn
+            ps.level_cost / 10.0,                         # gold needed to level
+            float(ps.hero_power_used),                    # hero power already spent
+            len(ps.equipped_trinkets) / 2.0,              # 0 / 0.5 / 1.0 trinkets equipped
+            float(ps.trinket_offer_pending),              # trinket pick screen active
         ], dtype=np.float32)
 
-        scalar_ctx = np.concatenate([own_scalar, all_opp_scalar, lobby_scalar, economy_scalar])  # [98]
+        scalar_ctx = np.concatenate([own_scalar, all_opp_scalar, lobby_scalar, economy_scalar])  # [100]
 
         return {
             "board_tokens":   board_tokens,   # [7, 44]

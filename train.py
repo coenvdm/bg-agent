@@ -457,7 +457,7 @@ def build_components(
         d_model=256,
         nhead=8,
         num_layers=4,
-        scalar_dim=98,
+        scalar_dim=100,
         dropout=0.1,
     ).to(device)
 
@@ -580,7 +580,7 @@ def _worker_run_game(task: tuple) -> tuple:
     # Current policy — used by training agents, records transitions
     current_policy = BGPolicyNetwork(
         card_dim=44, d_model=256, nhead=8, num_layers=4,
-        scalar_dim=98, dropout=0.1,
+        scalar_dim=100, dropout=0.1,
     ).to(device)
     current_policy.load_state_dict(current_sd)
 
@@ -617,7 +617,7 @@ def _worker_run_game(task: tuple) -> tuple:
             if sd_id not in _policy_cache:
                 pol = BGPolicyNetwork(
                     card_dim=44, d_model=256, nhead=8, num_layers=4,
-                    scalar_dim=98, dropout=0.1,
+                    scalar_dim=100, dropout=0.1,
                 ).to(device)
                 pol.load_state_dict(entry)
                 pol.eval()
