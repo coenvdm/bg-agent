@@ -118,13 +118,49 @@ class TrinketHandler:
     # Effect application
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _tribe_match(minion, tribe: str) -> bool:
+        tribes = getattr(minion, "tribes", None) or []
+        if isinstance(tribes, str):
+            tribes = [tribes]
+        if tribe in [t.upper() for t in tribes]:
+            return True
+        single = getattr(minion, "tribe", "") or ""
+        return single.upper() == tribe
+
+    @staticmethod
+    def _buff_minions(minions, atk: int, hp: int, *, permanent: bool = True) -> None:
+        for m in minions:
+            if permanent:
+                m.perm_atk_bonus += atk
+                m.perm_hp_bonus  += hp
+            else:
+                m.attack  += atk
+                m.health  += hp
+            m.max_health += hp
+
     def _apply_on_equip(self, ps, card_id: str) -> None:
         cdef   = self.card_defs.get(card_id, {})
         effect = cdef.get("trinket_effect", {})
         etype  = effect.get("type", "")
 
         if etype == "gold_per_round":
-            ps.hero_extra_gold += int(effect.get("amount", 1))
+            # Tracked in apply_on_round_start; nothing to do on equip
+            pass
+
+        elif etype == "gold_gain":
+            amount = int(effect.get("amount", 0))
+            ps.gold = min(ps.max_gold, ps.gold + amount)
+            mx = int(effect.get("max_gold_increase", 0))
+            if mx:
+                ps.max_gold = min(20, ps.max_gold + mx)
+
+        elif etype == "max_gold_increase":
+            ps.max_gold = min(20, ps.max_gold + int(effect.get("amount", 1)))
 
         elif etype == "armor":
             ps.armor += int(effect.get("amount", 5))
@@ -135,21 +171,103 @@ class TrinketHandler:
         elif etype == "stat_buff_all":
             atk = int(effect.get("atk", 0))
             hp  = int(effect.get("hp", 0))
-            for m in ps.board:
-                m.perm_atk_bonus += atk
-                m.perm_hp_bonus  += hp
-                m.max_health     += hp
+            self._buff_minions(ps.board, atk, hp)
+
+        elif etype == "stat_buff_tribe":
+            tribe = effect.get("tribe", "")
+            atk   = int(effect.get("atk", 0))
+            hp    = int(effect.get("hp", 0))
+            self._buff_minions(
+                [m for m in ps.board if self._tribe_match(m, tribe)], atk, hp
+            )
+
+        elif etype == "stat_buff_low_tier":
+            max_tier = int(effect.get("max_tier", 3))
+            atk      = int(effect.get("atk", 0))
+            hp       = int(effect.get("hp", 0))
+            self._buff_minions(
+                [m for m in ps.board if getattr(m, "tier", 1) <= max_tier], atk, hp
+            )
+
+        elif etype == "level_cost_reduction":
+            ps.level_cost = max(0, ps.level_cost - int(effect.get("amount", 1)))
+
+        elif etype in (
+            "start_of_combat", "start_of_combat_buff_all", "start_of_combat_buff_tribe",
+            "end_of_turn", "end_of_turn_buff_all", "end_of_turn_buff_leftmost",
+            "end_of_turn_buff_tribe", "max_gold_per_round", "level_cost_reduction_per_round",
+            "avenge", "combat_trigger", "spellcraft", "discover",
+            "tavern_aura", "round_start_effect", "stat_buff_on_win", "complex",
+        ):
+            # Handled in their respective hooks; nothing to do on equip
+            pass
 
         elif etype:
             logger.debug("Trinket %s: unhandled effect type '%s'", card_id, etype)
 
     def apply_on_round_start(self, ps) -> None:
-        """Fire round-start trinket effects (e.g. gold_per_round bonus)."""
+        """Fire round-start trinket effects."""
         for card_id in ps.equipped_trinkets:
             cdef   = self.card_defs.get(card_id, {})
             effect = cdef.get("trinket_effect", {})
-            if effect.get("type") == "gold_per_round":
+            etype  = effect.get("type", "")
+
+            if etype == "gold_per_round":
                 ps.gold = min(ps.max_gold, ps.gold + int(effect.get("amount", 1)))
+
+            elif etype == "max_gold_per_round":
+                ps.max_gold = min(20, ps.max_gold + int(effect.get("amount", 1)))
+
+            elif etype == "level_cost_reduction_per_round":
+                ps.level_cost = max(0, ps.level_cost - int(effect.get("amount", 1)))
+
+    def apply_on_round_end(self, ps) -> None:
+        """Fire end-of-shopping-turn trinket effects (called at END_TURN / freeze)."""
+        for card_id in ps.equipped_trinkets:
+            cdef   = self.card_defs.get(card_id, {})
+            effect = cdef.get("trinket_effect", {})
+            etype  = effect.get("type", "")
+
+            if etype == "end_of_turn_buff_all":
+                atk = int(effect.get("atk", 0))
+                hp  = int(effect.get("hp", 0))
+                self._buff_minions(ps.board, atk, hp)
+
+            elif etype == "end_of_turn_buff_leftmost":
+                if ps.board:
+                    atk = int(effect.get("atk", 0))
+                    hp  = int(effect.get("hp", 0))
+                    self._buff_minions([ps.board[0]], atk, hp)
+
+            elif etype == "end_of_turn_buff_tribe":
+                tribe = effect.get("tribe", "")
+                atk   = int(effect.get("atk", 0))
+                hp    = int(effect.get("hp", 0))
+                self._buff_minions(
+                    [m for m in ps.board if self._tribe_match(m, tribe)], atk, hp
+                )
+
+    def apply_on_combat_start(self, ps) -> None:
+        """Fire start-of-combat trinket effects (called just before combat sim)."""
+        for card_id in ps.equipped_trinkets:
+            cdef   = self.card_defs.get(card_id, {})
+            effect = cdef.get("trinket_effect", {})
+            etype  = effect.get("type", "")
+
+            if etype == "start_of_combat_buff_all":
+                atk = int(effect.get("atk", 0))
+                hp  = int(effect.get("hp", 0))
+                # Combat-only: use health/attack directly (not perm bonus)
+                self._buff_minions(ps.board, atk, hp, permanent=False)
+
+            elif etype == "start_of_combat_buff_tribe":
+                tribe = effect.get("tribe", "")
+                atk   = int(effect.get("atk", 0))
+                hp    = int(effect.get("hp", 0))
+                self._buff_minions(
+                    [m for m in ps.board if self._tribe_match(m, tribe)],
+                    atk, hp, permanent=False,
+                )
 
     def apply_on_combat_end(self, ps, result: str) -> None:
         """Fire combat-end trinket effects (e.g. stat buffs on win)."""
@@ -159,7 +277,16 @@ class TrinketHandler:
             if effect.get("type") == "stat_buff_on_win" and result == "win":
                 atk = int(effect.get("atk", 0))
                 hp  = int(effect.get("hp", 0))
-                for m in ps.board:
-                    m.perm_atk_bonus += atk
-                    m.perm_hp_bonus  += hp
-                    m.max_health     += hp
+                self._buff_minions(ps.board, atk, hp)
+
+            elif effect.get("type") == "gold_per_round" and "self_damage_per_round" in effect:
+                # Wax Imprinter: deal self-damage if player can afford the gold next turn
+                dmg = int(effect["self_damage_per_round"])
+                effective_hp = ps.health + ps.armor
+                if effective_hp > dmg:
+                    # Damage comes off armor first
+                    if ps.armor >= dmg:
+                        ps.armor -= dmg
+                    else:
+                        ps.health -= (dmg - ps.armor)
+                        ps.armor = 0

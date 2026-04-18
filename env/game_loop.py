@@ -596,6 +596,7 @@ class BattlegroundsGame:
             ps.frozen = True
             reward += self._end_of_turn_reward(ps)
             self.hero_handler.on_end_turn(ps)
+            self.trinket_handler.apply_on_round_end(ps)
             done = True
 
         elif type_action == 5:
@@ -630,6 +631,7 @@ class BattlegroundsGame:
         elif type_action == 7:
             reward += self._end_of_turn_reward(ps)
             self.hero_handler.on_end_turn(ps)
+            self.trinket_handler.apply_on_round_end(ps)
             done = True
 
         return self._get_observation(player_id), reward, done
@@ -742,6 +744,10 @@ class BattlegroundsGame:
             return result
 
         opp = self.players[opponent_id]
+
+        # Fire start-of-combat trinket effects (e.g. stat buffs) before sim snapshot
+        self.trinket_handler.apply_on_combat_start(ps)
+
         opp_board = [_minion_to_dict(m) for m in opp.board]
 
         sim = self.firestone.simulate(

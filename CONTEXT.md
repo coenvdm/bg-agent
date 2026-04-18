@@ -112,3 +112,20 @@ Fixed NaN divergence: switched to AdamW(weight_decay=1e-4), added NaN/Inf/large-
 - Spellcraft "this_combat" buffs use `perm_atk_bonus` as approximation; should use a separate combat-only buff channel
 - Validate trinket offer timing against current BG patch (round 4/8 may have changed)
 ---
+
+---
+### 2026-04-18 — Trinket data population: trinket_effect dicts + full handler wiring
+
+**Files changed:** `bg_card_definitions.json`, `env/trinket_handler.py`, `env/game_loop.py`, `train.py`
+
+**What was done:** Populated all 213 trinkets in `bg_card_definitions.json` with `card_id` (slug + tier initial, e.g. `shadowy_elixir_l`) and a `trinket_effect` dict parsed from each card's text field. Effects are categorized into 21 types including fully-live ones (`stat_buff_all`, `stat_buff_tribe`, `stat_buff_low_tier`, `gold_gain`, `armor`, `level_cost_reduction`, `gold_per_round`, `max_gold_per_round`, `end_of_turn_buff_all/leftmost/tribe`, `start_of_combat_buff_all/tribe`) and deferred-but-labeled ones (`avenge`, `combat_trigger`, `complex`, `discover`, etc.). Extended `TrinketHandler` with `_tribe_match`/`_buff_minions` helpers, all new `_apply_on_equip` branches, and two new hooks: `apply_on_round_end` and `apply_on_combat_start`. Fixed `load_card_defs` in `train.py` to merge the trinkets list into the returned card_defs dict so `TrinketHandler` can find them by card_id. Wired `apply_on_round_end` at END_TURN and freeze, and `apply_on_combat_start` before `firestone.simulate` in `game_loop.py`.
+
+**Current state:** Trinket system is fully end-to-end: 152 lesser and 61 greater trinkets in their respective pools, effects fire at the correct hooks. ~67 trinkets have live stat/economy effects; remaining 146 are labeled with descriptive types that log at debug level and no-op pending per-type handler implementation.
+
+**Open questions / next steps:**
+- Implement `combat_trigger` effects (Whenever/After hooks — requires tracking attack events and minion deaths during the combat sim)
+- Implement `avenge` counters (track death count per combat, fire threshold callback)
+- `start_of_combat` buff is applied to `attack`/`health` directly (not `perm_*`) — those buffs are lost after the sim snapshot; consider a separate `combat_atk_buff` field on MinionState
+- Validate `card_id` slugs against actual Hearthstone card IDs if/when BG JSON source is re-fetched
+- Kalecgos passive reset between rounds still unaddressed (carried over from previous session)
+---

@@ -397,19 +397,38 @@ def load_card_defs(path: Path) -> Dict[str, dict]:
         return {}
 
     with open(path, encoding="utf-8") as fh:
-        defs = json.load(fh)
+        raw = json.load(fh)
+
+    # Extract trinkets list before unwrapping cards envelope
+    trinkets_raw = []
+    if isinstance(raw, dict) and "trinkets" in raw:
+        trinkets_raw = raw["trinkets"] if isinstance(raw["trinkets"], list) else []
 
     # Unwrap {"version": ..., "cards": {...}} envelope if present
-    if isinstance(defs, dict) and "cards" in defs and isinstance(defs["cards"], dict):
-        defs = defs["cards"]
-    elif isinstance(defs, dict) and "cards" in defs and isinstance(defs["cards"], list):
-        defs = {d.get("card_id", d.get("id", str(i))): d for i, d in enumerate(defs["cards"])}
+    if isinstance(raw, dict) and "cards" in raw and isinstance(raw["cards"], dict):
+        defs = raw["cards"]
+    elif isinstance(raw, dict) and "cards" in raw and isinstance(raw["cards"], list):
+        defs = {d.get("card_id", d.get("id", str(i))): d
+                for i, d in enumerate(raw["cards"])}
+    elif isinstance(raw, list):
+        defs = {d.get("card_id", d.get("id", str(i))): d for i, d in enumerate(raw)}
+    else:
+        defs = raw  # type: ignore[assignment]
 
-    # Normalise: if the JSON is a list, key by card_id
+    # Normalise: if still a list, key by card_id
     if isinstance(defs, list):
         defs = {d.get("card_id", d.get("id", str(i))): d for i, d in enumerate(defs)}
 
-    logger.info("Loaded %d card definitions from %s", len(defs), path)
+    # Merge trinkets into card_defs so TrinketHandler can find them by card_id
+    for t in trinkets_raw:
+        cid = t.get("card_id")
+        if cid:
+            defs[cid] = t
+
+    logger.info(
+        "Loaded %d card definitions (%d trinkets) from %s",
+        len(defs), len(trinkets_raw), path,
+    )
     return defs
 
 
