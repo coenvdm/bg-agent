@@ -13,9 +13,14 @@ Do not consider a session complete until all four steps are done.**
 
 ### Step 1 — Append to CONTEXT.md
 
-Append a new entry to `CONTEXT.md` in the project root. Use this exact format:
+Use a Bash heredoc to append directly — do NOT read the file first (it can be large):
 
-```
+```bash
+# If CONTEXT.md doesn't exist yet, create it with the header first:
+# echo "# bg_agent — Development Context Log" > CONTEXT.md
+
+cat >> CONTEXT.md << 'EOF'
+
 ---
 ### [DATE] — [SHORT SESSION TITLE]
 **Files changed:** `list/of/files.py`
@@ -23,10 +28,11 @@ Append a new entry to `CONTEXT.md` in the project root. Use this exact format:
 **Current state:** One sentence on where things stand now.
 **Open questions / next steps:** Bullet list of unresolved issues or planned next actions.
 ---
+EOF
 ```
 
-- Do NOT overwrite previous entries. Always append.
-- If `CONTEXT.md` does not exist, create it with the header `# bg_agent — Development Context Log`.
+- Use `>>` (append), never `>` (overwrite).
+- Never use the Read or Edit tools on CONTEXT.md — always append via Bash `>>`.
 
 ### Step 2 — Stage source files
 

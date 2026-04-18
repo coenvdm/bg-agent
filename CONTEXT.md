@@ -129,3 +129,12 @@ Fixed NaN divergence: switched to AdamW(weight_decay=1e-4), added NaN/Inf/large-
 - Validate `card_id` slugs against actual Hearthstone card IDs if/when BG JSON source is re-fetched
 - Kalecgos passive reset between rounds still unaddressed (carried over from previous session)
 ---
+
+---
+### 2026-04-18 — CONTEXT.md append method: bash heredoc to avoid full-file reads
+**Files changed:** `CLAUDE.md`
+**What was done:** Updated Step 1 of the end-of-session checklist to instruct Claude to append to CONTEXT.md via a Bash heredoc (`cat >>`) instead of using the Read+Edit tools. This prevents the entire CONTEXT.md from being loaded into context as the file grows large.
+**Current state:** CLAUDE.md checklist now enforces append-only bash writes; hook script unchanged and working correctly.
+**Open questions / next steps:**
+- Monitor that future sessions correctly use the bash append method.
+---
