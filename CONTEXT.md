@@ -146,3 +146,13 @@ Fixed NaN divergence: switched to AdamW(weight_decay=1e-4), added NaN/Inf/large-
 **Current state:** Agent can now observe its trinkets and respond to trinket offer screens; the policy network, PPO training code, and notebook are all aligned on SCALAR_DIM=100.
 **Open questions / next steps:** Pre-existing `TavernPool.draw` bug (string tier comparison) blocks full `BattlegroundsGame.reset()` integration tests — fix card_tier typing in `tavern_pool.py`; consider add `trinket_rarity` as a feature dim in the card encoder so the agent distinguishes lesser vs greater trinkets in the shop zone.
 ---
+
+---
+### 2026-04-18 — Add conda environment.yml
+**Files changed:** `environment.yml`
+**What was done:** Created a conda environment YAML to reproduce the Python 3.9.5 environment. Scanned all source files for imports and cross-referenced the installed pip list to include only the packages actually used by the codebase: torch, numpy, hearthstone, hslog, requests, tqdm, and rich.
+**Current state:** environment.yml is ready at the repo root. Recreate with `conda env create -f environment.yml && conda activate bg-agent`.
+**Open questions / next steps:**
+- CUDA variant of torch may be needed for GPU training (current yml installs CPU torch 1.11.0).
+- hslog and hearthstone are version-pinned; verify they remain compatible after any HS patch update.
+---
