@@ -987,6 +987,7 @@ class BattlegroundsGame:
                 ps.level_cost = max(0, ps.level_cost - 1)
                 ps.hero_power_used = False
                 ps._rerolls_this_turn = 0  # type: ignore[attr-defined]
+                ps.phi_board = self._board_win_prob(ps)  # reset baseline so shaping is within-turn only
                 ps.shop = self._draw_shop(ps)
                 ps.frozen = False
                 self.hero_handler.on_start_of_round(ps)
