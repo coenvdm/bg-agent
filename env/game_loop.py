@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 # Potential-based board-strength reward shaping
 BOARD_SHAPE_ALPHA = 0.05   # scale: keeps max shaped bonus ≪ ±0.5 combat reward
-BOARD_SHAPE_GAMMA = 0.99   # matches PPO discount factor
+BOARD_SHAPE_GAMMA = 1.0    # undiscounted: sell+place cancel exactly when phi is unchanged
 BOARD_SHAPE_TRIALS = 30    # sim trials per shaping call (~0.5 ms each)
 
 FINAL_PLACEMENT_REWARD: Dict[int, float] = {
