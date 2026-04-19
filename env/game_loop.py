@@ -557,7 +557,7 @@ class BattlegroundsGame:
                         cards = self.tavern_pool.draw(ps.tavern_tier, 1)
                         for card in cards:
                             ps.hand.append(self._dict_to_minion(card))
-                reward += self._apply_board_shape(ps)
+                reward += self._apply_board_shape(ps)  # SELL: keep negative
 
         elif type_action == 2:
             # place: ptr_action is hand slot index (ptr 14-23 → slot 0-9)
@@ -618,7 +618,7 @@ class BattlegroundsGame:
                                     minion.max_health     += 1 * mult
                         from env.triple_system import check_and_process_triple
                         check_and_process_triple(ps, self.tavern_pool)
-                        reward += self._apply_board_shape(ps)
+                        reward += max(0.0, self._apply_board_shape(ps))  # PLACE: clip to 0
 
         elif type_action == 3:
             # reroll — consume a free refresh (Refreshing Anomaly) before spending gold
