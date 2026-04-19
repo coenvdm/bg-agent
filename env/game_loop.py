@@ -282,9 +282,8 @@ class BattlegroundsGame:
         r = 0.0
         board_size = len(ps.board)
         hand_size  = len(ps.hand)
-        # Empty-board penalty: doing nothing useful is actively bad
-        if board_size == 0:
-            r -= 0.30
+        # Empty-board penalty fires at the SELL action that empties the board (not here)
+        # so that credit assignment is immediate rather than deferred.
         # Hand penalty: bought cards that aren't placed don't help in combat
         r -= 0.08 * hand_size
         # Unspent gold penalty (fades to 20% by round 16+)
@@ -558,6 +557,8 @@ class BattlegroundsGame:
                         for card in cards:
                             ps.hand.append(self._dict_to_minion(card))
                 reward += self._apply_board_shape(ps)  # SELL: keep negative
+                if not ps.board:                        # emptied the board — charge penalty here for clean credit assignment
+                    reward -= 0.30
 
         elif type_action == 2:
             # place: ptr_action is hand slot index (ptr 14-23 → slot 0-9)
