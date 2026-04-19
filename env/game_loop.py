@@ -424,13 +424,16 @@ class BattlegroundsGame:
         player_board = [_minion_to_dict(m) for m in ps.board]
         opp_snap = (ps.opponent_snapshots.get(ps.next_opponent_id)
                     if ps.next_opponent_id is not None else None)
-        opp_board = [_minion_to_dict(m) for m in opp_snap.board] if opp_snap and opp_snap.board else []
-        opp_tier  = opp_snap.tavern_tier if opp_snap else ps.tavern_tier
+        # No snapshot yet (round 1) — return neutral 0.5 so shaping is meaningful
+        # from the very first placement rather than saturating at 1.0 vs empty board.
+        if not opp_snap or not opp_snap.board:
+            return 0.5
+        opp_board = [_minion_to_dict(m) for m in opp_snap.board]
         try:
             result = self._shape_sim.simulate(
                 player_board, opp_board,
                 player_tier=ps.tavern_tier,
-                opp_tier=opp_tier,
+                opp_tier=opp_snap.tavern_tier,
             )
             return result.win_prob
         except Exception:
