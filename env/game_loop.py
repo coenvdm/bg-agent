@@ -23,6 +23,7 @@ from env.tavern_pool import TavernPool
 from env.matchmaker import Matchmaker
 from symbolic.board_computer import SymbolicBoardComputer
 from symbolic.firestone_client import FirestoneClient
+from symbolic.combat_sim import BGCombatSim
 from symbolic.effect_handler import EffectHandler
 from symbolic.hero_handler import HeroPowerHandler
 from env.trinket_handler import TrinketHandler
@@ -34,6 +35,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Reward constants (CLAUDE.md)
 # ---------------------------------------------------------------------------
+
+# Potential-based board-strength reward shaping
+BOARD_SHAPE_ALPHA = 0.05   # scale: keeps max shaped bonus ≪ ±0.5 combat reward
+BOARD_SHAPE_GAMMA = 0.99   # matches PPO discount factor
+BOARD_SHAPE_TRIALS = 30    # sim trials per shaping call (~0.5 ms each)
 
 FINAL_PLACEMENT_REWARD: Dict[int, float] = {
     1: +4.0,
@@ -248,6 +254,7 @@ class BattlegroundsGame:
         self.effect_handler  = EffectHandler(card_defs, tavern_pool=self.tavern_pool)
         self.hero_handler    = HeroPowerHandler(card_defs, HERO_DEF_MAP)
         self.trinket_handler = TrinketHandler(card_defs, rng=self._rng if hasattr(self, "_rng") else None)
+        self._shape_sim      = BGCombatSim(n_trials=BOARD_SHAPE_TRIALS)
 
         # Populated by reset()
         self.players: List[PlayerState] = []
@@ -402,6 +409,47 @@ class BattlegroundsGame:
         )
 
     # ------------------------------------------------------------------
+    # Board-strength potential Φ(s) for reward shaping
+    # ------------------------------------------------------------------
+
+    def _board_win_prob(self, ps) -> float:
+        """Estimate win probability for ps's current board via fast Monte Carlo.
+
+        Uses the announced next opponent's last known board as the reference
+        opponent.  Falls back to an empty board (win_prob ≈ 1.0) when no
+        opponent snapshot is available (early rounds).
+        """
+        if not ps.board:
+            return 0.0
+        player_board = [_minion_to_dict(m) for m in ps.board]
+        opp_snap = (ps.opponent_snapshots.get(ps.next_opponent_id)
+                    if ps.next_opponent_id is not None else None)
+        opp_board = [_minion_to_dict(m) for m in opp_snap.board] if opp_snap and opp_snap.board else []
+        opp_tier  = opp_snap.tavern_tier if opp_snap else ps.tavern_tier
+        try:
+            result = self._shape_sim.simulate(
+                player_board, opp_board,
+                player_tier=ps.tavern_tier,
+                opp_tier=opp_tier,
+            )
+            return result.win_prob
+        except Exception:
+            return 0.5
+
+    def _apply_board_shape(self, ps) -> float:
+        """Compute potential-based shaped reward and update ps.phi_board.
+
+        r_shaped = α * (γ * Φ(s') - Φ(s))
+
+        This is called after any action that modifies the board (PLACE, SELL).
+        Guaranteed not to change the optimal policy (Ng et al. 1999).
+        """
+        phi_after = self._board_win_prob(ps)
+        shaped = BOARD_SHAPE_ALPHA * (BOARD_SHAPE_GAMMA * phi_after - ps.phi_board)
+        ps.phi_board = phi_after
+        return shaped
+
+    # ------------------------------------------------------------------
     # Shopping phase
     # ------------------------------------------------------------------
 
@@ -506,6 +554,7 @@ class BattlegroundsGame:
                         cards = self.tavern_pool.draw(ps.tavern_tier, 1)
                         for card in cards:
                             ps.hand.append(self._dict_to_minion(card))
+                reward += self._apply_board_shape(ps)
 
         elif type_action == 2:
             # place: ptr_action is hand slot index (ptr 14-23 → slot 0-9)
@@ -566,6 +615,7 @@ class BattlegroundsGame:
                                     minion.max_health     += 1 * mult
                         from env.triple_system import check_and_process_triple
                         check_and_process_triple(ps, self.tavern_pool)
+                        reward += self._apply_board_shape(ps)
 
         elif type_action == 3:
             # reroll — consume a free refresh (Refreshing Anomaly) before spending gold

@@ -147,6 +147,9 @@ class PlayerState:
     trinket_offer_pending: bool = False
     # Spells granted by Spellcraft and trinket passives (effect_id → payload)
     active_spells: Dict[str, dict] = field(default_factory=dict)
+    # Cached win-probability used for potential-based board-strength reward shaping.
+    # Updated after every PLACE or SELL action; reset to 0.0 at game start.
+    phi_board: float = 0.0
 
     @property
     def total_health(self) -> int:
