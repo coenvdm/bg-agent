@@ -52,6 +52,8 @@ class MinionState:
     game_hp_bonus: int = 0   # this-game health buffs
     magnetic: bool = False   # Magnetic mechanic: merges with rightmost friendly Mech when played
     is_spell: bool = False   # True for spell cards (no board slot used)
+    activate_cost: int = 0   # >0 = has an "Activate (N)" ability costing N Gold; 0 = none
+    activated_this_turn: bool = False  # Activate is once-per-turn; reset at round start
 
     @classmethod
     def from_snap(cls, snap: dict) -> "MinionState":

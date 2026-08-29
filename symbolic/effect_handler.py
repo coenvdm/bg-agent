@@ -398,6 +398,136 @@ class EffectHandler:
         # Pack Leader sell effect: none (its effect is in combat).
         # Yo-Ho-Ho / Shifter Zerus: skip.
 
+    def on_activate(self, ps: "PlayerState", minion: "MinionState") -> None:
+        """Fire the "Activate (N)" ability of *minion*.
+
+        Gold cost and the once-per-turn gate are already handled by the
+        caller (game_loop._step); this only applies the card-specific effect.
+        Three cards (Lurking Lionfish, Cagey Conjurer, Sky-hatch Runaway) have
+        no functional implementation yet — they require infra this handler
+        doesn't have (a generic Tavern-spell-cast pool, or triggering a Rally
+        effect outside of combat) and are documented no-ops below.
+        """
+        name_key = minion.name.lower().replace(" ", "")
+
+        if "suspiciousprisonguard" in name_key:
+            # Give another minion +3/+3
+            others = [m for m in ps.board if m is not minion]
+            _buff_random(others, 3, 3, self._rng, times=1)
+
+        elif "clevercastaway" in name_key:
+            # Discover a Tavern spell — approximated as drawing a random
+            # mid-tier minion (no generic Tavern-spell pool exists), matching
+            # the same approximation already used for Rodeo Performer.
+            self._bc_draw_tribe(ps, tier=min(3, ps.tavern_tier))
+
+        elif "decoyconjurer" in name_key:
+            # Steal the highest-Attack minion in the Tavern
+            if ps.shop:
+                idx = max(range(len(ps.shop)), key=lambda i: ps.shop[i].attack)
+                stolen = ps.shop.pop(idx)
+                if len(ps.board) < 7:
+                    ps.board.append(stolen)
+                    self._apply_game_buff_target(ps, stolen)
+                elif len(ps.hand) < 10:
+                    ps.hand.append(stolen)
+
+        elif "lurkinglionfish" in name_key:
+            # Replaces a chosen shop card with a Fishbait that a specific
+            # friendly Beast attacks first in combat — needs combat-time
+            # targeting infra this handler doesn't have. No-op for now.
+            pass
+
+        elif "breakoutmastermind" in name_key:
+            # Get a random Murloc
+            self._bc_draw_tribe(ps, tier=ps.tavern_tier, tribe="MURLOC")
+
+        elif "cageyconjurer" in name_key:
+            # Cast 2 random Tavern spells — no generic spell-cast-from-pool
+            # system exists. No-op for now.
+            pass
+
+        elif "fruitvendor" in name_key:
+            # Get 2 Tavern Dish Bananas — approximated as 2 generic
+            # buff-one-minion combat spell tokens (same pattern as Blood Gem).
+            for _ in range(2):
+                if len(ps.hand) < 10:
+                    banana = _make_token("Tavern Dish Banana", attack=0, health=0, tier=1)
+                    banana.is_spell = True  # type: ignore[attr-defined]
+                    banana._spellcraft_effect = ("buff_one", 1, 1, "this_combat")  # type: ignore[attr-defined]
+                    ps.hand.append(banana)
+
+        elif "hiredmount" in name_key:
+            # Get a random Chromadrake
+            self._bc_draw_tribe(ps, tier=min(3, ps.tavern_tier), tribe="DRAGON")
+
+        elif "privateinvestigator" in name_key:
+            # Gain 3 Gold next turn
+            ps.hero_extra_gold = getattr(ps, "hero_extra_gold", 0) + 3
+
+        elif "deadbellringer" in name_key:
+            # Give a different friendly Undead Reborn, then destroy it for +4/+4
+            undead = _friendly_with_tribe(ps.board, "UNDEAD", minion, self._card_defs)
+            if undead:
+                target = self._rng.choice(undead)
+                target.reborn = True
+                ps.board.remove(target)
+                _buff_minion(minion, 4, 4)
+
+        elif "droneduplicator" in name_key:
+            # The next Magnetization onto this minion this turn is doubled
+            minion._magnetize_double_pending = True  # type: ignore[attr-defined]
+
+        elif "livingprison" in name_key:
+            # Gain the stats of the next minion you buy this turn
+            ps._living_prison_source = minion  # type: ignore[attr-defined]
+
+        elif "sky-hatchrunaway" in name_key or "skyhatchrunaway" in name_key:
+            # Trigger a friendly minion's Rally — Rally only fires during the
+            # combat sim in this codebase; there's no pre-combat hook to run
+            # one on demand. No-op for now.
+            pass
+
+        elif "soulkeepingjailer" in name_key:
+            # Your Demons each consume a random minion in the Tavern
+            demons = _friendly_with_tribe(ps.board, "DEMON", None, self._card_defs)
+            for demon in demons:
+                self._bc_consume_shop(ps, demon, self._rng, times=1)
+
+        elif "deftdeserter" in name_key:
+            # Give all minions in the Tavern +8/+8 and a random Bonus Keyword
+            for shop_minion in ps.shop:
+                shop_minion.attack += 8
+                shop_minion.health += 8
+                shop_minion.max_health += 8
+                keyword = self._rng.choice(["taunt", "divine_shield", "windfury"])
+                setattr(shop_minion, keyword, True)
+
+        elif "tyrael" in name_key:
+            # Set another minion's stats to 50/50
+            others = [m for m in ps.board if m is not minion]
+            if others:
+                target = self._rng.choice(others)
+                target.attack = 50
+                target.health = 50
+                target.max_health = 50
+                target.perm_atk_bonus = 0
+                target.perm_hp_bonus = 0
+                target.game_atk_bonus = 0
+                target.game_hp_bonus = 0
+
+    def _apply_game_buff_target(self, ps: "PlayerState", minion: "MinionState") -> None:
+        """Apply accumulated 'this game' tribe buffs to a single minion.
+
+        Mirrors BattlegroundsGame._apply_game_buffs for minions added to the
+        board outside the normal PLAY path (e.g. Decoy Conjurer's steal).
+        """
+        for tribe_key, (atk, hp) in ps.game_buffs.items():
+            if self._matches_tribe_key(minion, tribe_key):
+                minion.game_atk_bonus += atk
+                minion.game_hp_bonus  += hp
+                minion.max_health     += hp
+
     # ------------------------------------------------------------------
     # Battlecry implementations
     # ------------------------------------------------------------------
@@ -499,6 +629,7 @@ class EffectHandler:
     def _dict_to_minion(self, card: dict) -> "MinionState":
         """Convert a card dict from TavernPool into a MinionState."""
         from env.player_state import MinionState
+        cdef = self._card_defs.get(card.get("card_id", ""), {})
         m = MinionState(
             card_id=card.get("card_id", ""),
             name=card.get("name", ""),
@@ -511,6 +642,7 @@ class EffectHandler:
             taunt=bool(card.get("taunt", False)),
             reborn=bool(card.get("reborn", False)),
             windfury=bool(card.get("windfury", False)),
+            activate_cost=int(cdef.get("activate_cost") or 0),
         )
         return m
 

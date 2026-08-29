@@ -7928,1552 +7928,2633 @@
   },
   "trinkets": [
     {
+      "card_id": "all-purpose_kibble_g",
+      "name": "All-Purpose Kibble",
+      "cost": 0,
+      "tier": "greater",
+      "text": "Whenever a friendly Beast attacks, give it +2 Attack and permanently improve this.",
+      "trinket_effect": {
+        "type": "combat_trigger"
+      }
+    },
+    {
+      "card_id": "alliance_keychain_g",
       "name": "Alliance Keychain",
       "cost": 6,
       "tier": "greater",
-      "text": "The first time a friendly minion dies each combat, give its maximum stats to 2 random friendly minions."
+      "text": "The first time a friendly minion dies each combat, give its maximum stats to 2 random friendly minions.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "amplifying_essence_g",
       "name": "Amplifying Essence",
       "cost": 4,
       "tier": "greater",
-      "text": "Your Elementals give an extra +1/+1. After you play 5 Elementals, improve this. (5 left!)"
+      "text": "Your Elementals give an extra +1/+1. After you play 5 Elementals, improve this. (5 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Auric Offering",
-      "cost": 4,
+      "card_id": "artisanal_urn_g",
+      "name": "Artisanal Urn",
+      "cost": 0,
       "tier": "greater",
-      "text": "At the end of each turn, give your left-most minion +4/+3. Repeat for each friendly Golden minion."
+      "text": "Your Undead have +15 Attack.",
+      "trinket_effect": {
+        "type": "stat_buff_tribe",
+        "tribe": "UNDEAD",
+        "atk": 15,
+        "hp": 0
+      }
     },
     {
-      "name": "Baleful Incense",
-      "cost": 4,
+      "card_id": "battle_horn_g",
+      "name": "Battle Horn",
+      "cost": 0,
       "tier": "greater",
-      "text": "Start of Combat: Give your left and right-most Undead Reborn."
+      "text": "Discover a Battlecry. minion. Avenge (2): Trigger a friendly Battlecry.",
+      "trinket_effect": {
+        "type": "avenge",
+        "count": 2
+      }
     },
     {
+      "card_id": "beetle_band_g",
       "name": "Beetle Band",
       "cost": 5,
       "tier": "greater",
-      "text": "Avenge (7): Summon two 2/2 Beetles. Give them Taunt."
+      "text": "Avenge (7): Summon two 2/2 Beetles. Give them Taunt.",
+      "trinket_effect": {
+        "type": "avenge",
+        "count": 7
+      }
     },
     {
+      "card_id": "bewitched_ribbon_g",
       "name": "Bewitched Ribbon",
       "cost": 4,
       "tier": "greater",
-      "text": "Whenever you cast a spell, give your minions +1/+1 permanently. (+2/+2 while in combat!)"
+      "text": "Whenever you cast a spell, give your minions +1/+1 permanently. (+2/+2 while in combat!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "bird_feeder_g",
+      "name": "Bird Feeder",
+      "cost": 2,
+      "tier": "greater",
+      "text": "Avenge (2): Give your minions +4/+4.",
+      "trinket_effect": {
+        "type": "avenge",
+        "count": 2
+      }
+    },
+    {
+      "card_id": "blood_amulet_g",
+      "name": "Blood Amulet",
+      "cost": 3,
+      "tier": "greater",
+      "text": "After you trigger a Deathrattle, this plays a permanent Blood Gem on 3 random friendly minions.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "bloodbound_earrings_g",
       "name": "Bloodbound Earrings",
       "cost": 6,
       "tier": "greater",
-      "text": "After you cast 5 spells, this plays two Blood Gems. on all your minions. (5 left!)"
+      "text": "After you cast 5 spells, this plays two Blood Gems. on all your minions. (5 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "bloodbound_ring_g",
+      "name": "Bloodbound Ring",
+      "cost": 0,
+      "tier": "greater",
+      "text": "After you play a Blood Gem. from hand, this plays a Blood Gem on your minions with Divine Shield.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "bloodfury_shield_g",
+      "name": "Bloodfury Shield",
+      "cost": 2,
+      "tier": "greater",
+      "text": "Whenever you cast a Tavern spell, add a Fodder to your next Refresh.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "bobs_tip_jar_g",
+      "name": "Bob's Tip Jar",
+      "cost": 0,
+      "tier": "greater",
+      "text": "Gain 4 Gold. Increase your maximum Gold by 4.",
+      "trinket_effect": {
+        "type": "gold_gain",
+        "amount": 4,
+        "max_gold_increase": 4
+      }
+    },
+    {
+      "card_id": "book_of_medivh_g",
+      "name": "Book of Medivh",
+      "cost": 2,
+      "tier": "greater",
+      "text": "Discover 2 Tavern spells. At the start of each turn, Discover 2 more.",
+      "trinket_effect": {
+        "type": "discover"
+      }
+    },
+    {
+      "card_id": "boom_controller_g",
       "name": "Boom Controller",
       "cost": 7,
       "tier": "greater",
-      "text": "When you have space, summon an exact copy of your first Mech that died each combat."
+      "text": "When you have space, summon an exact copy of your first Mech that died each combat.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "booty_bay_brew_g",
+      "name": "Booty Bay Brew",
+      "cost": 2,
+      "tier": "greater",
+      "text": "Whenever you spend Gold, give two friendly Pirates +6/+6.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "bronze_timepiece_g",
       "name": "Bronze Timepiece",
       "cost": 5,
       "tier": "greater",
-      "text": "Start of Combat: Give each of your minions Health equal to half its Attack."
+      "text": "Start of Combat: Give each of your minions Health equal to half its Attack.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "butchers_sickle_g",
+      "name": "Butcher's Sickle",
+      "cost": 3,
+      "tier": "greater",
+      "text": "Get a Butchering. At the start of each turn, get another.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
+    },
+    {
+      "card_id": "charging_staff_g",
       "name": "Charging Staff",
-      "cost": 4,
+      "cost": 1,
       "tier": "greater",
-      "text": "At the end of each turn, give your minions with Divine Shield +3 Attack."
+      "text": "At the end of each turn, give your minions with Divine Shield +7 Attack.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
     },
     {
-      "name": "Charm of Generosity",
-      "cost": 5,
-      "tier": "greater",
-      "text": "After your team Passes, give your minions +2 Attack."
-    },
-    {
+      "card_id": "charming_panpipes_g",
       "name": "Charming Panpipes",
       "cost": 4,
       "tier": "greater",
-      "text": "At the end of each turn, give your left-most minion +3/+3. After you cast a spell, improve this."
+      "text": "At the end of each turn, give your left-most minion +3/+3. After you cast a spell, improve this.",
+      "trinket_effect": {
+        "type": "end_of_turn_buff_leftmost",
+        "atk": 3,
+        "hp": 3
+      }
     },
     {
+      "card_id": "chillmere_mosaic_g",
       "name": "Chillmere Mosaic",
       "cost": 5,
       "tier": "greater",
-      "text": "Spellcraft: Refresh the Tavern with Battlecry. minions. They cost (1)."
+      "text": "Spellcraft: Refresh the Tavern with Battlecry. minions. They cost (1).",
+      "trinket_effect": {
+        "type": "spellcraft"
+      }
     },
     {
+      "card_id": "chromatic_tear_g",
+      "name": "Chromatic Tear",
+      "cost": 1,
+      "tier": "greater",
+      "text": "Get 2 random Chromadrakes. After you play 7 Battlecry minions, repeat this. (7 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "cloud_serpent_horn_g",
+      "name": "Cloud Serpent Horn",
+      "cost": 0,
+      "tier": "greater",
+      "text": "Avenge (3): Give the Attack of your right-most minion to another friendly Dragon.",
+      "trinket_effect": {
+        "type": "avenge",
+        "count": 3
+      }
+    },
+    {
+      "card_id": "colorful_compass_g",
+      "name": "Colorful Compass",
+      "cost": 2,
+      "tier": "greater",
+      "text": "Get 2 random 92. At the start of each turn, get 2 more.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
+    },
+    {
+      "card_id": "comfy_coffin_g",
       "name": "Comfy Coffin",
       "cost": 4,
       "tier": "greater",
-      "text": "Whenever you cast a Tavern spell, your Undead have +2 Attack this game (wherever they are)."
+      "text": "Whenever you cast a Tavern spell, your Undead have +2 Attack this game (wherever they are).",
+      "trinket_effect": {
+        "type": "combat_trigger"
+      }
     },
     {
-      "name": "Common Thread",
-      "cost": 4,
+      "card_id": "cookies_stirring_rod_g",
+      "name": "Cookie's Stirring Rod",
+      "cost": 2,
       "tier": "greater",
-      "text": "Pass a copy of the first card you buy each turn."
+      "text": "After you play 5 Murlocs, get two random Tavern spells. (5 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "copper_coil_g",
+      "name": "Copper Coil",
+      "cost": 3,
+      "tier": "greater",
+      "text": "Whenever you Magnetize. a minion, give it +3/+2 and improve this.",
+      "trinket_effect": {
+        "type": "combat_trigger"
+      }
+    },
+    {
+      "card_id": "coral_spear_g",
       "name": "Coral Spear",
       "cost": 4,
       "tier": "greater",
-      "text": "Whenever you cast a Spellcraft spell, cast Might of Stormwind."
+      "text": "Whenever you cast a Spellcraft spell, cast Might of Stormwind.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "corrupted_tome_g",
+      "name": "Corrupted Tome",
+      "cost": 2,
+      "tier": "greater",
+      "text": "Get a Triple Prize. Whenever you would get a Triple Reward, get a Triple Prize instead.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "dalaran_cheese_wheel_g",
+      "name": "Dalaran Cheese Wheel",
+      "cost": 1,
+      "tier": "greater",
+      "text": "Minions in the Tavern have +2/+2. Improves every 4 times you Refresh. (4 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "darnassus_pie_g",
+      "name": "Darnassus Pie",
+      "cost": 0,
+      "tier": "greater",
+      "text": "Minions in the Tavern have +1/+1 for each minion you've sold this turn.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "darnassus_pie_g_2",
       "name": "Darnassus Pie",
       "cost": 8,
       "tier": "greater",
-      "text": "Minions in the Tavern have +2/+2 for each minion you've sold this turn."
+      "text": "Minions in the Tavern have +2/+2 for each minion you've sold this turn.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "dazzling_dagger_g",
+      "name": "Dazzling Dagger",
+      "cost": 2,
+      "tier": "greater",
+      "text": "Your minions have +1 Attack. (Improved by every 4 spells you've cast this game!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "deathtouch_apple_g",
       "name": "Deathtouch Apple",
       "cost": 4,
       "tier": "greater",
-      "text": "After a friendly Undead is Reborn, give it Reborn. (3 times per turn.)"
+      "text": "After a friendly Undead is Reborn, give it Reborn. (3 times per turn.)",
+      "trinket_effect": {
+        "type": "combat_trigger"
+      }
     },
     {
+      "card_id": "designer_eyepatch_g",
       "name": "Designer Eyepatch",
       "cost": 7,
       "tier": "greater",
-      "text": "You only need 2 copies of a Pirate to make it Golden."
+      "text": "You only need 2 copies of a Pirate to make it Golden.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "divine_signet_g",
+      "name": "Divine Signet",
+      "cost": 3,
+      "tier": "greater",
+      "text": "After a friendly minion loses Divine Shield, get a random Tavern spell. (4 times per combat.)",
+      "trinket_effect": {
+        "type": "combat_trigger"
+      }
+    },
+    {
+      "card_id": "double_stitch_needle_g",
+      "name": "Double Stitch Needle",
+      "cost": 1,
+      "tier": "greater",
+      "text": "Spellcraft: Choose a friendly minion. Double its stats and lock it in your hand for 1 turn.",
+      "trinket_effect": {
+        "type": "spellcraft"
+      }
+    },
+    {
+      "card_id": "dragons_eye_g",
       "name": "Dragon's Eye",
       "cost": 4,
       "tier": "greater",
-      "text": "Your Dragons' Battlecries trigger an extra time."
+      "text": "Your Dragons' Battlecries trigger an extra time.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "dragonwing_glider_g",
+      "name": "Dragonwing Glider",
+      "cost": 0,
+      "tier": "greater",
+      "text": "Whenever you play a card, give a friendly Dragon +6/+4.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "electrode_attractor_g",
       "name": "Electrode Attractor",
       "cost": 5,
       "tier": "greater",
-      "text": "Magnetic Mechs cost (2). The Tavern offers an extra one whenever it is Refreshed."
+      "text": "Magnetic Mechs cost (2). The Tavern offers an extra one whenever it is Refreshed.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "electromagnetic_device_g",
       "name": "Electromagnetic Device",
       "cost": 5,
       "tier": "greater",
-      "text": "Discover 2 Magnetic. Mechs. Whenever a friendly minion is Magnetized, give it +4/+4."
+      "text": "Discover 2 Magnetic. Mechs. Whenever a friendly minion is Magnetized, give it +4/+4.",
+      "trinket_effect": {
+        "type": "discover"
+      }
     },
     {
+      "card_id": "elementium_chest_g",
+      "name": "Elementium Chest",
+      "cost": 1,
+      "tier": "greater",
+      "text": "Each combat, after 2 friendly Pirates attack, gain 1 Gold next turn. (2 left!)",
+      "trinket_effect": {
+        "type": "combat_trigger"
+      }
+    },
+    {
+      "card_id": "emerald_dreamcatcher_g",
       "name": "Emerald Dreamcatcher",
       "cost": 7,
       "tier": "greater",
-      "text": "Start of Combat: Set your Dragons' Attack to the highest in your warband."
+      "text": "Start of Combat: Set your Dragons' Attack to the highest in your warband.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "empowered_mirror_g",
+      "name": "Empowered Mirror",
+      "cost": 3,
+      "tier": "greater",
+      "text": "Become a copy of your teammate's Greater Trinket.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "essence_of_dreams_g",
+      "name": "Essence of Dreams",
+      "cost": 3,
+      "tier": "greater",
+      "text": "Get 2 copies of Dreamer's Embrace. At the start of each turn, get 1 more.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
+    },
+    {
+      "card_id": "exquisite_dishware_g",
+      "name": "Exquisite Dishware",
+      "cost": 3,
+      "tier": "greater",
+      "text": "At the end of each turn, get a random minion of each different type you control.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
+    },
+    {
+      "card_id": "extravagant_scale_g",
+      "name": "Extravagant Scale",
+      "cost": 2,
+      "tier": "greater",
+      "text": "When you spend 20 Gold, double your minions' Attack. (Twice per game.)",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "faerie_dragon_scale_g",
+      "name": "Faerie Dragon Scale",
+      "cost": 3,
+      "tier": "greater",
+      "text": "Whenever a friendly Dragon attacks, give it Divine Shield. (3 times per combat.)",
+      "trinket_effect": {
+        "type": "combat_trigger"
+      }
+    },
+    {
+      "card_id": "fancy_spellbook_g",
+      "name": "Fancy Spellbook",
+      "cost": 3,
+      "tier": "greater",
+      "text": "After you spend 7 Gold, cast Shiny Ring. (7 Gold left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "fang_anklet_g",
+      "name": "Fang Anklet",
+      "cost": 3,
+      "tier": "greater",
+      "text": "Start of Combat: Your Beasts have +1/+1 this combat. After you summon a Beast, improve this permanently.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "felburned_ledger_g",
       "name": "Felburned Ledger",
       "cost": 4,
       "tier": "greater",
-      "text": "After your hero takes damage, your Tavern spells give an extra +1/+1 this turn."
+      "text": "After your hero takes damage, your Tavern spells give an extra +1/+1 this turn.",
+      "trinket_effect": {
+        "type": "combat_trigger"
+      }
     },
     {
+      "card_id": "felsteel_cleaver_g",
+      "name": "Felsteel Cleaver",
+      "cost": 0,
+      "tier": "greater",
+      "text": "After you cast a spell on a Tavern minion, a random friendly minion consumes it to gain its stats.",
+      "trinket_effect": {
+        "type": "combat_trigger"
+      }
+    },
+    {
+      "card_id": "feral_talisman_g",
+      "name": "Feral Talisman",
+      "cost": 1,
+      "tier": "greater",
+      "text": "Your minions have +8/+5.",
+      "trinket_effect": {
+        "type": "stat_buff_all",
+        "atk": 8,
+        "hp": 5
+      }
+    },
+    {
+      "card_id": "fountain_pen_g",
+      "name": "Fountain Pen",
+      "cost": 1,
+      "tier": "greater",
+      "text": "Your Elementals that give stats grant an extra +4/+2.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "fridge_magnet_g",
       "name": "Fridge Magnet",
       "cost": 4,
       "tier": "greater",
-      "text": "Avenge (3): Get a random Magnetic minion."
+      "text": "Avenge (3): Get a random Magnetic minion.",
+      "trinket_effect": {
+        "type": "avenge",
+        "count": 3
+      }
     },
     {
+      "card_id": "funeral_wreath_g",
+      "name": "Funeral Wreath",
+      "cost": 3,
+      "tier": "greater",
+      "text": "After a friendly minion is Reborn, get a plain copy of it. (3 times per combat.)",
+      "trinket_effect": {
+        "type": "combat_trigger"
+      }
+    },
+    {
+      "card_id": "gilded_anchor_g",
+      "name": "Gilded Anchor",
+      "cost": 2,
+      "tier": "greater",
+      "text": "At the end of each turn, give your Golden minions +10/+10.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
+    },
+    {
+      "card_id": "gilnean_thorned_rose_g",
+      "name": "Gilnean Thorned Rose",
+      "cost": 1,
+      "tier": "greater",
+      "text": "Avenge (3): Give your minions +4/+5 permanently and deal 1 damage to them.",
+      "trinket_effect": {
+        "type": "avenge",
+        "count": 3
+      }
+    },
+    {
+      "card_id": "glass_of_perspective_g",
+      "name": "Glass of Perspective",
+      "cost": 3,
+      "tier": "greater",
+      "text": "Get 2 random Choose One cards. At the start of each turn, get 2 more.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
+    },
+    {
+      "card_id": "gold_mallet_g",
+      "name": "Gold Mallet",
+      "cost": 2,
+      "tier": "greater",
+      "text": "At the end of your turn, give your minions +4/+2. (Improved by Golden minions you've played this game!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "gold-plated_compass_g",
+      "name": "Gold-plated Compass",
+      "cost": 0,
+      "tier": "greater",
+      "text": "Make the next 92 you buy Golden. Gain 5 free Refreshes.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "greater_trinket_g",
+      "name": "Greater Trinket",
+      "cost": 0,
+      "tier": "greater",
+      "text": "The Greater Trinket Shop opens in 8 turns!8The second Trinket Shop opens next turn!",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "guiding_candle_g",
+      "name": "Guiding Candle",
+      "cost": 1,
+      "tier": "greater",
+      "text": "Your first two Refreshes. each turn contain only Tier 6 cards. (2 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "heart_of_the_forest_g",
       "name": "Heart of the Forest",
       "cost": 4,
       "tier": "greater",
-      "text": "Your Tavern spells give an extra +1/+1. After you cast 5 Tavern spells, improve this. (5 left!)"
+      "text": "Your Tavern spells give an extra +1/+1. After you cast 6 Tavern spells from hand, improve this. (6 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Heart of the Forest",
-      "cost": 4,
-      "tier": "greater",
-      "text": "Your Tavern spells give an extra +1/+1. After you cast 6 Tavern spells from hand, improve this. (6 left!)"
-    },
-    {
+      "card_id": "hogwash_basin_g",
       "name": "Hogwash Basin",
       "cost": 6,
       "tier": "greater",
-      "text": "Start of Combat: This plays 3 Blood Gems on all your minions."
+      "text": "Start of Combat: This plays 3 Blood Gems on all your minions.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "honeycomb_ring_g",
+      "name": "Honeycomb Ring",
+      "cost": 1,
+      "tier": "greater",
+      "text": "Your Tavern spells give an extra +1/+1. After you cast a spell on a minion, improve for this turn only.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "horde_keychain_g",
+      "name": "Horde Keychain",
+      "cost": 2,
+      "tier": "greater",
+      "text": "Your minions from Tier 3 or lower have +7/+5.",
+      "trinket_effect": {
+        "type": "stat_buff_low_tier",
+        "max_tier": 3,
+        "atk": 7,
+        "hp": 5
+      }
+    },
+    {
+      "card_id": "inductive_gyroblade_g",
+      "name": "Inductive Gyroblade",
+      "cost": 2,
+      "tier": "greater",
+      "text": "At the end of your turn, get a 8/8 Magnetic Satellite. (Improved by each Tavern spell you've cast this turn!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "innkeepers_hearth_g",
+      "name": "Innkeeper's Hearth",
+      "cost": 0,
+      "tier": "greater",
+      "text": "Discover two Tier 6 minions. Set their stats to 30/30.",
+      "trinket_effect": {
+        "type": "discover"
+      }
+    },
+    {
+      "card_id": "insurrectionists_blade_g",
+      "name": "Insurrectionist's Blade",
+      "cost": 3,
+      "tier": "greater",
+      "text": "At the end of your turn, trigger all friendly Rallies.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "ironforge_anvil_g",
       "name": "Ironforge Anvil",
       "cost": 4,
       "tier": "greater",
-      "text": "Start of Combat: Triple the stats of your minions with no type."
+      "text": "Start of Combat: Triple the stats of your minions with no type.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "jar_o_gems_g",
+      "name": "Jar o' Gems",
+      "cost": 0,
+      "tier": "greater",
+      "text": "After 2 friendly minions attack each combat, this plays a Blood Gem on all your Quilboar. (2 left!)",
+      "trinket_effect": {
+        "type": "combat_trigger"
+      }
+    },
+    {
+      "card_id": "jarred_frostling_g",
+      "name": "Jarred Frostling",
+      "cost": 3,
+      "tier": "greater",
+      "text": "Start of Combat: Give 2 friendly Elementals \"Deathrattle: Summon a Flourishing Frostling\".",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "kaleidoscope_g",
+      "name": "Kaleidoscope",
+      "cost": 0,
+      "tier": "greater",
+      "text": "Discover a Golden Tier 7 minion. Lock it in your hand for 2 .",
+      "trinket_effect": {
+        "type": "discover"
+      }
+    },
+    {
+      "card_id": "karazhan_chess_set_g",
       "name": "Karazhan Chess Set",
       "cost": 5,
       "tier": "greater",
-      "text": "Start of Combat: Summon a copy of your left-most minion."
+      "text": "Start of Combat: Summon a copy of your left-most minion.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "kodo_leather_pouch_g",
       "name": "Kodo Leather Pouch",
       "cost": 4,
       "tier": "greater",
-      "text": "After you buy a card, give two random friendly minions +4/+4."
+      "text": "After you buy a card, give two random friendly minions +4/+4.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "lava_lamp_g",
+      "name": "Lava Lamp",
+      "cost": 2,
+      "tier": "greater",
+      "text": "After you sell 6 minions, get a random Elemental. (6 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "lavish_cape_g",
+      "name": "Lavish Cape",
+      "cost": 0,
+      "tier": "greater",
+      "text": "Cast a random Tavern spell for each different friendly minion type. At the start of each turn, repeat this.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
+    },
+    {
+      "card_id": "lorewalker_scroll_g",
+      "name": "Lorewalker Scroll",
+      "cost": 2,
+      "tier": "greater",
+      "text": "Whenever you cast a spell on a minion, give it +10/+10.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "magic_road_sign_g",
+      "name": "Magic Road Sign",
+      "cost": 3,
+      "tier": "greater",
+      "text": "After you sell your first minion each turn, Pass it.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "maldraxxus_dagger_g",
       "name": "Maldraxxus Dagger",
       "cost": 7,
       "tier": "greater",
-      "text": "Discover a plain copy of a minion in your warband with a Dark Gift. At the start of each turn, repeat this."
+      "text": "Discover a plain copy of a minion in your warband with a Dark Gift. At the start of each turn, repeat this.",
+      "trinket_effect": {
+        "type": "discover"
+      }
     },
     {
+      "card_id": "marvelous_mushroom_g",
+      "name": "Marvelous Mushroom",
+      "cost": 2,
+      "tier": "greater",
+      "text": "Your Tavern spells give an extra +1/+1. At the start of each turn, improve this.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
+    },
+    {
+      "card_id": "mechagon_adapter_g",
       "name": "Mechagon Adapter",
       "cost": 4,
       "tier": "greater",
-      "text": "After a friendly Mech loses Divine Shield, give it Divine Shield. (3 times per combat.)"
+      "text": "After a friendly Mech loses Divine Shield, give it Divine Shield. (3 times per combat.)",
+      "trinket_effect": {
+        "type": "combat_trigger"
+      }
     },
     {
+      "card_id": "miniature_ship_g",
+      "name": "Miniature Ship",
+      "cost": 3,
+      "tier": "greater",
+      "text": "After you cast a Tavern spell, give your Pirates +2/+2.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "moveout_box_g",
       "name": "Moveout Box",
       "cost": 10,
       "tier": "greater",
-      "text": "Skip this turn. At the end of it, replace your warband with a copy of your teammate's."
+      "text": "Skip this turn. At the end of it, replace your warband with a copy of your teammate's.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Mystery Cube",
-      "cost": 5,
+      "card_id": "mug_of_the_sire_g",
+      "name": "Mug of the Sire",
+      "cost": 2,
       "tier": "greater",
-      "text": "Choose from 2 new Lesser Trinkets to replace this for free. At the start of each turn, repeat this."
+      "text": "Whenever you would summon a minion that doesn't fit in your warband, give your minions +5 Attack.",
+      "trinket_effect": {
+        "type": "combat_trigger"
+      }
     },
     {
+      "card_id": "multilayered_shield_g",
+      "name": "Multilayered Shield",
+      "cost": 2,
+      "tier": "greater",
+      "text": "Your Tavern spells give an extra +1/+2. (Improved by each different friendly minion type!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "nazjatar_postcard_g",
       "name": "Nazjatar Postcard",
       "cost": 7,
       "tier": "greater",
-      "text": "After you play a Naga, get a random Spellcraft spell."
+      "text": "After you play a Naga, get a random Spellcraft spell.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "nerglish_phrasebook_g",
+      "name": "Nerglish Phrasebook",
+      "cost": 1,
+      "tier": "greater",
+      "text": "After you play a minion, give the left-most minion in your hand +6/+6.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "nether_pendant_g",
       "name": "Nether Pendant",
       "cost": 5,
       "tier": "greater",
-      "text": "Minions in the Tavern have +2/+2. Improves every 3 times your hero takes damage outside combat. (3 left!)"
+      "text": "Minions in the Tavern have +2/+2. Improves every 3 times your hero takes damage outside combat. (3 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Ophidian Staff",
-      "cost": 5,
+      "card_id": "orb_of_the_unknown_g",
+      "name": "Orb of the Unknown",
+      "cost": 0,
       "tier": "greater",
-      "text": "Spellcraft: Give a Beast +2/+2 and Reborn."
+      "text": "Get a random Greater Trinket and 4 Gold.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "pagles_fishing_rod_g",
       "name": "Pagle's Fishing Rod",
       "cost": 4,
       "tier": "greater",
-      "text": "Get a random Tier 7 minion. At the start of each turn, get another."
+      "text": "Get a random Tier 7 minion. At the start of each turn, get another.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
     },
     {
-      "name": "Portable Factory",
-      "cost": 6,
+      "card_id": "peacebloom_candle_g",
+      "name": "Peacebloom Candle",
+      "cost": 2,
       "tier": "greater",
-      "text": "Discover a Tier 4 minion with a type. At the start of each turn, get another copy of it."
+      "text": "The first 3 Tavern spells you buy each turn are free. (3 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "pocket_cyclone_g",
+      "name": "Pocket Cyclone",
+      "cost": 1,
+      "tier": "greater",
+      "text": "Cast Easterly Winds four times. At the start of each turn, cast it twice more.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
+    },
+    {
+      "card_id": "portable_factory_g",
+      "name": "Portable Factory",
+      "cost": 0,
+      "tier": "greater",
+      "text": "Discover a Tier 5 minion with a type. At the start of each turn, get another copy of it.",
+      "trinket_effect": {
+        "type": "discover"
+      }
+    },
+    {
+      "card_id": "powder_keg_g",
       "name": "Powder Keg",
       "cost": 4,
       "tier": "greater",
-      "text": "Start of Combat: Give 3 friendly Pirates \"Deathrattle: Summon a 1/1 Sky Pirate and give it this minion's Attack. It attacks immediately.\"."
+      "text": "Start of Combat: Give 3 friendly Pirates \"Deathrattle: Summon a 1/1 Sky Pirate and give it this minion's Attack. It attacks immediately.\".",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Reflective Pendant",
-      "cost": 6,
+      "card_id": "precious_pearl_g",
+      "name": "Precious Pearl",
+      "cost": 0,
       "tier": "greater",
-      "text": "Get a plain copy of a random friendly minion. At the start of each turn, repeat this."
+      "text": "Spellcraft: Give a minion +30/+30 until next turn.",
+      "trinket_effect": {
+        "type": "spellcraft"
+      }
     },
     {
+      "card_id": "protective_ring_g",
+      "name": "Protective Ring",
+      "cost": 3,
+      "tier": "greater",
+      "text": "Start of Combat: Give 4 random friendly Pirates Divine Shield.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "quilligraphy_set_g",
+      "name": "Quilligraphy Set",
+      "cost": 2,
+      "tier": "greater",
+      "text": "Avenge (4): Your Blood Gems give an extra +1/+1 this game.",
+      "trinket_effect": {
+        "type": "avenge",
+        "count": 4
+      }
+    },
+    {
+      "card_id": "reinforced_shield_g",
+      "name": "Reinforced Shield",
+      "cost": 3,
+      "tier": "greater",
+      "text": "Whenever you summon a minion, give it Divine Shield. (5 times per combat.)",
+      "trinket_effect": {
+        "type": "combat_trigger"
+      }
+    },
+    {
+      "card_id": "safety_patch_g",
+      "name": "Safety Patch",
+      "cost": 0,
+      "tier": "greater",
+      "text": "Cast Ice Block. Gain 5 Gold.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "secret_schematic_g",
+      "name": "Secret Schematic",
+      "cost": 0,
+      "tier": "greater",
+      "text": "After you buy a Mech, get a random Tavern spell.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "shark_cannon_g",
+      "name": "Shark Cannon",
+      "cost": 0,
+      "tier": "greater",
+      "text": "After you spend 10 Gold, give your Pirates +1/+1 and improve this. (10 Gold left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "soul_fermenter_g",
       "name": "Soul Fermenter",
       "cost": 5,
       "tier": "greater",
-      "text": "Start of Combat: Destroy your 3 left-most minions. After your last minion dies, resummon them."
+      "text": "Start of Combat: Destroy your 3 left-most minions. After your last minion dies, resummon them.",
+      "trinket_effect": {
+        "type": "combat_trigger"
+      }
     },
     {
+      "card_id": "sphere_of_memory_g",
+      "name": "Sphere of Memory",
+      "cost": 2,
+      "tier": "greater",
+      "text": "At the end of your turn, get 3 copies of the last Tavern spell you cast.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "spitescale_sushi_roll_g",
       "name": "Spitescale Sushi Roll",
       "cost": 5,
       "tier": "greater",
-      "text": "Get a Spitescale Special. Your first two Spellcraft. spells each turn cast an extra time. (2 left!)"
+      "text": "Get a Spitescale Special. Your first two Spellcraft. spells each turn cast an extra time. (2 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Staff of the Scourge",
-      "cost": 5,
-      "tier": "greater",
-      "text": "Avenge (5): Give a random friendly Undead Reborn."
-    },
-    {
+      "card_id": "statue_of_hireek_g",
       "name": "Statue of Hir'eek",
       "cost": 4,
       "tier": "greater",
-      "text": "After 2 minions in the Tavern are consumed, get a random Tavern spell. (2 left!)"
+      "text": "After 2 minions in the Tavern are consumed, get a random Tavern spell. (2 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Summoning Sphere",
-      "cost": 4,
-      "tier": "greater",
-      "text": "Start of Combat: Summon a copy of your teammate's highest-Health minion."
-    },
-    {
-      "name": "Sunken Anchor",
-      "cost": 6,
-      "tier": "greater",
-      "text": "Get 2 random Bounties. At the start of each turn, repeat this."
-    },
-    {
+      "card_id": "the_eye_of_sargeras_g",
       "name": "The Eye of Sargeras",
       "cost": 5,
       "tier": "greater",
-      "text": "Every fourth card you buy costs Health instead of Gold. (3 left!)"
+      "text": "Every fourth card you buy costs Health instead of Gold. (3 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "thornspike_pauldron_g",
+      "name": "Thornspike Pauldron",
+      "cost": 1,
+      "tier": "greater",
+      "text": "After you trigger a Deathrattle, your Blood Gems give an extra +2/+1 until next combat.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "tiger_carving_g",
+      "name": "Tiger Carving",
+      "cost": 2,
+      "tier": "greater",
+      "text": "Whenever a friendly minion takes damage, give another friendly minion +6/+2 permanently.",
+      "trinket_effect": {
+        "type": "combat_trigger"
+      }
+    },
+    {
+      "card_id": "timeworn_candelabra_g",
+      "name": "Timeworn Candelabra",
+      "cost": 0,
+      "tier": "greater",
+      "text": "Discover a 2-Cost minion from the Major Timewarp.",
+      "trinket_effect": {
+        "type": "discover"
+      }
+    },
+    {
+      "card_id": "tinyfin_onesie_g",
+      "name": "Tinyfin Onesie",
+      "cost": 0,
+      "tier": "greater",
+      "text": "Start of Combat: Your left-most minion gains the stats of the highest-Health minion in your hand.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "toxic_stinger_g",
+      "name": "Toxic Stinger",
+      "cost": 0,
+      "tier": "greater",
+      "text": "At the end of each turn, give a random friendly Murloc +8/+8 and Venomous.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
+    },
+    {
+      "card_id": "transcribing_typewriter_g",
       "name": "Transcribing Typewriter",
       "cost": 4,
       "tier": "greater",
-      "text": "Get an extra copy of the next 4 minions you buy. (4 left!)"
+      "text": "Get an extra copy of the next 4 minions you buy. (4 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "trusty_crowbar_g",
+      "name": "Trusty Crowbar",
+      "cost": 0,
+      "tier": "greater",
+      "text": "Whenever you get a Pirate, give your left-most minion +12/+12.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "turbocharged_drill_g",
+      "name": "Turbocharged Drill",
+      "cost": 0,
+      "tier": "greater",
+      "text": "Get 5 different Magnetic Mechs of ANY Tier.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "twin_sky_lanterns_g",
+      "name": "Twin Sky Lanterns",
+      "cost": 1,
+      "tier": "greater",
+      "text": "When you have space, summon a copy of the first minion you summon each combat.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "twin_sky_lanterns_g_2",
       "name": "Twin Sky Lanterns",
       "cost": 6,
       "tier": "greater",
-      "text": "When you have space, summon 2 copies of the first minion you summon each combat."
+      "text": "When you have space, summon 2 copies of the first minion you summon each combat.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "unholy_sanctum_g",
+      "name": "Unholy Sanctum",
+      "cost": 0,
+      "tier": "greater",
+      "text": "After you trigger a Deathrattle, give your right-most minion +6/+4 permanently.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "upstart_embers_g",
       "name": "Upstart Embers",
       "cost": 6,
       "tier": "greater",
-      "text": "After you Refresh, double the stats of the highest-Health minion in the Tavern."
+      "text": "After you Refresh, double the stats of the highest-Health minion in the Tavern.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "valdrakken_wind_chimes_g",
       "name": "Valdrakken Wind Chimes",
       "cost": 7,
       "tier": "greater",
-      "text": "Your Start of Combat effects trigger an extra time."
+      "text": "Your Start of Combat effects trigger an extra time.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "valorous_medallion_g",
+      "name": "Valorous Medallion",
+      "cost": 3,
+      "tier": "greater",
+      "text": "Start of Combat: Give your minions +6/+6.",
+      "trinket_effect": {
+        "type": "start_of_combat_buff_all",
+        "atk": 6,
+        "hp": 6
+      }
+    },
+    {
+      "card_id": "warband_whistle_g",
+      "name": "Warband Whistle",
+      "cost": 2,
+      "tier": "greater",
+      "text": "Gain a free Refresh that contains plain copies of minions in your warband.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "wax_lance_g",
+      "name": "Wax Lance",
+      "cost": 3,
+      "tier": "greater",
+      "text": "Discover a Tier 7 minion with a Dark Gift.",
+      "trinket_effect": {
+        "type": "discover"
+      }
+    },
+    {
+      "card_id": "wicked_tome_g",
       "name": "Wicked Tome",
       "cost": 5,
       "tier": "greater",
-      "text": "Avenge (4): Your Tavern spells give an extra +1/+1 this game."
+      "text": "Avenge (4): Your Tavern spells give an extra +1/+1 this game.",
+      "trinket_effect": {
+        "type": "avenge",
+        "count": 4
+      }
     },
     {
+      "card_id": "wildfeather_duster_g",
+      "name": "Wildfeather Duster",
+      "cost": 1,
+      "tier": "greater",
+      "text": "After you summon 6 Beasts, get a random Beast. (6 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "wisdomball_supply_g",
+      "name": "Wisdomball Supply",
+      "cost": 2,
+      "tier": "greater",
+      "text": "Get a Knockoff Wisdomball. At the start of each turn, repeat this.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
+    },
+    {
+      "card_id": "wizards_pipe_g",
       "name": "Wizard's Pipe",
       "cost": 5,
       "tier": "greater",
-      "text": "Whenever you cast a Tavern spell, give your minions with no type +4/+4."
+      "text": "Whenever you cast a Tavern spell, give your minions with no type +4/+4.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "wolfhead_flail_g",
       "name": "Wolfhead Flail",
       "cost": 5,
       "tier": "greater",
-      "text": "At the end of your turn, trigger your two left-most Deathrattles."
+      "text": "At the end of your turn, trigger your two left-most Deathrattles.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Yogg-Tastic Pastry",
-      "cost": 5,
-      "tier": "greater",
-      "text": "Spin the Wheel of Yogg-Saron. At the start of each turn, spin it again."
-    },
-    {
-      "name": "All-Purpose Kibble",
-      "cost": 0,
-      "tier": "lesser",
-      "text": "Whenever a friendly Beast attacks, give it +2 Attack and permanently improve this."
-    },
-    {
+      "card_id": "alliance_keychain_l",
       "name": "Alliance Keychain",
       "cost": 0,
       "tier": "lesser",
-      "text": "The first time a friendly minion dies each combat, give its maximum stats to a random friendly minion."
+      "text": "The first time a friendly minion dies each combat, give its maximum stats to a random friendly minion.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "ancient_wishbone_l",
       "name": "Ancient Wishbone",
       "cost": 2,
       "tier": "lesser",
-      "text": "Your Hero Power triggers twice."
+      "text": "Your Hero Power triggers twice.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "archaic_scroll_l",
       "name": "Archaic Scroll",
       "cost": 3,
       "tier": "lesser",
-      "text": "After you cast 7 spells, get a random Naga. (7 left!)"
+      "text": "After you cast 7 spells, get a random Naga. (7 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "artisanal_urn_l",
       "name": "Artisanal Urn",
       "cost": 1,
       "tier": "lesser",
-      "text": "Your Undead have +3 Attack."
+      "text": "Your Undead have +3 Attack.",
+      "trinket_effect": {
+        "type": "stat_buff_tribe",
+        "tribe": "UNDEAD",
+        "atk": 3,
+        "hp": 0
+      }
     },
     {
-      "name": "Artisanal Urn",
-      "cost": 0,
+      "card_id": "auric_offering_l",
+      "name": "Auric Offering",
+      "cost": 4,
       "tier": "lesser",
-      "text": "Your Undead have +15 Attack."
+      "text": "At the end of each turn, give your left-most minion +4/+3. Repeat for each friendly Golden minion.",
+      "trinket_effect": {
+        "type": "end_of_turn_buff_leftmost",
+        "atk": 4,
+        "hp": 3
+      }
     },
     {
+      "card_id": "azeroth_model_globe_l",
       "name": "Azeroth Model Globe",
       "cost": 0,
       "tier": "lesser",
-      "text": "At the start of every two turns, gain 2 Gold and Discover a Tier 6 minion. (2 turns left!)"
+      "text": "At the start of every two turns, gain 2 Gold and Discover a Tier 6 minion. (2 turns left!)",
+      "trinket_effect": {
+        "type": "discover"
+      }
     },
     {
+      "card_id": "azsharan_statuette_l",
       "name": "Azsharan Statuette",
       "cost": 2,
       "tier": "lesser",
-      "text": "Get 3 random Spellcraft. spells. At the start of each turn, get 3 more."
+      "text": "Get 3 random Spellcraft. spells. At the start of each turn, get 3 more.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
     },
     {
+      "card_id": "baleful_incense_l",
+      "name": "Baleful Incense",
+      "cost": 4,
+      "tier": "lesser",
+      "text": "Start of Combat: Give your left and right-most Undead Reborn.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "bartend-o-trons_oilcan_l",
       "name": "Bartend-o-Tron's Oilcan",
       "cost": 2,
       "tier": "lesser",
-      "text": "Reduce the Cost of upgrading the Tavern by (3). At the start of each turn, repeat this."
+      "text": "Reduce the Cost of upgrading the Tavern by (3). At the start of each turn, repeat this.",
+      "trinket_effect": {
+        "type": "level_cost_reduction_per_round",
+        "amount": 3
+      }
     },
     {
-      "name": "Battle Horn",
-      "cost": 0,
-      "tier": "lesser",
-      "text": "Discover a Battlecry. minion. Avenge (2): Trigger a friendly Battlecry."
-    },
-    {
+      "card_id": "beetle_band_l",
       "name": "Beetle Band",
       "cost": 0,
       "tier": "lesser",
-      "text": "Avenge (5): Summon a 2/2 Beetle. Give it Taunt."
+      "text": "Avenge (5): Summon a 2/2 Beetle. Give it Taunt.",
+      "trinket_effect": {
+        "type": "avenge",
+        "count": 5
+      }
     },
     {
+      "card_id": "bird_feeder_l",
       "name": "Bird Feeder",
       "cost": 3,
       "tier": "lesser",
-      "text": "Avenge (2): Give your minions +1/+1."
+      "text": "Avenge (2): Give your minions +1/+1.",
+      "trinket_effect": {
+        "type": "avenge",
+        "count": 2
+      }
     },
     {
-      "name": "Bird Feeder",
-      "cost": 2,
-      "tier": "lesser",
-      "text": "Avenge (2): Give your minions +4/+4."
-    },
-    {
+      "card_id": "bleeding_heart_l",
       "name": "Bleeding Heart",
       "cost": 3,
       "tier": "lesser",
-      "text": "After 8 friendly minions die, get a random Undead. (8 left!)"
+      "text": "After 8 friendly minions die, get a random Undead. (8 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "blingtrons_sunglasses_l",
       "name": "Blingtron's Sunglasses",
       "cost": 3,
       "tier": "lesser",
-      "text": "After you summon a Mech in combat, give a friendly Mech Divine Shield."
+      "text": "After you summon a Mech in combat, give a friendly Mech Divine Shield.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Blood Amulet",
-      "cost": 3,
-      "tier": "lesser",
-      "text": "After you trigger a Deathrattle, this plays a permanent Blood Gem on 3 random friendly minions."
-    },
-    {
+      "card_id": "bloodbound_earrings_l",
       "name": "Bloodbound Earrings",
       "cost": 0,
       "tier": "lesser",
-      "text": "After you cast 4 spells, this plays a Blood Gem on all your minions. (4 left!)"
+      "text": "After you cast 4 spells, this plays a Blood Gem on all your minions. (4 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Bloodbound Ring",
-      "cost": 0,
-      "tier": "lesser",
-      "text": "After you play a Blood Gem. from hand, this plays a Blood Gem on your minions with Divine Shield."
-    },
-    {
-      "name": "Bloodfury Shield",
-      "cost": 2,
-      "tier": "lesser",
-      "text": "Whenever you cast a Tavern spell, add a Fodder to your next Refresh."
-    },
-    {
+      "card_id": "bluegill_flippers_l",
       "name": "Bluegill Flippers",
       "cost": 2,
       "tier": "lesser",
-      "text": "Whenever you cast a Tavern spell, give the left-most minion in your hand and warband +3/+3."
+      "text": "Whenever you cast a Tavern spell, give the left-most minion in your hand and warband +3/+3.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Bob's Tip Jar",
-      "cost": 0,
-      "tier": "lesser",
-      "text": "Gain 4 Gold. Increase your maximum Gold by 4."
-    },
-    {
+      "card_id": "bob-blehead_l",
       "name": "Bob-blehead",
       "cost": 0,
       "tier": "lesser",
-      "text": "Gain 2 Gold. The Tavern no longer offers cards from Tier 1 or Tier 2."
+      "text": "Gain 2 Gold. The Tavern no longer offers cards from Tier 1 or Tier 2.",
+      "trinket_effect": {
+        "type": "gold_gain",
+        "amount": 2
+      }
     },
     {
+      "card_id": "book_of_medivh_l",
       "name": "Book of Medivh",
       "cost": 1,
       "tier": "lesser",
-      "text": "Discover a Tavern spell. At the start of each turn, Discover another."
+      "text": "Discover a Tavern spell. At the start of each turn, Discover another.",
+      "trinket_effect": {
+        "type": "discover"
+      }
     },
     {
-      "name": "Book of Medivh",
-      "cost": 2,
-      "tier": "lesser",
-      "text": "Discover 2 Tavern spells. At the start of each turn, Discover 2 more."
-    },
-    {
+      "card_id": "booty_bay_brew_l",
       "name": "Booty Bay Brew",
       "cost": 3,
       "tier": "lesser",
-      "text": "Whenever you spend Gold, give two friendly Pirates +3/+3."
+      "text": "Whenever you spend Gold, give two friendly Pirates +3/+3.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Booty Bay Brew",
-      "cost": 2,
-      "tier": "lesser",
-      "text": "Whenever you spend Gold, give two friendly Pirates +6/+6."
-    },
-    {
+      "card_id": "bubble_crown_l",
       "name": "Bubble Crown",
       "cost": 0,
       "tier": "lesser",
-      "text": "Once you cast 12 spells, your Tavern spells give an extra +4/+4. (12 left!)"
+      "text": "Once you cast 12 spells, your Tavern spells give an extra +4/+4. (12 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "burgling_claw_l",
       "name": "Burgling Claw",
       "cost": 1,
       "tier": "lesser",
-      "text": "At the start of each turn, get a plain copy of the highest-Tier minion in your last opponent's warband."
+      "text": "At the start of each turn, get a plain copy of the highest-Tier minion in your last opponent's warband.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
     },
     {
-      "name": "Butcher's Sickle",
-      "cost": 3,
-      "tier": "lesser",
-      "text": "Get a Butchering. At the start of each turn, get another."
-    },
-    {
+      "card_id": "ceremonial_sword_l",
       "name": "Ceremonial Sword",
       "cost": 2,
       "tier": "lesser",
-      "text": "Whenever a friendly minion attacks, give it +4 Attack."
+      "text": "Whenever a friendly minion attacks, give it +4 Attack.",
+      "trinket_effect": {
+        "type": "combat_trigger"
+      }
     },
     {
+      "card_id": "charging_staff_l",
       "name": "Charging Staff",
-      "cost": 1,
+      "cost": 4,
       "tier": "lesser",
-      "text": "At the end of each turn, give your minions with Divine Shield +7 Attack."
+      "text": "At the end of each turn, give your minions with Divine Shield +3 Attack.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
     },
     {
+      "card_id": "charm_of_generosity_l",
+      "name": "Charm of Generosity",
+      "cost": 5,
+      "tier": "lesser",
+      "text": "After your team Passes, give your minions +2 Attack.",
+      "trinket_effect": {
+        "type": "combat_trigger"
+      }
+    },
+    {
+      "card_id": "chromatic_tear_l",
       "name": "Chromatic Tear",
       "cost": 2,
       "tier": "lesser",
-      "text": "Get a random Chromadrake. At the start of each turn, repeat this."
+      "text": "Get a random Chromadrake. At the start of each turn, repeat this.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
     },
     {
-      "name": "Chromatic Tear",
-      "cost": 1,
-      "tier": "lesser",
-      "text": "Get 2 random Chromadrakes. After you play 7 Battlecry minions, repeat this. (7 left!)"
-    },
-    {
-      "name": "Cloud Serpent Horn",
-      "cost": 0,
-      "tier": "lesser",
-      "text": "Avenge (3): Give the Attack of your right-most minion to another friendly Dragon."
-    },
-    {
+      "card_id": "colorful_compass_l",
       "name": "Colorful Compass",
       "cost": 2,
       "tier": "lesser",
-      "text": "Get a random 92. At the start of each turn, get another."
+      "text": "Get a random 92. At the start of each turn, get another.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
     },
     {
-      "name": "Colorful Compass",
-      "cost": 2,
-      "tier": "lesser",
-      "text": "Get 2 random 92. At the start of each turn, get 2 more."
-    },
-    {
+      "card_id": "comfy_coffin_l",
       "name": "Comfy Coffin",
       "cost": 3,
       "tier": "lesser",
-      "text": "Whenever you cast a Tavern spell, your Undead have +1 Attack this game (wherever they are)."
+      "text": "Whenever you cast a Tavern spell, your Undead have +1 Attack this game (wherever they are).",
+      "trinket_effect": {
+        "type": "combat_trigger"
+      }
     },
     {
+      "card_id": "common_thread_l",
+      "name": "Common Thread",
+      "cost": 4,
+      "tier": "lesser",
+      "text": "Pass a copy of the first card you buy each turn.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "consuming_claw_l",
       "name": "Consuming Claw",
       "cost": 2,
       "tier": "lesser",
-      "text": "Whenever a friendly Demon consumes a minion, it also gains its Bonus Keywords and +5/+5."
+      "text": "Whenever a friendly Demon consumes a minion, it also gains its Bonus Keywords and +5/+5.",
+      "trinket_effect": {
+        "type": "combat_trigger"
+      }
     },
     {
-      "name": "Cookie's Stirring Rod",
-      "cost": 2,
-      "tier": "lesser",
-      "text": "After you play 5 Murlocs, get two random Tavern spells. (5 left!)"
-    },
-    {
+      "card_id": "copper_coil_l",
       "name": "Copper Coil",
       "cost": 3,
       "tier": "lesser",
-      "text": "Whenever you Magnetize. a minion, give it +1/+1 and improve this."
+      "text": "Whenever you Magnetize. a minion, give it +1/+1 and improve this.",
+      "trinket_effect": {
+        "type": "combat_trigger"
+      }
     },
     {
-      "name": "Copper Coil",
-      "cost": 3,
-      "tier": "lesser",
-      "text": "Whenever you Magnetize. a minion, give it +3/+2 and improve this."
-    },
-    {
-      "name": "Corrupted Tome",
-      "cost": 2,
-      "tier": "lesser",
-      "text": "Get a Triple Prize. Whenever you would get a Triple Reward, get a Triple Prize instead."
-    },
-    {
+      "card_id": "cowrie_necklace_l",
       "name": "Cowrie Necklace",
       "cost": 0,
       "tier": "lesser",
-      "text": "Tavern spells that give stats cost (2) less."
+      "text": "Tavern spells that give stats cost (2) less.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "crocheted_sungill_l",
       "name": "Crocheted Sungill",
       "cost": 0,
       "tier": "lesser",
-      "text": "Start of Combat: Give the highest-Health minion from your hand +4/+4. When you have space, summon it for this combat only."
+      "text": "Start of Combat: Give the highest-Health minion from your hand +4/+4. When you have space, summon it for this combat only.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "cursed_crystal_l",
       "name": "Cursed Crystal",
       "cost": 3,
       "tier": "lesser",
-      "text": "After the Tavern is Refreshed, give its minions +3/+3 this turn."
+      "text": "After the Tavern is Refreshed, give its minions +3/+3 this turn.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "dalaran_cheese_wheel_l",
       "name": "Dalaran Cheese Wheel",
       "cost": 0,
       "tier": "lesser",
-      "text": "Minions in the Tavern have +1/+1. Improves every 4 times you Refresh. (4 left!)"
+      "text": "Minions in the Tavern have +1/+1. Improves every 4 times you Refresh. (4 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Dalaran Cheese Wheel",
-      "cost": 1,
-      "tier": "lesser",
-      "text": "Minions in the Tavern have +2/+2. Improves every 4 times you Refresh. (4 left!)"
-    },
-    {
-      "name": "Darnassus Pie",
-      "cost": 0,
-      "tier": "lesser",
-      "text": "Minions in the Tavern have +1/+1 for each minion you've sold this turn."
-    },
-    {
-      "name": "Dazzling Dagger",
-      "cost": 2,
-      "tier": "lesser",
-      "text": "Your minions have +1 Attack. (Improved by every 4 spells you've cast this game!)"
-    },
-    {
+      "card_id": "deathly_phylactery_l",
       "name": "Deathly Phylactery",
       "cost": 0,
       "tier": "lesser",
-      "text": "Discover a Deathrattle. minion. Your first Deathrattle each combat triggers an extra time."
+      "text": "Discover a Deathrattle. minion. Your first Deathrattle each combat triggers an extra time.",
+      "trinket_effect": {
+        "type": "discover"
+      }
     },
     {
+      "card_id": "defensive_shell_l",
       "name": "Defensive Shell",
       "cost": 1,
       "tier": "lesser",
-      "text": "The first minion you play each turn gains Divine Shield."
+      "text": "The first minion you play each turn gains Divine Shield.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "demonblood_gourd_l",
       "name": "Demonblood Gourd",
       "cost": 0,
       "tier": "lesser",
-      "text": "Spellcraft: Choose a friendly minion. It consumes a random minion in the Tavern to gain its stats."
+      "text": "Spellcraft: Choose a friendly minion. It consumes a random minion in the Tavern to gain its stats.",
+      "trinket_effect": {
+        "type": "spellcraft"
+      }
     },
     {
+      "card_id": "demonic_bloodletter_l",
       "name": "Demonic Bloodletter",
       "cost": 2,
       "tier": "lesser",
-      "text": "Whenever you cast a Tavern spell, give minions in the Tavern +1/+1 this game."
+      "text": "Whenever you cast a Tavern spell, give minions in the Tavern +1/+1 this game.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "demonic_tapestry_l",
       "name": "Demonic Tapestry",
       "cost": 1,
       "tier": "lesser",
-      "text": "After you Refresh 4 times, the highest-Tier minion in the Tavern costs Health instead of Gold to buy. (4 left!)"
+      "text": "After you Refresh 4 times, the highest-Tier minion in the Tavern costs Health instead of Gold to buy. (4 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Divine Signet",
-      "cost": 3,
-      "tier": "lesser",
-      "text": "After a friendly minion loses Divine Shield, get a random Tavern spell. (4 times per combat.)"
-    },
-    {
-      "name": "Double Stitch Needle",
-      "cost": 1,
-      "tier": "lesser",
-      "text": "Spellcraft: Choose a friendly minion. Double its stats and lock it in your hand for 1 turn."
-    },
-    {
+      "card_id": "dragon_skull_l",
       "name": "Dragon Skull",
       "cost": 3,
       "tier": "lesser",
-      "text": "Whenever you trigger a Battlecry, give your left-and right-most minions +5/+5."
+      "text": "Whenever you trigger a Battlecry, give your left-and right-most minions +5/+5.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "dragonwing_glider_l",
       "name": "Dragonwing Glider",
       "cost": 1,
       "tier": "lesser",
-      "text": "Whenever you play a card, give a friendly Dragon +4/+4."
+      "text": "Whenever you play a card, give a friendly Dragon +4/+4.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Dragonwing Glider",
-      "cost": 0,
-      "tier": "lesser",
-      "text": "Whenever you play a card, give a friendly Dragon +6/+4."
-    },
-    {
+      "card_id": "eclectic_shrine_l",
       "name": "Eclectic Shrine",
       "cost": 1,
       "tier": "lesser",
-      "text": "Start of Combat: Give a friendly minion of each different type +3/+2. Improve this permanently."
+      "text": "Start of Combat: Give a friendly minion of each different type +3/+2. Improve this permanently.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "electromagnetic_device_l",
       "name": "Electromagnetic Device",
       "cost": 2,
       "tier": "lesser",
-      "text": "Discover a Magnetic. Mech. Whenever a friendly minion is Magnetized, give it +3/+3."
+      "text": "Discover a Magnetic. Mech. Whenever a friendly minion is Magnetized, give it +3/+3.",
+      "trinket_effect": {
+        "type": "discover"
+      }
     },
     {
-      "name": "Elementium Chest",
-      "cost": 1,
-      "tier": "lesser",
-      "text": "Each combat, after 2 friendly Pirates attack, gain 1 Gold next turn. (2 left!)"
-    },
-    {
+      "card_id": "emergency_gearblade_l",
       "name": "Emergency Gearblade",
       "cost": 2,
       "tier": "lesser",
-      "text": "At the end of your turn, cast Repair Job on your left-most Mech."
+      "text": "At the end of your turn, cast Repair Job on your left-most Mech.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "empowered_mirror_l",
       "name": "Empowered Mirror",
       "cost": 3,
       "tier": "lesser",
-      "text": "Become a copy of your teammate's Lesser Trinket."
+      "text": "Become a copy of your teammate's Lesser Trinket.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Empowered Mirror",
-      "cost": 3,
-      "tier": "lesser",
-      "text": "Become a copy of your teammate's Greater Trinket."
-    },
-    {
+      "card_id": "enigmatic_headstone_l",
       "name": "Enigmatic Headstone",
       "cost": 1,
       "tier": "lesser",
-      "text": "At the end of each turn, your Undead have +2 Attack this game (wherever they are)."
+      "text": "At the end of each turn, your Undead have +2 Attack this game (wherever they are).",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
     },
     {
-      "name": "Essence of Dreams",
-      "cost": 3,
-      "tier": "lesser",
-      "text": "Get 2 copies of Dreamer's Embrace. At the start of each turn, get 1 more."
-    },
-    {
+      "card_id": "explorers_binoculars_l",
       "name": "Explorer's Binoculars",
       "cost": 1,
       "tier": "lesser",
-      "text": "Get three random Tier 4 minions."
+      "text": "Get three random Tier 4 minions.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Exquisite Dishware",
-      "cost": 3,
-      "tier": "lesser",
-      "text": "At the end of each turn, get a random minion of each different type you control."
-    },
-    {
-      "name": "Extravagant Scale",
-      "cost": 2,
-      "tier": "lesser",
-      "text": "When you spend 20 Gold, double your minions' Attack. (Twice per game.)"
-    },
-    {
-      "name": "Faerie Dragon Scale",
-      "cost": 3,
-      "tier": "lesser",
-      "text": "Whenever a friendly Dragon attacks, give it Divine Shield. (3 times per combat.)"
-    },
-    {
-      "name": "Fancy Spellbook",
-      "cost": 3,
-      "tier": "lesser",
-      "text": "After you spend 7 Gold, cast Shiny Ring. (7 Gold left!)"
-    },
-    {
-      "name": "Fang Anklet",
-      "cost": 3,
-      "tier": "lesser",
-      "text": "Start of Combat: Your Beasts have +1/+1 this combat. After you summon a Beast, improve this permanently."
-    },
-    {
-      "name": "Felsteel Cleaver",
-      "cost": 0,
-      "tier": "lesser",
-      "text": "After you cast a spell on a Tavern minion, a random friendly minion consumes it to gain its stats."
-    },
-    {
+      "card_id": "feral_talisman_l",
       "name": "Feral Talisman",
       "cost": 2,
       "tier": "lesser",
-      "text": "Your minions have +2/+1."
+      "text": "Your minions have +2/+1.",
+      "trinket_effect": {
+        "type": "stat_buff_all",
+        "atk": 2,
+        "hp": 1
+      }
     },
     {
-      "name": "Feral Talisman",
-      "cost": 1,
-      "tier": "lesser",
-      "text": "Your minions have +8/+5."
-    },
-    {
+      "card_id": "finleys_helmet_l",
       "name": "Finley's Helmet",
       "cost": 2,
       "tier": "lesser",
-      "text": "After the Tavern is Refreshed, give Murlocs in it +5/+5 and a random Bonus Keyword."
+      "text": "After the Tavern is Refreshed, give Murlocs in it +5/+5 and a random Bonus Keyword.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "floating_candle_set_l",
       "name": "Floating Candle Set",
       "cost": 3,
       "tier": "lesser",
-      "text": "Spellcraft: Trigger a friendly minion's Deathrattle."
+      "text": "Spellcraft: Trigger a friendly minion's Deathrattle.",
+      "trinket_effect": {
+        "type": "spellcraft"
+      }
     },
     {
+      "card_id": "fountain_pen_l",
       "name": "Fountain Pen",
       "cost": 0,
       "tier": "lesser",
-      "text": "Your Elementals that give stats grant an extra +2/+1."
+      "text": "Your Elementals that give stats grant an extra +2/+1.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Fountain Pen",
-      "cost": 1,
-      "tier": "lesser",
-      "text": "Your Elementals that give stats grant an extra +4/+2."
-    },
-    {
+      "card_id": "frigid_blossom_l",
       "name": "Frigid Blossom",
       "cost": 0,
       "tier": "lesser",
-      "text": "After you Refresh, reduce the cost of upgrading the Tavern by (1)."
+      "text": "After you Refresh, reduce the cost of upgrading the Tavern by (1).",
+      "trinket_effect": {
+        "type": "level_cost_reduction",
+        "amount": 1
+      }
     },
     {
-      "name": "Funeral Wreath",
-      "cost": 3,
-      "tier": "lesser",
-      "text": "After a friendly minion is Reborn, get a plain copy of it. (3 times per combat.)"
-    },
-    {
+      "card_id": "gem_donation_l",
       "name": "Gem Donation",
       "cost": 1,
       "tier": "lesser",
-      "text": "The first minion you sell each turn plays its Blood Gems on the 3 highest-Tier minions in the Tavern."
+      "text": "The first minion you sell each turn plays its Blood Gems on the 3 highest-Tier minions in the Tavern.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "gilded_anchor_l",
       "name": "Gilded Anchor",
       "cost": 2,
       "tier": "lesser",
-      "text": "At the end of each turn, give your Golden minions +3/+3."
+      "text": "At the end of each turn, give your Golden minions +3/+3.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
     },
     {
-      "name": "Gilded Anchor",
-      "cost": 2,
-      "tier": "lesser",
-      "text": "At the end of each turn, give your Golden minions +10/+10."
-    },
-    {
-      "name": "Gilnean Thorned Rose",
-      "cost": 1,
-      "tier": "lesser",
-      "text": "Avenge (3): Give your minions +4/+5 permanently and deal 1 damage to them."
-    },
-    {
+      "card_id": "glass_of_perspective_l",
       "name": "Glass of Perspective",
       "cost": 2,
       "tier": "lesser",
-      "text": "Get a random Choose One card. At the start of each turn, get another."
+      "text": "Get a random Choose One card. At the start of each turn, get another.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
     },
     {
-      "name": "Glass of Perspective",
-      "cost": 3,
-      "tier": "lesser",
-      "text": "Get 2 random Choose One cards. At the start of each turn, get 2 more."
-    },
-    {
+      "card_id": "glowing_crystal_l",
       "name": "Glowing Crystal",
       "cost": 1,
       "tier": "lesser",
-      "text": "At the start of your turn, gain 1 Gold for each different friendly minion type."
+      "text": "At the start of your turn, gain 1 Gold for each different friendly minion type.",
+      "trinket_effect": {
+        "type": "gold_per_round",
+        "amount": 1
+      }
     },
     {
+      "card_id": "glowing_gauntlet_l",
       "name": "Glowing Gauntlet",
       "cost": 1,
       "tier": "lesser",
-      "text": "Minions in the Tavern have +3/+3. The Tavern always has 7 cards."
+      "text": "Minions in the Tavern have +3/+3. The Tavern always has 7 cards.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "goblin_wallet_l",
       "name": "Goblin Wallet",
       "cost": 1,
       "tier": "lesser",
-      "text": "At the end of each turn, increase your maximum Gold by 1."
+      "text": "At the end of each turn, increase your maximum Gold by 1.",
+      "trinket_effect": {
+        "type": "max_gold_per_round",
+        "amount": 1
+      }
     },
     {
+      "card_id": "gold_mallet_l",
       "name": "Gold Mallet",
       "cost": 2,
       "tier": "lesser",
-      "text": "At the end of your turn, give your minions +2/+1. (Improved by Golden minions you've played this game!)"
+      "text": "At the end of your turn, give your minions +2/+1. (Improved by Golden minions you've played this game!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Gold Mallet",
-      "cost": 2,
-      "tier": "lesser",
-      "text": "At the end of your turn, give your minions +4/+2. (Improved by Golden minions you've played this game!)"
-    },
-    {
+      "card_id": "gold_pendant_l",
       "name": "Gold Pendant",
       "cost": 1,
       "tier": "lesser",
-      "text": "Make a random friendly minion from Tier 4 or below Golden. At the start of each turn, repeat this."
+      "text": "Make a random friendly minion from Tier 4 or below Golden. At the start of each turn, repeat this.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
     },
     {
-      "name": "Gold-plated Compass",
-      "cost": 0,
-      "tier": "lesser",
-      "text": "Make the next 92 you buy Golden. Gain 5 free Refreshes."
-    },
-    {
+      "card_id": "goldenizer_supply_l",
       "name": "Goldenizer Supply",
       "cost": 0,
       "tier": "lesser",
-      "text": "At the end of every 3 turns, get a Goldenizer. (3 turns left!)3At the end of every 3 turns, get a Goldenizer. (End of this turn!)"
+      "text": "At the end of every 3 turns, get a Goldenizer. (3 turns left!)3At the end of every 3 turns, get a Goldenizer. (End of this turn!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Greater Trinket",
-      "cost": 0,
+      "card_id": "heart_of_the_forest_l",
+      "name": "Heart of the Forest",
+      "cost": 4,
       "tier": "lesser",
-      "text": "The Greater Trinket Shop opens in 8 turns!8The second Trinket Shop opens next turn!"
+      "text": "Your Tavern spells give an extra +1/+1. After you cast 5 Tavern spells, improve this. (5 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Guiding Candle",
-      "cost": 1,
-      "tier": "lesser",
-      "text": "Your first two Refreshes. each turn contain only Tier 6 cards. (2 left!)"
-    },
-    {
+      "card_id": "herding_horn_l",
       "name": "Herding Horn",
       "cost": 1,
       "tier": "lesser",
-      "text": "Whenever a friendly Rally minion attacks, gain a free Refresh."
+      "text": "Whenever a friendly Rally minion attacks, gain a free Refresh.",
+      "trinket_effect": {
+        "type": "combat_trigger"
+      }
     },
     {
+      "card_id": "hoggy_bank_l",
       "name": "Hoggy Bank",
       "cost": 0,
       "tier": "lesser",
-      "text": "Start of Combat: Give your Quilboar \"Deathrattle: Get 2 Blood Gems.\"."
+      "text": "Start of Combat: Give your Quilboar \"Deathrattle: Get 2 Blood Gems.\".",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "holy_mallet_l",
       "name": "Holy Mallet",
       "cost": 1,
       "tier": "lesser",
-      "text": "Start of Combat: Give your left and right-most minions Divine Shield."
+      "text": "Start of Combat: Give your left and right-most minions Divine Shield.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Honeycomb Ring",
-      "cost": 1,
-      "tier": "lesser",
-      "text": "Your Tavern spells give an extra +1/+1. After you cast a spell on a minion, improve for this turn only."
-    },
-    {
-      "name": "Horde Keychain",
-      "cost": 2,
-      "tier": "lesser",
-      "text": "Your minions from Tier 3 or lower have +7/+5."
-    },
-    {
+      "card_id": "horn_of_summoning_l",
       "name": "Horn of Summoning",
       "cost": 2,
       "tier": "lesser",
-      "text": "Get six different Tier 1 minions."
+      "text": "Get six different Tier 1 minions.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "inductive_gyroblade_l",
       "name": "Inductive Gyroblade",
       "cost": 2,
       "tier": "lesser",
-      "text": "At the end of your turn, get a 4/4 Magnetic Satellite. (Improved by each Tavern spell you've cast this turn!)"
+      "text": "At the end of your turn, get a 4/4 Magnetic Satellite. (Improved by each Tavern spell you've cast this turn!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Inductive Gyroblade",
-      "cost": 2,
-      "tier": "lesser",
-      "text": "At the end of your turn, get a 8/8 Magnetic Satellite. (Improved by each Tavern spell you've cast this turn!)"
-    },
-    {
+      "card_id": "innkeepers_hearth_l",
       "name": "Innkeeper's Hearth",
       "cost": 1,
       "tier": "lesser",
-      "text": "Discover a minion of your Tier. Set its stats to 12/12."
+      "text": "Discover a minion of your Tier. Set its stats to 12/12.",
+      "trinket_effect": {
+        "type": "discover"
+      }
     },
     {
-      "name": "Innkeeper's Hearth",
-      "cost": 0,
-      "tier": "lesser",
-      "text": "Discover two Tier 6 minions. Set their stats to 30/30."
-    },
-    {
+      "card_id": "innkeepers_stein_l",
       "name": "Innkeeper's Stein",
       "cost": 1,
       "tier": "lesser",
-      "text": "The Tavern offers an extra minion of a higher Tier whenever it is Refreshed."
+      "text": "The Tavern offers an extra minion of a higher Tier whenever it is Refreshed.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Insurrectionist's Blade",
-      "cost": 3,
-      "tier": "lesser",
-      "text": "At the end of your turn, trigger all friendly Rallies."
-    },
-    {
+      "card_id": "investment_contract_l",
       "name": "Investment Contract",
       "cost": 0,
       "tier": "lesser",
-      "text": "After you Pass, reduce the Cost of upgrading the Tavern by (1)."
+      "text": "After you Pass, reduce the Cost of upgrading the Tavern by (1).",
+      "trinket_effect": {
+        "type": "level_cost_reduction",
+        "amount": 1
+      }
     },
     {
-      "name": "Jar o' Gems",
-      "cost": 0,
-      "tier": "lesser",
-      "text": "After 2 friendly minions attack each combat, this plays a Blood Gem on all your Quilboar. (2 left!)"
-    },
-    {
-      "name": "Jarred Frostling",
-      "cost": 3,
-      "tier": "lesser",
-      "text": "Start of Combat: Give 2 friendly Elementals \"Deathrattle: Summon a Flourishing Frostling\"."
-    },
-    {
+      "card_id": "jewelry_box_l",
       "name": "Jewelry Box",
       "cost": 0,
       "tier": "lesser",
-      "text": "Get a Blood Gem that gives a Quilboar Taunt, Divine Shield, or Reborn. At the start of each turn, repeat this."
+      "text": "Get a Blood Gem that gives a Quilboar Taunt, Divine Shield, or Reborn. At the start of each turn, repeat this.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
     },
     {
+      "card_id": "kaleidoscope_l",
       "name": "Kaleidoscope",
       "cost": 1,
       "tier": "lesser",
-      "text": "Discover a Tier 7 minion. Lock it in your hand for 2 ."
+      "text": "Discover a Tier 7 minion. Lock it in your hand for 2 .",
+      "trinket_effect": {
+        "type": "discover"
+      }
     },
     {
-      "name": "Kaleidoscope",
-      "cost": 0,
-      "tier": "lesser",
-      "text": "Discover a Golden Tier 7 minion. Lock it in your hand for 2 ."
-    },
-    {
+      "card_id": "kodo_leather_pouch_l",
       "name": "Kodo Leather Pouch",
       "cost": 3,
       "tier": "lesser",
-      "text": "After you buy a card, give two random friendly minions +2/+1."
+      "text": "After you buy a card, give two random friendly minions +2/+1.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Lava Lamp",
-      "cost": 2,
-      "tier": "lesser",
-      "text": "After you sell 6 minions, get a random Elemental. (6 left!)"
-    },
-    {
-      "name": "Lavish Cape",
-      "cost": 0,
-      "tier": "lesser",
-      "text": "Cast a random Tavern spell for each different friendly minion type. At the start of each turn, repeat this."
-    },
-    {
+      "card_id": "lens_case_l",
       "name": "Lens Case",
       "cost": 3,
       "tier": "lesser",
-      "text": "Get a Duplicating Lens. At the start of every 2 turns, repeat this. (2 turns left!)"
+      "text": "Get a Duplicating Lens. At the start of every 2 turns, repeat this. (2 turns left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "lesser_trinket_l",
       "name": "Lesser Trinket",
       "cost": 0,
       "tier": "lesser",
-      "text": "The Lesser Trinket Shop opens in 5 turns!5The Lesser Trinket Shop opens next turn!"
+      "text": "The Lesser Trinket Shop opens in 5 turns!5The Lesser Trinket Shop opens next turn!",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "lightning_in_a_bottle_l",
       "name": "Lightning in a Bottle",
       "cost": 0,
       "tier": "lesser",
-      "text": "After the Tavern is Refreshed, give the stats of its highest-Attack minion to its lowest."
+      "text": "After the Tavern is Refreshed, give the stats of its highest-Attack minion to its lowest.",
+      "trinket_effect": {
+        "type": "combat_trigger"
+      }
     },
     {
+      "card_id": "lorewalker_scroll_l",
       "name": "Lorewalker Scroll",
       "cost": 2,
       "tier": "lesser",
-      "text": "Whenever you cast a spell on a minion, give it +4/+4."
+      "text": "Whenever you cast a spell on a minion, give it +4/+4.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Lorewalker Scroll",
-      "cost": 2,
-      "tier": "lesser",
-      "text": "Whenever you cast a spell on a minion, give it +10/+10."
-    },
-    {
+      "card_id": "lovely_locket_l",
       "name": "Lovely Locket",
       "cost": 0,
       "tier": "lesser",
-      "text": "After you cast a spell on a friendly minion, this casts it on another friendly minion."
+      "text": "After you cast a spell on a friendly minion, this casts it on another friendly minion.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "lucky_tabby_l",
       "name": "Lucky Tabby",
       "cost": 1,
       "tier": "lesser",
-      "text": "After 7 friendly minions die, get a random Beast. (7 left!)"
+      "text": "After 7 friendly minions die, get a random Beast. (7 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Magic Road Sign",
-      "cost": 3,
-      "tier": "lesser",
-      "text": "After you sell your first minion each turn, Pass it."
-    },
-    {
+      "card_id": "magicians_top_hat_l",
       "name": "Magician's Top Hat",
       "cost": 2,
       "tier": "lesser",
-      "text": "Get two minions each from Tiers 1, 2, and 3."
+      "text": "Get two minions each from Tiers 1, 2, and 3.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "marine_signet_l",
       "name": "Marine Signet",
       "cost": 1,
       "tier": "lesser",
-      "text": "After you play 4 minions, get a random Tier 1 Tavern spell and improve this. (4 left!)"
+      "text": "After you play 4 minions, get a random Tier 1 Tavern spell and improve this. (4 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Marvelous Mushroom",
-      "cost": 2,
-      "tier": "lesser",
-      "text": "Your Tavern spells give an extra +1/+1. At the start of each turn, improve this."
-    },
-    {
-      "name": "Miniature Ship",
-      "cost": 3,
-      "tier": "lesser",
-      "text": "After you cast a Tavern spell, give your Pirates +2/+2."
-    },
-    {
+      "card_id": "minion_bait_l",
       "name": "Minion Bait",
       "cost": 1,
       "tier": "lesser",
-      "text": "The Tavern offers 2 extra 92 whenever it is Refreshed."
+      "text": "The Tavern offers 2 extra 92 whenever it is Refreshed.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Mug of the Sire",
-      "cost": 2,
-      "tier": "lesser",
-      "text": "Whenever you would summon a minion that doesn't fit in your warband, give your minions +5 Attack."
-    },
-    {
-      "name": "Multilayered Shield",
-      "cost": 2,
-      "tier": "lesser",
-      "text": "Your Tavern spells give an extra +1/+2. (Improved by each different friendly minion type!)"
-    },
-    {
+      "card_id": "mysterious_orb_l",
       "name": "Mysterious Orb",
       "cost": 0,
       "tier": "lesser",
-      "text": "Gain 10 Gold. Your next Trinket is a Lesser Trinket."
+      "text": "Gain 10 Gold. Your next Trinket is a Lesser Trinket.",
+      "trinket_effect": {
+        "type": "gold_gain",
+        "amount": 10
+      }
     },
     {
+      "card_id": "mystery_cube_l",
+      "name": "Mystery Cube",
+      "cost": 5,
+      "tier": "lesser",
+      "text": "Choose from 2 new Lesser Trinkets to replace this for free. At the start of each turn, repeat this.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
+    },
+    {
+      "card_id": "nerglish_phrasebook_l",
       "name": "Nerglish Phrasebook",
       "cost": 1,
       "tier": "lesser",
-      "text": "After you play a minion, give the left-most minion in your hand +3/+3."
+      "text": "After you play a minion, give the left-most minion in your hand +3/+3.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Nerglish Phrasebook",
-      "cost": 1,
-      "tier": "lesser",
-      "text": "After you play a minion, give the left-most minion in your hand +6/+6."
-    },
-    {
+      "card_id": "ominous_stone_l",
       "name": "Ominous Stone",
       "cost": 0,
       "tier": "lesser",
-      "text": "Discover a Tier 4 minion of your most common type with a Dark Gift."
+      "text": "Discover a Tier 4 minion of your most common type with a Dark Gift.",
+      "trinket_effect": {
+        "type": "discover"
+      }
     },
     {
+      "card_id": "ophidian_staff_l",
+      "name": "Ophidian Staff",
+      "cost": 5,
+      "tier": "lesser",
+      "text": "Spellcraft: Give a Beast +2/+2 and Reborn.",
+      "trinket_effect": {
+        "type": "spellcraft"
+      }
+    },
+    {
+      "card_id": "orb_of_the_unknown_l",
       "name": "Orb of the Unknown",
       "cost": 0,
       "tier": "lesser",
-      "text": "Get a random Lesser Trinket."
+      "text": "Get a random Lesser Trinket.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Orb of the Unknown",
-      "cost": 0,
-      "tier": "lesser",
-      "text": "Get a random Greater Trinket and 4 Gold."
-    },
-    {
+      "card_id": "ornate_clock_l",
       "name": "Ornate Clock",
       "cost": 0,
       "tier": "lesser",
-      "text": "Gain 2 Gold. Buy your Greater Trinket. next turn instead of Turn 9."
+      "text": "Gain 2 Gold. Buy your Greater Trinket. next turn instead of Turn 9.",
+      "trinket_effect": {
+        "type": "gold_gain",
+        "amount": 2
+      }
     },
     {
-      "name": "Peacebloom Candle",
-      "cost": 2,
-      "tier": "lesser",
-      "text": "The first 3 Tavern spells you buy each turn are free. (3 left!)"
-    },
-    {
+      "card_id": "pocket_cyclone_l",
       "name": "Pocket Cyclone",
       "cost": 0,
       "tier": "lesser",
-      "text": "Cast Easterly Winds. At the start of each turn, cast it again."
+      "text": "Cast Easterly Winds. At the start of each turn, cast it again.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
     },
     {
-      "name": "Pocket Cyclone",
-      "cost": 1,
-      "tier": "lesser",
-      "text": "Cast Easterly Winds four times. At the start of each turn, cast it twice more."
-    },
-    {
+      "card_id": "portable_factory_l",
       "name": "Portable Factory",
-      "cost": 0,
+      "cost": 6,
       "tier": "lesser",
-      "text": "Discover a Tier 5 minion with a type. At the start of each turn, get another copy of it."
+      "text": "Discover a Tier 4 minion with a type. At the start of each turn, get another copy of it.",
+      "trinket_effect": {
+        "type": "discover"
+      }
     },
     {
-      "name": "Precious Pearl",
-      "cost": 0,
-      "tier": "lesser",
-      "text": "Spellcraft: Give a minion +30/+30 until next turn."
-    },
-    {
+      "card_id": "primordial_terrarium_l",
       "name": "Primordial Terrarium",
       "cost": 2,
       "tier": "lesser",
-      "text": "After you play an Elemental, your next Tavern spell costs (1) less."
+      "text": "After you play an Elemental, your next Tavern spell costs (1) less.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Protective Ring",
-      "cost": 3,
-      "tier": "lesser",
-      "text": "Start of Combat: Give 4 random friendly Pirates Divine Shield."
-    },
-    {
+      "card_id": "quilligraphy_set_l",
       "name": "Quilligraphy Set",
       "cost": 0,
       "tier": "lesser",
-      "text": "Avenge (3): Your Blood Gems give an extra +1 Health this game."
+      "text": "Avenge (3): Your Blood Gems give an extra +1 Health this game.",
+      "trinket_effect": {
+        "type": "avenge",
+        "count": 3
+      }
     },
     {
-      "name": "Quilligraphy Set",
-      "cost": 2,
+      "card_id": "reflective_pendant_l",
+      "name": "Reflective Pendant",
+      "cost": 6,
       "tier": "lesser",
-      "text": "Avenge (4): Your Blood Gems give an extra +1/+1 this game."
+      "text": "Get a plain copy of a random friendly minion. At the start of each turn, repeat this.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
     },
     {
-      "name": "Reinforced Shield",
-      "cost": 3,
-      "tier": "lesser",
-      "text": "Whenever you summon a minion, give it Divine Shield. (5 times per combat.)"
-    },
-    {
+      "card_id": "replica_cathedral_l",
       "name": "Replica Cathedral",
       "cost": 3,
       "tier": "lesser",
-      "text": "Your first spell each turn casts an extra time."
+      "text": "Your first spell each turn casts an extra time.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "reusable_batteries_l",
       "name": "Reusable Batteries",
       "cost": 2,
       "tier": "lesser",
-      "text": "The first time you buy a minion each turn, get a Magnetic Satellite with its stats."
+      "text": "The first time you buy a minion each turn, get a Magnetic Satellite with its stats.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "rockin_music_box_l",
       "name": "Rockin' Music Box",
       "cost": 1,
       "tier": "lesser",
-      "text": "Get a random Battlecry. minion. At the start of each turn, get another."
+      "text": "Get a random Battlecry. minion. At the start of each turn, get another.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
     },
     {
+      "card_id": "rune_of_transmutation_l",
       "name": "Rune of Transmutation",
       "cost": 0,
       "tier": "lesser",
-      "text": "After you cast 15 spells, replace this with a random Greater Naga Trinket. (15 left!)"
+      "text": "After you cast 15 spells, replace this with a random Greater Naga Trinket. (15 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "rusty_trident_l",
       "name": "Rusty Trident",
       "cost": 1,
       "tier": "lesser",
-      "text": "Start of Combat: Give your Naga \"Deathrattle: Get a random Spellcraft spell.\"."
+      "text": "Start of Combat: Give your Naga \"Deathrattle: Get a random Spellcraft spell.\".",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "sacrificial_altar_l",
       "name": "Sacrificial Altar",
       "cost": 1,
       "tier": "lesser",
-      "text": "Remove all your minions. Gain 3 Gold for each removed."
+      "text": "Remove all your minions. Gain 3 Gold for each removed.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Safety Patch",
-      "cost": 0,
-      "tier": "lesser",
-      "text": "Cast Ice Block. Gain 5 Gold."
-    },
-    {
-      "name": "Secret Schematic",
-      "cost": 0,
-      "tier": "lesser",
-      "text": "After you buy a Mech, get a random Tavern spell."
-    },
-    {
+      "card_id": "shadowy_elixir_l",
       "name": "Shadowy Elixir",
       "cost": 0,
       "tier": "lesser",
-      "text": "Gain 5 Armor. After you play a Demon, deal 1 damage to your hero."
+      "text": "Gain 5 Armor. After you play a Demon, deal 1 damage to your hero.",
+      "trinket_effect": {
+        "type": "armor",
+        "amount": 5
+      }
     },
     {
+      "card_id": "shaman_prayer_beads_l",
       "name": "Shaman Prayer Beads",
       "cost": 2,
       "tier": "lesser",
-      "text": "After you buy 2 Battlecry. minions, get a random Battlecry minion. (2 left!)"
+      "text": "After you buy 2 Battlecry. minions, get a random Battlecry minion. (2 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Shark Cannon",
-      "cost": 0,
-      "tier": "lesser",
-      "text": "After you spend 10 Gold, give your Pirates +1/+1 and improve this. (10 Gold left!)"
-    },
-    {
+      "card_id": "ship_in_a_bottle_l",
       "name": "Ship in a Bottle",
       "cost": 0,
       "tier": "lesser",
-      "text": "Start of Combat: Summon and get a random Pirate. It attacks immediately."
+      "text": "Start of Combat: Summon and get a random Pirate. It attacks immediately.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "shrine_of_evolution_l",
       "name": "Shrine of Evolution",
       "cost": 0,
       "tier": "lesser",
-      "text": "Transform all your minions into random Tier 4 minions."
+      "text": "Transform all your minions into random Tier 4 minions.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "souvenir_stand_l",
       "name": "Souvenir Stand",
       "cost": 0,
       "tier": "lesser",
-      "text": "When you buy a Greater Trinket, this transforms into a copy of it."
+      "text": "When you buy a Greater Trinket, this transforms into a copy of it.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "spell-powered_wrench_l",
       "name": "Spell-powered Wrench",
       "cost": 2,
       "tier": "lesser",
-      "text": "After you play a Magnetic minion, cast Repair Job on a random friendly Mech."
+      "text": "After you play a Magnetic minion, cast Repair Job on a random friendly Mech.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Sphere of Memory",
-      "cost": 2,
-      "tier": "lesser",
-      "text": "At the end of your turn, get 3 copies of the last Tavern spell you cast."
-    },
-    {
+      "card_id": "splinter_of_aurum_l",
       "name": "Splinter of Aurum",
       "cost": 2,
       "tier": "lesser",
-      "text": "When you have 15 Gold, get a random Golden Tier 5 minion. (Once per game.)"
+      "text": "When you have 15 Gold, get a random Golden Tier 5 minion. (Once per game.)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "staff_of_the_scourge_l",
+      "name": "Staff of the Scourge",
+      "cost": 5,
+      "tier": "lesser",
+      "text": "Avenge (5): Give a random friendly Undead Reborn.",
+      "trinket_effect": {
+        "type": "avenge",
+        "count": 5
+      }
+    },
+    {
+      "card_id": "stuffed_coin_purse_l",
       "name": "Stuffed Coin Purse",
       "cost": 0,
       "tier": "lesser",
-      "text": "When you reach Tier 6, gain 12 gold."
+      "text": "When you reach Tier 6, gain 12 gold.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "summoning_sphere_l",
+      "name": "Summoning Sphere",
+      "cost": 4,
+      "tier": "lesser",
+      "text": "Start of Combat: Summon a copy of your teammate's highest-Health minion.",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "sunken_anchor_l",
+      "name": "Sunken Anchor",
+      "cost": 6,
+      "tier": "lesser",
+      "text": "Get 2 random Bounties. At the start of each turn, repeat this.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
+    },
+    {
+      "card_id": "the_eye_of_dalaran_l",
       "name": "The Eye of Dalaran",
       "cost": 2,
       "tier": "lesser",
-      "text": "Whenever a friendly minion with no type dies, get a random Tavern spell."
+      "text": "Whenever a friendly minion with no type dies, get a random Tavern spell.",
+      "trinket_effect": {
+        "type": "combat_trigger"
+      }
     },
     {
-      "name": "Thornspike Pauldron",
-      "cost": 1,
-      "tier": "lesser",
-      "text": "After you trigger a Deathrattle, your Blood Gems give an extra +2/+1 until next combat."
-    },
-    {
+      "card_id": "tiger_carving_l",
       "name": "Tiger Carving",
       "cost": 1,
       "tier": "lesser",
-      "text": "Whenever a friendly minion takes damage, give another friendly minion +3/+1 permanently."
+      "text": "Whenever a friendly minion takes damage, give another friendly minion +3/+1 permanently.",
+      "trinket_effect": {
+        "type": "combat_trigger"
+      }
     },
     {
-      "name": "Tiger Carving",
-      "cost": 2,
-      "tier": "lesser",
-      "text": "Whenever a friendly minion takes damage, give another friendly minion +6/+2 permanently."
-    },
-    {
+      "card_id": "timeworn_candelabra_l",
       "name": "Timeworn Candelabra",
       "cost": 1,
       "tier": "lesser",
-      "text": "Discover a 2-Cost minion from the Minor Timewarp."
+      "text": "Discover a 2-Cost minion from the Minor Timewarp.",
+      "trinket_effect": {
+        "type": "discover"
+      }
     },
     {
-      "name": "Timeworn Candelabra",
-      "cost": 0,
-      "tier": "lesser",
-      "text": "Discover a 2-Cost minion from the Major Timewarp."
-    },
-    {
-      "name": "Tinyfin Onesie",
-      "cost": 0,
-      "tier": "lesser",
-      "text": "Start of Combat: Your left-most minion gains the stats of the highest-Health minion in your hand."
-    },
-    {
+      "card_id": "token_of_the_old_gods_l",
       "name": "Token of the Old Gods",
       "cost": 2,
       "tier": "lesser",
-      "text": "Spellcraft: Choose a minion. Then choose a minion from a Tier higher to transform it into."
+      "text": "Spellcraft: Choose a minion. Then choose a minion from a Tier higher to transform it into.",
+      "trinket_effect": {
+        "type": "spellcraft"
+      }
     },
     {
-      "name": "Toxic Stinger",
-      "cost": 0,
-      "tier": "lesser",
-      "text": "At the end of each turn, give a random friendly Murloc +8/+8 and Venomous."
-    },
-    {
+      "card_id": "training_certificate_l",
       "name": "Training Certificate",
       "cost": 2,
       "tier": "lesser",
-      "text": "Start of Combat: Double the stats of your two lowest-Attack minions."
+      "text": "Start of Combat: Double the stats of your two lowest-Attack minions.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "transcribing_typewriter_l",
       "name": "Transcribing Typewriter",
       "cost": 2,
       "tier": "lesser",
-      "text": "Get an extra copy of the next 2 minions you buy. (2 left!)"
+      "text": "Get an extra copy of the next 2 minions you buy. (2 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "trip_vouchers_l",
       "name": "Trip Vouchers",
       "cost": 1,
       "tier": "lesser",
-      "text": "In 2 turns, choose a Greater Trinket to buy and replace this. (2 turns left!)"
+      "text": "In 2 turns, choose a Greater Trinket to buy and replace this. (2 turns left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Trusty Crowbar",
-      "cost": 0,
-      "tier": "lesser",
-      "text": "Whenever you get a Pirate, give your left-most minion +12/+12."
-    },
-    {
-      "name": "Turbocharged Drill",
-      "cost": 0,
-      "tier": "lesser",
-      "text": "Get 5 different Magnetic Mechs of ANY Tier."
-    },
-    {
-      "name": "Twin Sky Lanterns",
-      "cost": 1,
-      "tier": "lesser",
-      "text": "When you have space, summon a copy of the first minion you summon each combat."
-    },
-    {
+      "card_id": "unholy_sanctum_l",
       "name": "Unholy Sanctum",
       "cost": 3,
       "tier": "lesser",
-      "text": "After you trigger a Deathrattle, give your right-most minion +2/+2 permanently."
+      "text": "After you trigger a Deathrattle, give your right-most minion +2/+2 permanently.",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Unholy Sanctum",
-      "cost": 0,
-      "tier": "lesser",
-      "text": "After you trigger a Deathrattle, give your right-most minion +6/+4 permanently."
-    },
-    {
+      "card_id": "valorous_medallion_l",
       "name": "Valorous Medallion",
       "cost": 2,
       "tier": "lesser",
-      "text": "Start of Combat: Give your minions +2/+2."
+      "text": "Start of Combat: Give your minions +2/+2.",
+      "trinket_effect": {
+        "type": "start_of_combat_buff_all",
+        "atk": 2,
+        "hp": 2
+      }
     },
     {
-      "name": "Valorous Medallion",
-      "cost": 3,
-      "tier": "lesser",
-      "text": "Start of Combat: Give your minions +6/+6."
-    },
-    {
+      "card_id": "vashjir_anemone_l",
       "name": "Vash'jir Anemone",
       "cost": 1,
       "tier": "lesser",
-      "text": "Start of Combat: Give your Naga +1 Health. (Improved by every 4 spells you've cast this game!)"
+      "text": "Start of Combat: Give your Naga +1 Health. (Improved by every 4 spells you've cast this game!)",
+      "trinket_effect": {
+        "type": "start_of_combat_buff_tribe",
+        "tribe": "NAGA",
+        "atk": 1,
+        "hp": 0
+      }
     },
     {
+      "card_id": "vibrant_bubble_l",
       "name": "Vibrant Bubble",
       "cost": 3,
       "tier": "lesser",
-      "text": "Spellcraft: Give a Murloc a random Bonus Keyword."
+      "text": "Spellcraft: Give a Murloc a random Bonus Keyword.",
+      "trinket_effect": {
+        "type": "spellcraft"
+      }
     },
     {
+      "card_id": "wand_of_divination_l",
       "name": "Wand of Divination",
       "cost": 0,
       "tier": "lesser",
-      "text": "After you cast 3 spells on minions, gain 1 Gold. (3 left!)"
+      "text": "After you cast 3 spells on minions, gain 1 Gold. (3 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "war_drum_l",
       "name": "War Drum",
       "cost": 2,
       "tier": "lesser",
-      "text": "One Battlecry each turn triggers two extra times. (1 left!)"
+      "text": "One Battlecry each turn triggers two extra times. (1 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
-      "name": "Warband Whistle",
-      "cost": 2,
-      "tier": "lesser",
-      "text": "Gain a free Refresh that contains plain copies of minions in your warband."
-    },
-    {
+      "card_id": "warcry_totem_l",
       "name": "Warcry Totem",
       "cost": 2,
       "tier": "lesser",
-      "text": "The first two Battlecry. minions you buy each turn are free. (2 left!)"
+      "text": "The first two Battlecry. minions you buy each turn are free. (2 left!)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "water_wheel_l",
       "name": "Water Wheel",
       "cost": 1,
       "tier": "lesser",
-      "text": "After you play an Elemental, get a random Tavern spell. (Twice per turn.)"
+      "text": "After you play an Elemental, get a random Tavern spell. (Twice per turn.)",
+      "trinket_effect": {
+        "type": "complex"
+      }
     },
     {
+      "card_id": "wax_imprinter_l",
       "name": "Wax Imprinter",
       "cost": 0,
       "tier": "lesser",
-      "text": "Gain 2 Gold and take 2 damage. At the start of each turn, repeat this (if possible)."
+      "text": "Gain 2 Gold and take 2 damage. At the start of each turn, repeat this (if possible).",
+      "trinket_effect": {
+        "type": "gold_gain",
+        "amount": 2
+      }
     },
     {
-      "name": "Wax Lance",
-      "cost": 3,
-      "tier": "lesser",
-      "text": "Discover a Tier 7 minion with a Dark Gift."
-    },
-    {
+      "card_id": "wicked_tome_l",
       "name": "Wicked Tome",
       "cost": 3,
       "tier": "lesser",
-      "text": "Avenge (3): Your Tavern spells give an extra +1 Attack this game."
+      "text": "Avenge (3): Your Tavern spells give an extra +1 Attack this game.",
+      "trinket_effect": {
+        "type": "avenge",
+        "count": 3
+      }
     },
     {
-      "name": "Wildfeather Duster",
-      "cost": 1,
-      "tier": "lesser",
-      "text": "After you summon 6 Beasts, get a random Beast. (6 left!)"
-    },
-    {
-      "name": "Wisdomball Supply",
-      "cost": 2,
-      "tier": "lesser",
-      "text": "Get a Knockoff Wisdomball. At the start of each turn, repeat this."
-    },
-    {
+      "card_id": "worn_treasure_map_l",
       "name": "Worn Treasure Map",
       "cost": 0,
       "tier": "lesser",
-      "text": "In two turns, gain 10 Gold. (Once per game.)"
+      "text": "In two turns, gain 10 Gold. (Once per game.)",
+      "trinket_effect": {
+        "type": "complex"
+      }
+    },
+    {
+      "card_id": "yogg-tastic_pastry_l",
+      "name": "Yogg-Tastic Pastry",
+      "cost": 5,
+      "tier": "lesser",
+      "text": "Spin the Wheel of Yogg-Saron. At the start of each turn, spin it again.",
+      "trinket_effect": {
+        "type": "round_start_effect"
+      }
     }
   ],
   "trinket_count": 258

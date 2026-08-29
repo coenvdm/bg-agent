@@ -15,6 +15,7 @@ import sys
 import urllib.request
 import urllib.error
 from datetime import date
+from typing import Dict
 
 # ---------------------------------------------------------------------------
 # Embedded card data: (name, atk, hp, tribes_list, text)
@@ -629,16 +630,203 @@ def merge_api_data(cards: dict, api_minions: list) -> dict:
     return cards
 
 
+def _trinket_tier(c: dict) -> str:
+    """Return 'lesser' or 'greater'. spellSchool is authoritative; cost is a fallback
+    for older API snapshots that don't set it (some Greater trinkets cost <= 3)."""
+    school = (c.get("spellSchool") or "").upper()
+    if school == "GREATER_TRINKET":
+        return "greater"
+    if school == "LESSER_TRINKET":
+        return "lesser"
+    return "lesser" if c.get("cost", 0) <= 3 else "greater"
+
+
+# Effect-type detection rules for parse_trinket_effect(), checked in order.
+# Each entry: (regex, builder(match, cost) -> effect dict). First match wins.
+# Anything unmatched falls through to a labeled-but-inert "complex" bucket so
+# TrinketHandler can log it instead of silently doing nothing.
+_TRINKET_RULES = []
+
+
+def _trinket_rule(pattern):
+    regex = re.compile(pattern, re.IGNORECASE)
+    def _decorator(fn):
+        _TRINKET_RULES.append((regex, fn))
+        return fn
+    return _decorator
+
+
+@_trinket_rule(r"at the (?:start|end) of (?:each|your|every) turn,?\s*(?:gain|increase your maximum gold by)")
+def _rule_gold_per_round(m, text, cost):
+    max_m = re.search(r"increase your maximum gold by (\d+)", text, re.I)
+    if max_m:
+        return {"type": "max_gold_per_round", "amount": int(max_m.group(1))}
+    gain_m = re.search(r"gain (\d+) gold", text, re.I)
+    if gain_m:
+        return {"type": "gold_per_round", "amount": int(gain_m.group(1))}
+    return None
+
+
+@_trinket_rule(r"^gain (\d+) armor\b")
+def _rule_armor(m, text, cost):
+    return {"type": "armor", "amount": int(m.group(1))}
+
+
+@_trinket_rule(r"^gain (\d+) gold\b")
+def _rule_gold_gain(m, text, cost):
+    effect = {"type": "gold_gain", "amount": int(m.group(1))}
+    max_m = re.search(r"increase your maximum gold by (\d+)", text, re.I)
+    if max_m:
+        effect["max_gold_increase"] = int(max_m.group(1))
+    return effect
+
+
+@_trinket_rule(r"reduce the cost of upgrading the tavern by \((\d+)\)")
+def _rule_level_cost(m, text, cost):
+    amount = int(m.group(1))
+    if re.search(r"at the (start|end) of (each|every) turn|repeat this", text, re.I):
+        return {"type": "level_cost_reduction_per_round", "amount": amount}
+    return {"type": "level_cost_reduction", "amount": amount}
+
+
+@_trinket_rule(r"^your minions have \+(\d+)(?:/\+(\d+))?\s*(attack|health)?\.?$")
+def _rule_stat_buff_all(m, text, cost):
+    atk = int(m.group(1))
+    hp = int(m.group(2)) if m.group(2) else 0
+    if m.group(3) and m.group(3).lower() == "health" and m.group(2) is None:
+        atk, hp = 0, atk
+    return {"type": "stat_buff_all", "atk": atk, "hp": hp}
+
+
+@_trinket_rule(r"^your ([a-z]+?)s? have \+(\d+)(?:/\+(\d+))?\s*(attack|health)?\.?$")
+def _rule_stat_buff_tribe(m, text, cost):
+    tribe = m.group(1).upper()
+    if tribe not in {"BEAST", "DEMON", "DRAGON", "ELEMENTAL", "MECH", "MURLOC",
+                      "NAGA", "PIRATE", "QUILBOAR", "UNDEAD"}:
+        return None  # not a recognised tribe word (e.g. "Your Tavern spells...")
+    atk = int(m.group(2))
+    hp = int(m.group(3)) if m.group(3) else 0
+    if m.group(4) and m.group(4).lower() == "health" and m.group(3) is None:
+        atk, hp = 0, atk
+    return {"type": "stat_buff_tribe", "tribe": tribe, "atk": atk, "hp": hp}
+
+
+@_trinket_rule(r"your minions from tier (\d+) or (?:lower|below) have \+(\d+)(?:/\+(\d+))?")
+def _rule_stat_buff_low_tier(m, text, cost):
+    max_tier = int(m.group(1))
+    atk = int(m.group(2))
+    hp = int(m.group(3)) if m.group(3) else 0
+    return {"type": "stat_buff_low_tier", "max_tier": max_tier, "atk": atk, "hp": hp}
+
+
+@_trinket_rule(r"^at the end of (?:each|your) turn,? give your left-most minion \+(\d+)(?:/\+(\d+))?")
+def _rule_eot_leftmost(m, text, cost):
+    atk = int(m.group(1))
+    hp = int(m.group(2)) if m.group(2) else 0
+    return {"type": "end_of_turn_buff_leftmost", "atk": atk, "hp": hp}
+
+
+@_trinket_rule(r"^at the end of (?:each|your) turn,? give your minions \+(\d+)(?:/\+(\d+))?\.?$")
+def _rule_eot_all(m, text, cost):
+    atk = int(m.group(1))
+    hp = int(m.group(2)) if m.group(2) else 0
+    return {"type": "end_of_turn_buff_all", "atk": atk, "hp": hp}
+
+
+@_trinket_rule(r"^at the end of (?:each|your) turn,? give your ([a-z]+?)s? \+(\d+)(?:/\+(\d+))?")
+def _rule_eot_tribe(m, text, cost):
+    tribe = m.group(1).upper()
+    if tribe not in {"BEAST", "DEMON", "DRAGON", "ELEMENTAL", "MECH", "MURLOC",
+                      "NAGA", "PIRATE", "QUILBOAR", "UNDEAD"}:
+        return None
+    atk = int(m.group(2))
+    hp = int(m.group(3)) if m.group(3) else 0
+    return {"type": "end_of_turn_buff_tribe", "tribe": tribe, "atk": atk, "hp": hp}
+
+
+@_trinket_rule(r"^start of combat:\s*give your minions \+(\d+)(?:/\+(\d+))?\.?$")
+def _rule_soc_all(m, text, cost):
+    atk = int(m.group(1))
+    hp = int(m.group(2)) if m.group(2) else 0
+    return {"type": "start_of_combat_buff_all", "atk": atk, "hp": hp}
+
+
+@_trinket_rule(r"^start of combat:\s*give your ([a-z]+?)s? \+(\d+)(?:/\+(\d+))?")
+def _rule_soc_tribe(m, text, cost):
+    tribe = m.group(1).upper()
+    if tribe not in {"BEAST", "DEMON", "DRAGON", "ELEMENTAL", "MECH", "MURLOC",
+                      "NAGA", "PIRATE", "QUILBOAR", "UNDEAD"}:
+        return None
+    atk = int(m.group(2))
+    hp = int(m.group(3)) if m.group(3) else 0
+    return {"type": "start_of_combat_buff_tribe", "tribe": tribe, "atk": atk, "hp": hp}
+
+
+@_trinket_rule(r"avenge\s*\((\d+)\)")
+def _rule_avenge(m, text, cost):
+    return {"type": "avenge", "count": int(m.group(1))}
+
+
+@_trinket_rule(r"^spellcraft:")
+def _rule_spellcraft(m, text, cost):
+    return {"type": "spellcraft"}
+
+
+@_trinket_rule(r"\bdiscover\b")
+def _rule_discover(m, text, cost):
+    return {"type": "discover"}
+
+
+@_trinket_rule(
+    r"\b(whenever|after)\b.*\b(attacks?|deals? damage|takes? damage|dies|is reborn|"
+    r"loses divine shield|is magnetized|magnetize|summon a minion|consumes?)\b"
+)
+def _rule_combat_trigger(m, text, cost):
+    return {"type": "combat_trigger"}
+
+
+@_trinket_rule(r"at the (?:start|end) of (?:each|every) turn")
+def _rule_round_start_effect(m, text, cost):
+    return {"type": "round_start_effect"}
+
+
+def parse_trinket_effect(text: str, cost: int) -> dict:
+    """Classify a trinket's raw text into a structured effect dict.
+
+    Tries each rule in _TRINKET_RULES in order and returns the first match.
+    Falls back to {"type": "complex"} — a safe, labeled no-op — when nothing
+    matches, so TrinketHandler can log unimplemented cards instead of
+    silently doing nothing for an unrecognised type string.
+    """
+    for regex, builder in _TRINKET_RULES:
+        m = regex.search(text)
+        if not m:
+            continue
+        effect = builder(m, text, cost)
+        if effect is not None:
+            return effect
+    return {"type": "complex"}
+
+
 def build_trinket_list(api_trinkets: list) -> list:
-    """Build a simplified list of trinket dicts from API data."""
+    """Build a list of trinket dicts (with card_id + trinket_effect) from API data."""
     trinkets = []
+    seen_ids: Dict[str, int] = {}
     for c in api_trinkets:
         cost = c.get("cost", 0)
+        tier = _trinket_tier(c)
+        text = _clean_api_text(c.get("text", ""))
+        base_id = make_card_id(c.get("name", "")) + ("_g" if tier == "greater" else "_l")
+        n = seen_ids.get(base_id, 0)
+        seen_ids[base_id] = n + 1
+        card_id = base_id if n == 0 else f"{base_id}_{n + 1}"
         trinkets.append({
+            "card_id": card_id,
             "name": c.get("name", ""),
             "cost": cost,
-            "tier": "lesser" if cost <= 3 else "greater",
-            "text": _clean_api_text(c.get("text", "")),
+            "tier": tier,
+            "text": text,
+            "trinket_effect": parse_trinket_effect(text, cost),
         })
     return sorted(trinkets, key=lambda x: (x["tier"], x["name"]))
 

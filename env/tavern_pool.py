@@ -46,10 +46,19 @@ class TavernPool:
     # ------------------------------------------------------------------
 
     def _build_pool(self) -> None:
-        """Fill self._pool with COPIES_PER_TIER copies of every card."""
+        """Fill self._pool with COPIES_PER_TIER copies of every minion card.
+
+        card_defs also contains trinkets merged in by train.load_card_defs
+        (keyed by their own card_id, tier is the string "lesser"/"greater"
+        rather than an int 1-7) — those are drawn by TrinketHandler, not the
+        Tavern, and must be skipped here or int-tier comparisons in draw()
+        below will crash on them.
+        """
         self._pool = []
         for card_id, card_def in self._card_defs.items():
             tier = card_def.get("tier", 1)
+            if not isinstance(tier, int):
+                continue
             n_copies = COPIES_PER_TIER.get(tier, 1)
             for _ in range(n_copies):
                 # Store a shallow copy with card_id injected as a field so that

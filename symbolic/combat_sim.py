@@ -895,8 +895,6 @@ def _apply_soc(
             _soc_amber_guardian(m, side, rng)
         elif "humming_bird" in key or "hummingbird" in key:
             _soc_humming_bird(m, side)
-        elif "prized_promo" in key:            # "prized_promo_drake" or "prized_promo-drake"
-            _soc_promo_drake(m, side)
         elif "misfit_dragonling" in key:
             _soc_misfit_dragonling(m, tavern_tier)
         elif "fire_forged_evoker" in key or "fire-forged_evoker" in key:
@@ -928,14 +926,6 @@ def _soc_humming_bird(m: CombatMinion, side: CombatSide):
     for x in side.minions:
         if x.has_tribe("BEAST"):
             x.attack += 1 * mult
-
-
-def _soc_promo_drake(m: CombatMinion, side: CombatSide):
-    mult = 2 if m.golden else 1
-    for x in side.minions:
-        if x.has_tribe("DRAGON"):
-            x.attack += 4 * mult
-            x.health += 4 * mult
 
 
 def _soc_misfit_dragonling(m: CombatMinion, tavern_tier: int):
@@ -1028,73 +1018,43 @@ def _fire_on_attack_auras(attacker: CombatMinion, side: CombatSide) -> None:
                 continue
             mult = 2 if m.golden else 1
             nk = m.name_key
-            if "twilight_watcher" in nk:
-                # +1/+3 to all friendly Dragons whenever a Dragon attacks
-                for d in side.minions:
-                    if not d.dead and d.has_tribe("DRAGON"):
-                        d.attack += 1 * mult
-                        d.health += 3 * mult
-            elif "roaring_recruiter" in nk and m is not attacker:
+            if "roaring_recruiter" in nk and m is not attacker:
                 # +3/+1 to the attacking Dragon (different from Rally — this is an aura)
                 attacker.attack += 3 * mult
                 attacker.health += 1 * mult
+    if attacker.has_tribe("BEAST"):
+        for m in side.minions:
+            if m.dead:
+                continue
+            mult = 2 if m.golden else 1
+            if "cage_gnawer" in m.name_key:
+                # +2/+1 to all friendly Beasts whenever a Beast attacks
+                for b in side.minions:
+                    if not b.dead and b.has_tribe("BEAST"):
+                        b.attack += 2 * mult
+                        b.health += 1 * mult
 
 
 def _fire_on_damage_auras(victim: CombatMinion, side: CombatSide,
                            rng: random.Random) -> None:
     """Fire auras that trigger when a friendly minion takes damage (shield not popped)."""
-    for m in side.minions:
-        if m.dead:
-            continue
-        mult = 2 if m.golden else 1
-        nk = m.name_key
-        if "hardy_orca" in nk and m is victim:
-            # +1/+1 to all other friendlies when Hardy Orca itself takes damage
-            for other in side.minions:
-                if not other.dead and other is not m:
-                    other.attack += 1 * mult
-                    other.health += 1 * mult
-        elif victim.has_tribe("BEAST"):
-            if "iridescent_skyblazer" in nk:
-                # +3/+1 to a random other friendly Beast whenever a Beast takes damage
-                candidates = [x for x in side.minions
-                              if not x.dead and x is not victim and x.has_tribe("BEAST")]
-                if candidates:
-                    t = rng.choice(candidates)
-                    t.attack += 3 * mult
-                    t.health += 1 * mult
-            elif "trigore" in nk and m is not victim:
-                # Trigore gains +2 Health permanently when another Beast takes damage
-                m.health += 2 * mult
+    # No cards currently in the active pool hook combat damage to an aura —
+    # kept as a no-op stub so callers don't need to special-case its absence.
+    return
 
 
 def _fire_on_demon_damage(attacker: CombatMinion, side: CombatSide) -> None:
     """Fire auras that trigger when a friendly Demon deals damage."""
-    for m in side.minions:
-        if m.dead:
-            continue
-        mult = 2 if m.golden else 1
-        if "lord_of_the_ruins" in m.name_key:
-            # +2/+1 to all other friendlies after a Demon deals damage
-            for other in side.minions:
-                if not other.dead and other is not attacker:
-                    other.attack += 2 * mult
-                    other.health += 1 * mult
+    # No cards currently in the active pool hook Demon damage to an aura —
+    # kept as a no-op stub so callers don't need to special-case its absence.
+    return
 
 
 def _apply_passive_auras(side: CombatSide) -> None:
     """Apply passive auras (constant stat bonuses) before the first attack."""
-    for m in side.minions:
-        if m.dead:
-            continue
-        mult = 2 if m.golden else 1
-        if "shore_marauder" in m.name_key:
-            # +1/+1 to all friendly Pirates and Elementals
-            for other in side.minions:
-                if not other.dead and other is not m:
-                    if other.has_tribe("PIRATE") or other.has_tribe("ELEMENTAL"):
-                        other.attack += 1 * mult
-                        other.health += 1 * mult
+    # No cards currently in the active pool grant a flat passive combat aura —
+    # kept as a no-op stub so callers don't need to special-case its absence.
+    return
 
 
 def _do_attack(

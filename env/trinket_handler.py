@@ -33,7 +33,9 @@ class TrinketHandler:
     card_defs:
         Full card definition mapping (card_id → def dict). Trinkets are
         identified by card_def["type"] == "TRINKET" or presence of
-        card_def["trinket_rarity"] in {"lesser", "greater"}.
+        card_def["tier"] in {"lesser", "greater"} (the field name produced
+        by bg_card_pipeline.build_trinket_list — minions use an int "tier"
+        1-7, so the string check alone disambiguates from minion entries).
     rng:
         Optional random.Random for reproducibility.
     """
@@ -45,7 +47,8 @@ class TrinketHandler:
         self._greater_pool: List[str] = []
 
         for card_id, cdef in card_defs.items():
-            rarity = cdef.get("trinket_rarity", "").lower()
+            rarity = cdef.get("tier", "")
+            rarity = rarity.lower() if isinstance(rarity, str) else ""
             ctype  = cdef.get("type", "").upper()
             if ctype == "TRINKET" or rarity in ("lesser", "greater"):
                 if rarity == "greater":

@@ -1,7 +1,7 @@
 # BG Card Pool — Current Active Card Definitions
 
 Source: HearthstoneJSON API, filtered to `isBattlegroundsPoolMinion: true` (minions) and `type: BATTLEGROUND_TRINKET` (trinkets).
-Scraped: 2026-08-29. **275 minions** across 7 tiers + **258 trinkets** (201 Lesser, 57 Greater).
+Scraped: 2026-08-29. **275 minions** across 7 tiers + **258 trinkets** (129 Lesser, 129 Greater).
 
 Format: `Name (ATK/HP) [Tribe]: Card text`
 
@@ -326,268 +326,268 @@ Format: `Name (ATK/HP) [Tribe]: Card text`
 
 ---
 
-### Trinkets — Lesser (201)
+### Trinkets — Lesser (129)
 
-- All-Purpose Kibble (0 Gold): Whenever a friendly Beast attacks, give it +2 Attack and permanently improve this.
 - Alliance Keychain (0 Gold): The first time a friendly minion dies each combat, give its maximum stats to a random friendly minion.
 - Ancient Wishbone (2 Gold): Your Hero Power triggers twice.
 - Archaic Scroll (3 Gold): After you cast 7 spells, get a random Naga. (7 left!)
 - Artisanal Urn (1 Gold): Your Undead have +3 Attack.
-- Artisanal Urn (0 Gold): Your Undead have +15 Attack.
+- Auric Offering (4 Gold): At the end of each turn, give your left-most minion +4/+3. Repeat for each friendly Golden minion.
 - Azeroth Model Globe (0 Gold): At the start of every two turns, gain 2 Gold and Discover a Tier 6 minion. (2 turns left!)
 - Azsharan Statuette (2 Gold): Get 3 random Spellcraft. spells. At the start of each turn, get 3 more.
+- Baleful Incense (4 Gold): Start of Combat: Give your left and right-most Undead Reborn.
 - Bartend-o-Tron's Oilcan (2 Gold): Reduce the Cost of upgrading the Tavern by (3). At the start of each turn, repeat this.
-- Battle Horn (0 Gold): Discover a Battlecry. minion. Avenge (2): Trigger a friendly Battlecry.
 - Beetle Band (0 Gold): Avenge (5): Summon a 2/2 Beetle. Give it Taunt.
 - Bird Feeder (3 Gold): Avenge (2): Give your minions +1/+1.
-- Bird Feeder (2 Gold): Avenge (2): Give your minions +4/+4.
 - Bleeding Heart (3 Gold): After 8 friendly minions die, get a random Undead. (8 left!)
 - Blingtron's Sunglasses (3 Gold): After you summon a Mech in combat, give a friendly Mech Divine Shield.
-- Blood Amulet (3 Gold): After you trigger a Deathrattle, this plays a permanent Blood Gem on 3 random friendly minions.
 - Bloodbound Earrings (0 Gold): After you cast 4 spells, this plays a Blood Gem on all your minions. (4 left!)
-- Bloodbound Ring (0 Gold): After you play a Blood Gem. from hand, this plays a Blood Gem on your minions with Divine Shield.
-- Bloodfury Shield (2 Gold): Whenever you cast a Tavern spell, add a Fodder to your next Refresh.
 - Bluegill Flippers (2 Gold): Whenever you cast a Tavern spell, give the left-most minion in your hand and warband +3/+3.
-- Bob's Tip Jar (0 Gold): Gain 4 Gold. Increase your maximum Gold by 4.
 - Bob-blehead (0 Gold): Gain 2 Gold. The Tavern no longer offers cards from Tier 1 or Tier 2.
 - Book of Medivh (1 Gold): Discover a Tavern spell. At the start of each turn, Discover another.
-- Book of Medivh (2 Gold): Discover 2 Tavern spells. At the start of each turn, Discover 2 more.
 - Booty Bay Brew (3 Gold): Whenever you spend Gold, give two friendly Pirates +3/+3.
-- Booty Bay Brew (2 Gold): Whenever you spend Gold, give two friendly Pirates +6/+6.
 - Bubble Crown (0 Gold): Once you cast 12 spells, your Tavern spells give an extra +4/+4. (12 left!)
 - Burgling Claw (1 Gold): At the start of each turn, get a plain copy of the highest-Tier minion in your last opponent's warband.
-- Butcher's Sickle (3 Gold): Get a Butchering. At the start of each turn, get another.
 - Ceremonial Sword (2 Gold): Whenever a friendly minion attacks, give it +4 Attack.
-- Charging Staff (1 Gold): At the end of each turn, give your minions with Divine Shield +7 Attack.
+- Charging Staff (4 Gold): At the end of each turn, give your minions with Divine Shield +3 Attack.
+- Charm of Generosity (5 Gold): After your team Passes, give your minions +2 Attack.
 - Chromatic Tear (2 Gold): Get a random Chromadrake. At the start of each turn, repeat this.
-- Chromatic Tear (1 Gold): Get 2 random Chromadrakes. After you play 7 Battlecry minions, repeat this. (7 left!)
-- Cloud Serpent Horn (0 Gold): Avenge (3): Give the Attack of your right-most minion to another friendly Dragon.
 - Colorful Compass (2 Gold): Get a random 92. At the start of each turn, get another.
-- Colorful Compass (2 Gold): Get 2 random 92. At the start of each turn, get 2 more.
 - Comfy Coffin (3 Gold): Whenever you cast a Tavern spell, your Undead have +1 Attack this game (wherever they are).
+- Common Thread (4 Gold): Pass a copy of the first card you buy each turn.
 - Consuming Claw (2 Gold): Whenever a friendly Demon consumes a minion, it also gains its Bonus Keywords and +5/+5.
-- Cookie's Stirring Rod (2 Gold): After you play 5 Murlocs, get two random Tavern spells. (5 left!)
 - Copper Coil (3 Gold): Whenever you Magnetize. a minion, give it +1/+1 and improve this.
-- Copper Coil (3 Gold): Whenever you Magnetize. a minion, give it +3/+2 and improve this.
-- Corrupted Tome (2 Gold): Get a Triple Prize. Whenever you would get a Triple Reward, get a Triple Prize instead.
 - Cowrie Necklace (0 Gold): Tavern spells that give stats cost (2) less.
 - Crocheted Sungill (0 Gold): Start of Combat: Give the highest-Health minion from your hand +4/+4. When you have space, summon it for this combat only.
 - Cursed Crystal (3 Gold): After the Tavern is Refreshed, give its minions +3/+3 this turn.
 - Dalaran Cheese Wheel (0 Gold): Minions in the Tavern have +1/+1. Improves every 4 times you Refresh. (4 left!)
-- Dalaran Cheese Wheel (1 Gold): Minions in the Tavern have +2/+2. Improves every 4 times you Refresh. (4 left!)
-- Darnassus Pie (0 Gold): Minions in the Tavern have +1/+1 for each minion you've sold this turn.
-- Dazzling Dagger (2 Gold): Your minions have +1 Attack. (Improved by every 4 spells you've cast this game!)
 - Deathly Phylactery (0 Gold): Discover a Deathrattle. minion. Your first Deathrattle each combat triggers an extra time.
 - Defensive Shell (1 Gold): The first minion you play each turn gains Divine Shield.
 - Demonblood Gourd (0 Gold): Spellcraft: Choose a friendly minion. It consumes a random minion in the Tavern to gain its stats.
 - Demonic Bloodletter (2 Gold): Whenever you cast a Tavern spell, give minions in the Tavern +1/+1 this game.
 - Demonic Tapestry (1 Gold): After you Refresh 4 times, the highest-Tier minion in the Tavern costs Health instead of Gold to buy. (4 left!)
-- Divine Signet (3 Gold): After a friendly minion loses Divine Shield, get a random Tavern spell. (4 times per combat.)
-- Double Stitch Needle (1 Gold): Spellcraft: Choose a friendly minion. Double its stats and lock it in your hand for 1 turn.
 - Dragon Skull (3 Gold): Whenever you trigger a Battlecry, give your left-and right-most minions +5/+5.
 - Dragonwing Glider (1 Gold): Whenever you play a card, give a friendly Dragon +4/+4.
-- Dragonwing Glider (0 Gold): Whenever you play a card, give a friendly Dragon +6/+4.
 - Eclectic Shrine (1 Gold): Start of Combat: Give a friendly minion of each different type +3/+2. Improve this permanently.
 - Electromagnetic Device (2 Gold): Discover a Magnetic. Mech. Whenever a friendly minion is Magnetized, give it +3/+3.
-- Elementium Chest (1 Gold): Each combat, after 2 friendly Pirates attack, gain 1 Gold next turn. (2 left!)
 - Emergency Gearblade (2 Gold): At the end of your turn, cast Repair Job on your left-most Mech.
 - Empowered Mirror (3 Gold): Become a copy of your teammate's Lesser Trinket.
-- Empowered Mirror (3 Gold): Become a copy of your teammate's Greater Trinket.
 - Enigmatic Headstone (1 Gold): At the end of each turn, your Undead have +2 Attack this game (wherever they are).
-- Essence of Dreams (3 Gold): Get 2 copies of Dreamer's Embrace. At the start of each turn, get 1 more.
 - Explorer's Binoculars (1 Gold): Get three random Tier 4 minions.
-- Exquisite Dishware (3 Gold): At the end of each turn, get a random minion of each different type you control.
-- Extravagant Scale (2 Gold): When you spend 20 Gold, double your minions' Attack. (Twice per game.)
-- Faerie Dragon Scale (3 Gold): Whenever a friendly Dragon attacks, give it Divine Shield. (3 times per combat.)
-- Fancy Spellbook (3 Gold): After you spend 7 Gold, cast Shiny Ring. (7 Gold left!)
-- Fang Anklet (3 Gold): Start of Combat: Your Beasts have +1/+1 this combat. After you summon a Beast, improve this permanently.
-- Felsteel Cleaver (0 Gold): After you cast a spell on a Tavern minion, a random friendly minion consumes it to gain its stats.
 - Feral Talisman (2 Gold): Your minions have +2/+1.
-- Feral Talisman (1 Gold): Your minions have +8/+5.
 - Finley's Helmet (2 Gold): After the Tavern is Refreshed, give Murlocs in it +5/+5 and a random Bonus Keyword.
 - Floating Candle Set (3 Gold): Spellcraft: Trigger a friendly minion's Deathrattle.
 - Fountain Pen (0 Gold): Your Elementals that give stats grant an extra +2/+1.
-- Fountain Pen (1 Gold): Your Elementals that give stats grant an extra +4/+2.
 - Frigid Blossom (0 Gold): After you Refresh, reduce the cost of upgrading the Tavern by (1).
-- Funeral Wreath (3 Gold): After a friendly minion is Reborn, get a plain copy of it. (3 times per combat.)
 - Gem Donation (1 Gold): The first minion you sell each turn plays its Blood Gems on the 3 highest-Tier minions in the Tavern.
 - Gilded Anchor (2 Gold): At the end of each turn, give your Golden minions +3/+3.
-- Gilded Anchor (2 Gold): At the end of each turn, give your Golden minions +10/+10.
-- Gilnean Thorned Rose (1 Gold): Avenge (3): Give your minions +4/+5 permanently and deal 1 damage to them.
 - Glass of Perspective (2 Gold): Get a random Choose One card. At the start of each turn, get another.
-- Glass of Perspective (3 Gold): Get 2 random Choose One cards. At the start of each turn, get 2 more.
 - Glowing Crystal (1 Gold): At the start of your turn, gain 1 Gold for each different friendly minion type.
 - Glowing Gauntlet (1 Gold): Minions in the Tavern have +3/+3. The Tavern always has 7 cards.
 - Goblin Wallet (1 Gold): At the end of each turn, increase your maximum Gold by 1.
 - Gold Mallet (2 Gold): At the end of your turn, give your minions +2/+1. (Improved by Golden minions you've played this game!)
-- Gold Mallet (2 Gold): At the end of your turn, give your minions +4/+2. (Improved by Golden minions you've played this game!)
 - Gold Pendant (1 Gold): Make a random friendly minion from Tier 4 or below Golden. At the start of each turn, repeat this.
-- Gold-plated Compass (0 Gold): Make the next 92 you buy Golden. Gain 5 free Refreshes.
 - Goldenizer Supply (0 Gold): At the end of every 3 turns, get a Goldenizer. (3 turns left!)3At the end of every 3 turns, get a Goldenizer. (End of this turn!)
-- Greater Trinket (0 Gold): The Greater Trinket Shop opens in 8 turns!8The second Trinket Shop opens next turn!
-- Guiding Candle (1 Gold): Your first two Refreshes. each turn contain only Tier 6 cards. (2 left!)
+- Heart of the Forest (4 Gold): Your Tavern spells give an extra +1/+1. After you cast 5 Tavern spells, improve this. (5 left!)
 - Herding Horn (1 Gold): Whenever a friendly Rally minion attacks, gain a free Refresh.
 - Hoggy Bank (0 Gold): Start of Combat: Give your Quilboar "Deathrattle: Get 2 Blood Gems.".
 - Holy Mallet (1 Gold): Start of Combat: Give your left and right-most minions Divine Shield.
-- Honeycomb Ring (1 Gold): Your Tavern spells give an extra +1/+1. After you cast a spell on a minion, improve for this turn only.
-- Horde Keychain (2 Gold): Your minions from Tier 3 or lower have +7/+5.
 - Horn of Summoning (2 Gold): Get six different Tier 1 minions.
 - Inductive Gyroblade (2 Gold): At the end of your turn, get a 4/4 Magnetic Satellite. (Improved by each Tavern spell you've cast this turn!)
-- Inductive Gyroblade (2 Gold): At the end of your turn, get a 8/8 Magnetic Satellite. (Improved by each Tavern spell you've cast this turn!)
 - Innkeeper's Hearth (1 Gold): Discover a minion of your Tier. Set its stats to 12/12.
-- Innkeeper's Hearth (0 Gold): Discover two Tier 6 minions. Set their stats to 30/30.
 - Innkeeper's Stein (1 Gold): The Tavern offers an extra minion of a higher Tier whenever it is Refreshed.
-- Insurrectionist's Blade (3 Gold): At the end of your turn, trigger all friendly Rallies.
 - Investment Contract (0 Gold): After you Pass, reduce the Cost of upgrading the Tavern by (1).
-- Jar o' Gems (0 Gold): After 2 friendly minions attack each combat, this plays a Blood Gem on all your Quilboar. (2 left!)
-- Jarred Frostling (3 Gold): Start of Combat: Give 2 friendly Elementals "Deathrattle: Summon a Flourishing Frostling".
 - Jewelry Box (0 Gold): Get a Blood Gem that gives a Quilboar Taunt, Divine Shield, or Reborn. At the start of each turn, repeat this.
 - Kaleidoscope (1 Gold): Discover a Tier 7 minion. Lock it in your hand for 2 .
-- Kaleidoscope (0 Gold): Discover a Golden Tier 7 minion. Lock it in your hand for 2 .
 - Kodo Leather Pouch (3 Gold): After you buy a card, give two random friendly minions +2/+1.
-- Lava Lamp (2 Gold): After you sell 6 minions, get a random Elemental. (6 left!)
-- Lavish Cape (0 Gold): Cast a random Tavern spell for each different friendly minion type. At the start of each turn, repeat this.
 - Lens Case (3 Gold): Get a Duplicating Lens. At the start of every 2 turns, repeat this. (2 turns left!)
 - Lesser Trinket (0 Gold): The Lesser Trinket Shop opens in 5 turns!5The Lesser Trinket Shop opens next turn!
 - Lightning in a Bottle (0 Gold): After the Tavern is Refreshed, give the stats of its highest-Attack minion to its lowest.
 - Lorewalker Scroll (2 Gold): Whenever you cast a spell on a minion, give it +4/+4.
-- Lorewalker Scroll (2 Gold): Whenever you cast a spell on a minion, give it +10/+10.
 - Lovely Locket (0 Gold): After you cast a spell on a friendly minion, this casts it on another friendly minion.
 - Lucky Tabby (1 Gold): After 7 friendly minions die, get a random Beast. (7 left!)
-- Magic Road Sign (3 Gold): After you sell your first minion each turn, Pass it.
 - Magician's Top Hat (2 Gold): Get two minions each from Tiers 1, 2, and 3.
 - Marine Signet (1 Gold): After you play 4 minions, get a random Tier 1 Tavern spell and improve this. (4 left!)
-- Marvelous Mushroom (2 Gold): Your Tavern spells give an extra +1/+1. At the start of each turn, improve this.
-- Miniature Ship (3 Gold): After you cast a Tavern spell, give your Pirates +2/+2.
 - Minion Bait (1 Gold): The Tavern offers 2 extra 92 whenever it is Refreshed.
-- Mug of the Sire (2 Gold): Whenever you would summon a minion that doesn't fit in your warband, give your minions +5 Attack.
-- Multilayered Shield (2 Gold): Your Tavern spells give an extra +1/+2. (Improved by each different friendly minion type!)
 - Mysterious Orb (0 Gold): Gain 10 Gold. Your next Trinket is a Lesser Trinket.
+- Mystery Cube (5 Gold): Choose from 2 new Lesser Trinkets to replace this for free. At the start of each turn, repeat this.
 - Nerglish Phrasebook (1 Gold): After you play a minion, give the left-most minion in your hand +3/+3.
-- Nerglish Phrasebook (1 Gold): After you play a minion, give the left-most minion in your hand +6/+6.
 - Ominous Stone (0 Gold): Discover a Tier 4 minion of your most common type with a Dark Gift.
+- Ophidian Staff (5 Gold): Spellcraft: Give a Beast +2/+2 and Reborn.
 - Orb of the Unknown (0 Gold): Get a random Lesser Trinket.
-- Orb of the Unknown (0 Gold): Get a random Greater Trinket and 4 Gold.
 - Ornate Clock (0 Gold): Gain 2 Gold. Buy your Greater Trinket. next turn instead of Turn 9.
-- Peacebloom Candle (2 Gold): The first 3 Tavern spells you buy each turn are free. (3 left!)
 - Pocket Cyclone (0 Gold): Cast Easterly Winds. At the start of each turn, cast it again.
-- Pocket Cyclone (1 Gold): Cast Easterly Winds four times. At the start of each turn, cast it twice more.
-- Portable Factory (0 Gold): Discover a Tier 5 minion with a type. At the start of each turn, get another copy of it.
-- Precious Pearl (0 Gold): Spellcraft: Give a minion +30/+30 until next turn.
+- Portable Factory (6 Gold): Discover a Tier 4 minion with a type. At the start of each turn, get another copy of it.
 - Primordial Terrarium (2 Gold): After you play an Elemental, your next Tavern spell costs (1) less.
-- Protective Ring (3 Gold): Start of Combat: Give 4 random friendly Pirates Divine Shield.
 - Quilligraphy Set (0 Gold): Avenge (3): Your Blood Gems give an extra +1 Health this game.
-- Quilligraphy Set (2 Gold): Avenge (4): Your Blood Gems give an extra +1/+1 this game.
-- Reinforced Shield (3 Gold): Whenever you summon a minion, give it Divine Shield. (5 times per combat.)
+- Reflective Pendant (6 Gold): Get a plain copy of a random friendly minion. At the start of each turn, repeat this.
 - Replica Cathedral (3 Gold): Your first spell each turn casts an extra time.
 - Reusable Batteries (2 Gold): The first time you buy a minion each turn, get a Magnetic Satellite with its stats.
 - Rockin' Music Box (1 Gold): Get a random Battlecry. minion. At the start of each turn, get another.
 - Rune of Transmutation (0 Gold): After you cast 15 spells, replace this with a random Greater Naga Trinket. (15 left!)
 - Rusty Trident (1 Gold): Start of Combat: Give your Naga "Deathrattle: Get a random Spellcraft spell.".
 - Sacrificial Altar (1 Gold): Remove all your minions. Gain 3 Gold for each removed.
-- Safety Patch (0 Gold): Cast Ice Block. Gain 5 Gold.
-- Secret Schematic (0 Gold): After you buy a Mech, get a random Tavern spell.
 - Shadowy Elixir (0 Gold): Gain 5 Armor. After you play a Demon, deal 1 damage to your hero.
 - Shaman Prayer Beads (2 Gold): After you buy 2 Battlecry. minions, get a random Battlecry minion. (2 left!)
-- Shark Cannon (0 Gold): After you spend 10 Gold, give your Pirates +1/+1 and improve this. (10 Gold left!)
 - Ship in a Bottle (0 Gold): Start of Combat: Summon and get a random Pirate. It attacks immediately.
 - Shrine of Evolution (0 Gold): Transform all your minions into random Tier 4 minions.
 - Souvenir Stand (0 Gold): When you buy a Greater Trinket, this transforms into a copy of it.
 - Spell-powered Wrench (2 Gold): After you play a Magnetic minion, cast Repair Job on a random friendly Mech.
-- Sphere of Memory (2 Gold): At the end of your turn, get 3 copies of the last Tavern spell you cast.
 - Splinter of Aurum (2 Gold): When you have 15 Gold, get a random Golden Tier 5 minion. (Once per game.)
+- Staff of the Scourge (5 Gold): Avenge (5): Give a random friendly Undead Reborn.
 - Stuffed Coin Purse (0 Gold): When you reach Tier 6, gain 12 gold.
+- Summoning Sphere (4 Gold): Start of Combat: Summon a copy of your teammate's highest-Health minion.
+- Sunken Anchor (6 Gold): Get 2 random Bounties. At the start of each turn, repeat this.
 - The Eye of Dalaran (2 Gold): Whenever a friendly minion with no type dies, get a random Tavern spell.
-- Thornspike Pauldron (1 Gold): After you trigger a Deathrattle, your Blood Gems give an extra +2/+1 until next combat.
 - Tiger Carving (1 Gold): Whenever a friendly minion takes damage, give another friendly minion +3/+1 permanently.
-- Tiger Carving (2 Gold): Whenever a friendly minion takes damage, give another friendly minion +6/+2 permanently.
 - Timeworn Candelabra (1 Gold): Discover a 2-Cost minion from the Minor Timewarp.
-- Timeworn Candelabra (0 Gold): Discover a 2-Cost minion from the Major Timewarp.
-- Tinyfin Onesie (0 Gold): Start of Combat: Your left-most minion gains the stats of the highest-Health minion in your hand.
 - Token of the Old Gods (2 Gold): Spellcraft: Choose a minion. Then choose a minion from a Tier higher to transform it into.
-- Toxic Stinger (0 Gold): At the end of each turn, give a random friendly Murloc +8/+8 and Venomous.
 - Training Certificate (2 Gold): Start of Combat: Double the stats of your two lowest-Attack minions.
 - Transcribing Typewriter (2 Gold): Get an extra copy of the next 2 minions you buy. (2 left!)
 - Trip Vouchers (1 Gold): In 2 turns, choose a Greater Trinket to buy and replace this. (2 turns left!)
-- Trusty Crowbar (0 Gold): Whenever you get a Pirate, give your left-most minion +12/+12.
-- Turbocharged Drill (0 Gold): Get 5 different Magnetic Mechs of ANY Tier.
-- Twin Sky Lanterns (1 Gold): When you have space, summon a copy of the first minion you summon each combat.
 - Unholy Sanctum (3 Gold): After you trigger a Deathrattle, give your right-most minion +2/+2 permanently.
-- Unholy Sanctum (0 Gold): After you trigger a Deathrattle, give your right-most minion +6/+4 permanently.
 - Valorous Medallion (2 Gold): Start of Combat: Give your minions +2/+2.
-- Valorous Medallion (3 Gold): Start of Combat: Give your minions +6/+6.
 - Vash'jir Anemone (1 Gold): Start of Combat: Give your Naga +1 Health. (Improved by every 4 spells you've cast this game!)
 - Vibrant Bubble (3 Gold): Spellcraft: Give a Murloc a random Bonus Keyword.
 - Wand of Divination (0 Gold): After you cast 3 spells on minions, gain 1 Gold. (3 left!)
 - War Drum (2 Gold): One Battlecry each turn triggers two extra times. (1 left!)
-- Warband Whistle (2 Gold): Gain a free Refresh that contains plain copies of minions in your warband.
 - Warcry Totem (2 Gold): The first two Battlecry. minions you buy each turn are free. (2 left!)
 - Water Wheel (1 Gold): After you play an Elemental, get a random Tavern spell. (Twice per turn.)
 - Wax Imprinter (0 Gold): Gain 2 Gold and take 2 damage. At the start of each turn, repeat this (if possible).
-- Wax Lance (3 Gold): Discover a Tier 7 minion with a Dark Gift.
 - Wicked Tome (3 Gold): Avenge (3): Your Tavern spells give an extra +1 Attack this game.
-- Wildfeather Duster (1 Gold): After you summon 6 Beasts, get a random Beast. (6 left!)
-- Wisdomball Supply (2 Gold): Get a Knockoff Wisdomball. At the start of each turn, repeat this.
 - Worn Treasure Map (0 Gold): In two turns, gain 10 Gold. (Once per game.)
+- Yogg-Tastic Pastry (5 Gold): Spin the Wheel of Yogg-Saron. At the start of each turn, spin it again.
 
 ---
 
-### Trinkets — Greater (57)
+### Trinkets — Greater (129)
 
+- All-Purpose Kibble (0 Gold): Whenever a friendly Beast attacks, give it +2 Attack and permanently improve this.
 - Alliance Keychain (6 Gold): The first time a friendly minion dies each combat, give its maximum stats to 2 random friendly minions.
 - Amplifying Essence (4 Gold): Your Elementals give an extra +1/+1. After you play 5 Elementals, improve this. (5 left!)
-- Auric Offering (4 Gold): At the end of each turn, give your left-most minion +4/+3. Repeat for each friendly Golden minion.
-- Baleful Incense (4 Gold): Start of Combat: Give your left and right-most Undead Reborn.
+- Artisanal Urn (0 Gold): Your Undead have +15 Attack.
+- Battle Horn (0 Gold): Discover a Battlecry. minion. Avenge (2): Trigger a friendly Battlecry.
 - Beetle Band (5 Gold): Avenge (7): Summon two 2/2 Beetles. Give them Taunt.
 - Bewitched Ribbon (4 Gold): Whenever you cast a spell, give your minions +1/+1 permanently. (+2/+2 while in combat!)
+- Bird Feeder (2 Gold): Avenge (2): Give your minions +4/+4.
+- Blood Amulet (3 Gold): After you trigger a Deathrattle, this plays a permanent Blood Gem on 3 random friendly minions.
 - Bloodbound Earrings (6 Gold): After you cast 5 spells, this plays two Blood Gems. on all your minions. (5 left!)
+- Bloodbound Ring (0 Gold): After you play a Blood Gem. from hand, this plays a Blood Gem on your minions with Divine Shield.
+- Bloodfury Shield (2 Gold): Whenever you cast a Tavern spell, add a Fodder to your next Refresh.
+- Bob's Tip Jar (0 Gold): Gain 4 Gold. Increase your maximum Gold by 4.
+- Book of Medivh (2 Gold): Discover 2 Tavern spells. At the start of each turn, Discover 2 more.
 - Boom Controller (7 Gold): When you have space, summon an exact copy of your first Mech that died each combat.
+- Booty Bay Brew (2 Gold): Whenever you spend Gold, give two friendly Pirates +6/+6.
 - Bronze Timepiece (5 Gold): Start of Combat: Give each of your minions Health equal to half its Attack.
-- Charging Staff (4 Gold): At the end of each turn, give your minions with Divine Shield +3 Attack.
-- Charm of Generosity (5 Gold): After your team Passes, give your minions +2 Attack.
+- Butcher's Sickle (3 Gold): Get a Butchering. At the start of each turn, get another.
+- Charging Staff (1 Gold): At the end of each turn, give your minions with Divine Shield +7 Attack.
 - Charming Panpipes (4 Gold): At the end of each turn, give your left-most minion +3/+3. After you cast a spell, improve this.
 - Chillmere Mosaic (5 Gold): Spellcraft: Refresh the Tavern with Battlecry. minions. They cost (1).
+- Chromatic Tear (1 Gold): Get 2 random Chromadrakes. After you play 7 Battlecry minions, repeat this. (7 left!)
+- Cloud Serpent Horn (0 Gold): Avenge (3): Give the Attack of your right-most minion to another friendly Dragon.
+- Colorful Compass (2 Gold): Get 2 random 92. At the start of each turn, get 2 more.
 - Comfy Coffin (4 Gold): Whenever you cast a Tavern spell, your Undead have +2 Attack this game (wherever they are).
-- Common Thread (4 Gold): Pass a copy of the first card you buy each turn.
+- Cookie's Stirring Rod (2 Gold): After you play 5 Murlocs, get two random Tavern spells. (5 left!)
+- Copper Coil (3 Gold): Whenever you Magnetize. a minion, give it +3/+2 and improve this.
 - Coral Spear (4 Gold): Whenever you cast a Spellcraft spell, cast Might of Stormwind.
+- Corrupted Tome (2 Gold): Get a Triple Prize. Whenever you would get a Triple Reward, get a Triple Prize instead.
+- Dalaran Cheese Wheel (1 Gold): Minions in the Tavern have +2/+2. Improves every 4 times you Refresh. (4 left!)
+- Darnassus Pie (0 Gold): Minions in the Tavern have +1/+1 for each minion you've sold this turn.
 - Darnassus Pie (8 Gold): Minions in the Tavern have +2/+2 for each minion you've sold this turn.
+- Dazzling Dagger (2 Gold): Your minions have +1 Attack. (Improved by every 4 spells you've cast this game!)
 - Deathtouch Apple (4 Gold): After a friendly Undead is Reborn, give it Reborn. (3 times per turn.)
 - Designer Eyepatch (7 Gold): You only need 2 copies of a Pirate to make it Golden.
+- Divine Signet (3 Gold): After a friendly minion loses Divine Shield, get a random Tavern spell. (4 times per combat.)
+- Double Stitch Needle (1 Gold): Spellcraft: Choose a friendly minion. Double its stats and lock it in your hand for 1 turn.
 - Dragon's Eye (4 Gold): Your Dragons' Battlecries trigger an extra time.
+- Dragonwing Glider (0 Gold): Whenever you play a card, give a friendly Dragon +6/+4.
 - Electrode Attractor (5 Gold): Magnetic Mechs cost (2). The Tavern offers an extra one whenever it is Refreshed.
 - Electromagnetic Device (5 Gold): Discover 2 Magnetic. Mechs. Whenever a friendly minion is Magnetized, give it +4/+4.
+- Elementium Chest (1 Gold): Each combat, after 2 friendly Pirates attack, gain 1 Gold next turn. (2 left!)
 - Emerald Dreamcatcher (7 Gold): Start of Combat: Set your Dragons' Attack to the highest in your warband.
+- Empowered Mirror (3 Gold): Become a copy of your teammate's Greater Trinket.
+- Essence of Dreams (3 Gold): Get 2 copies of Dreamer's Embrace. At the start of each turn, get 1 more.
+- Exquisite Dishware (3 Gold): At the end of each turn, get a random minion of each different type you control.
+- Extravagant Scale (2 Gold): When you spend 20 Gold, double your minions' Attack. (Twice per game.)
+- Faerie Dragon Scale (3 Gold): Whenever a friendly Dragon attacks, give it Divine Shield. (3 times per combat.)
+- Fancy Spellbook (3 Gold): After you spend 7 Gold, cast Shiny Ring. (7 Gold left!)
+- Fang Anklet (3 Gold): Start of Combat: Your Beasts have +1/+1 this combat. After you summon a Beast, improve this permanently.
 - Felburned Ledger (4 Gold): After your hero takes damage, your Tavern spells give an extra +1/+1 this turn.
+- Felsteel Cleaver (0 Gold): After you cast a spell on a Tavern minion, a random friendly minion consumes it to gain its stats.
+- Feral Talisman (1 Gold): Your minions have +8/+5.
+- Fountain Pen (1 Gold): Your Elementals that give stats grant an extra +4/+2.
 - Fridge Magnet (4 Gold): Avenge (3): Get a random Magnetic minion.
-- Heart of the Forest (4 Gold): Your Tavern spells give an extra +1/+1. After you cast 5 Tavern spells, improve this. (5 left!)
+- Funeral Wreath (3 Gold): After a friendly minion is Reborn, get a plain copy of it. (3 times per combat.)
+- Gilded Anchor (2 Gold): At the end of each turn, give your Golden minions +10/+10.
+- Gilnean Thorned Rose (1 Gold): Avenge (3): Give your minions +4/+5 permanently and deal 1 damage to them.
+- Glass of Perspective (3 Gold): Get 2 random Choose One cards. At the start of each turn, get 2 more.
+- Gold Mallet (2 Gold): At the end of your turn, give your minions +4/+2. (Improved by Golden minions you've played this game!)
+- Gold-plated Compass (0 Gold): Make the next 92 you buy Golden. Gain 5 free Refreshes.
+- Greater Trinket (0 Gold): The Greater Trinket Shop opens in 8 turns!8The second Trinket Shop opens next turn!
+- Guiding Candle (1 Gold): Your first two Refreshes. each turn contain only Tier 6 cards. (2 left!)
 - Heart of the Forest (4 Gold): Your Tavern spells give an extra +1/+1. After you cast 6 Tavern spells from hand, improve this. (6 left!)
 - Hogwash Basin (6 Gold): Start of Combat: This plays 3 Blood Gems on all your minions.
+- Honeycomb Ring (1 Gold): Your Tavern spells give an extra +1/+1. After you cast a spell on a minion, improve for this turn only.
+- Horde Keychain (2 Gold): Your minions from Tier 3 or lower have +7/+5.
+- Inductive Gyroblade (2 Gold): At the end of your turn, get a 8/8 Magnetic Satellite. (Improved by each Tavern spell you've cast this turn!)
+- Innkeeper's Hearth (0 Gold): Discover two Tier 6 minions. Set their stats to 30/30.
+- Insurrectionist's Blade (3 Gold): At the end of your turn, trigger all friendly Rallies.
 - Ironforge Anvil (4 Gold): Start of Combat: Triple the stats of your minions with no type.
+- Jar o' Gems (0 Gold): After 2 friendly minions attack each combat, this plays a Blood Gem on all your Quilboar. (2 left!)
+- Jarred Frostling (3 Gold): Start of Combat: Give 2 friendly Elementals "Deathrattle: Summon a Flourishing Frostling".
+- Kaleidoscope (0 Gold): Discover a Golden Tier 7 minion. Lock it in your hand for 2 .
 - Karazhan Chess Set (5 Gold): Start of Combat: Summon a copy of your left-most minion.
 - Kodo Leather Pouch (4 Gold): After you buy a card, give two random friendly minions +4/+4.
+- Lava Lamp (2 Gold): After you sell 6 minions, get a random Elemental. (6 left!)
+- Lavish Cape (0 Gold): Cast a random Tavern spell for each different friendly minion type. At the start of each turn, repeat this.
+- Lorewalker Scroll (2 Gold): Whenever you cast a spell on a minion, give it +10/+10.
+- Magic Road Sign (3 Gold): After you sell your first minion each turn, Pass it.
 - Maldraxxus Dagger (7 Gold): Discover a plain copy of a minion in your warband with a Dark Gift. At the start of each turn, repeat this.
+- Marvelous Mushroom (2 Gold): Your Tavern spells give an extra +1/+1. At the start of each turn, improve this.
 - Mechagon Adapter (4 Gold): After a friendly Mech loses Divine Shield, give it Divine Shield. (3 times per combat.)
+- Miniature Ship (3 Gold): After you cast a Tavern spell, give your Pirates +2/+2.
 - Moveout Box (10 Gold): Skip this turn. At the end of it, replace your warband with a copy of your teammate's.
-- Mystery Cube (5 Gold): Choose from 2 new Lesser Trinkets to replace this for free. At the start of each turn, repeat this.
+- Mug of the Sire (2 Gold): Whenever you would summon a minion that doesn't fit in your warband, give your minions +5 Attack.
+- Multilayered Shield (2 Gold): Your Tavern spells give an extra +1/+2. (Improved by each different friendly minion type!)
 - Nazjatar Postcard (7 Gold): After you play a Naga, get a random Spellcraft spell.
+- Nerglish Phrasebook (1 Gold): After you play a minion, give the left-most minion in your hand +6/+6.
 - Nether Pendant (5 Gold): Minions in the Tavern have +2/+2. Improves every 3 times your hero takes damage outside combat. (3 left!)
-- Ophidian Staff (5 Gold): Spellcraft: Give a Beast +2/+2 and Reborn.
+- Orb of the Unknown (0 Gold): Get a random Greater Trinket and 4 Gold.
 - Pagle's Fishing Rod (4 Gold): Get a random Tier 7 minion. At the start of each turn, get another.
-- Portable Factory (6 Gold): Discover a Tier 4 minion with a type. At the start of each turn, get another copy of it.
+- Peacebloom Candle (2 Gold): The first 3 Tavern spells you buy each turn are free. (3 left!)
+- Pocket Cyclone (1 Gold): Cast Easterly Winds four times. At the start of each turn, cast it twice more.
+- Portable Factory (0 Gold): Discover a Tier 5 minion with a type. At the start of each turn, get another copy of it.
 - Powder Keg (4 Gold): Start of Combat: Give 3 friendly Pirates "Deathrattle: Summon a 1/1 Sky Pirate and give it this minion's Attack. It attacks immediately.".
-- Reflective Pendant (6 Gold): Get a plain copy of a random friendly minion. At the start of each turn, repeat this.
+- Precious Pearl (0 Gold): Spellcraft: Give a minion +30/+30 until next turn.
+- Protective Ring (3 Gold): Start of Combat: Give 4 random friendly Pirates Divine Shield.
+- Quilligraphy Set (2 Gold): Avenge (4): Your Blood Gems give an extra +1/+1 this game.
+- Reinforced Shield (3 Gold): Whenever you summon a minion, give it Divine Shield. (5 times per combat.)
+- Safety Patch (0 Gold): Cast Ice Block. Gain 5 Gold.
+- Secret Schematic (0 Gold): After you buy a Mech, get a random Tavern spell.
+- Shark Cannon (0 Gold): After you spend 10 Gold, give your Pirates +1/+1 and improve this. (10 Gold left!)
 - Soul Fermenter (5 Gold): Start of Combat: Destroy your 3 left-most minions. After your last minion dies, resummon them.
+- Sphere of Memory (2 Gold): At the end of your turn, get 3 copies of the last Tavern spell you cast.
 - Spitescale Sushi Roll (5 Gold): Get a Spitescale Special. Your first two Spellcraft. spells each turn cast an extra time. (2 left!)
-- Staff of the Scourge (5 Gold): Avenge (5): Give a random friendly Undead Reborn.
 - Statue of Hir'eek (4 Gold): After 2 minions in the Tavern are consumed, get a random Tavern spell. (2 left!)
-- Summoning Sphere (4 Gold): Start of Combat: Summon a copy of your teammate's highest-Health minion.
-- Sunken Anchor (6 Gold): Get 2 random Bounties. At the start of each turn, repeat this.
 - The Eye of Sargeras (5 Gold): Every fourth card you buy costs Health instead of Gold. (3 left!)
+- Thornspike Pauldron (1 Gold): After you trigger a Deathrattle, your Blood Gems give an extra +2/+1 until next combat.
+- Tiger Carving (2 Gold): Whenever a friendly minion takes damage, give another friendly minion +6/+2 permanently.
+- Timeworn Candelabra (0 Gold): Discover a 2-Cost minion from the Major Timewarp.
+- Tinyfin Onesie (0 Gold): Start of Combat: Your left-most minion gains the stats of the highest-Health minion in your hand.
+- Toxic Stinger (0 Gold): At the end of each turn, give a random friendly Murloc +8/+8 and Venomous.
 - Transcribing Typewriter (4 Gold): Get an extra copy of the next 4 minions you buy. (4 left!)
+- Trusty Crowbar (0 Gold): Whenever you get a Pirate, give your left-most minion +12/+12.
+- Turbocharged Drill (0 Gold): Get 5 different Magnetic Mechs of ANY Tier.
+- Twin Sky Lanterns (1 Gold): When you have space, summon a copy of the first minion you summon each combat.
 - Twin Sky Lanterns (6 Gold): When you have space, summon 2 copies of the first minion you summon each combat.
+- Unholy Sanctum (0 Gold): After you trigger a Deathrattle, give your right-most minion +6/+4 permanently.
 - Upstart Embers (6 Gold): After you Refresh, double the stats of the highest-Health minion in the Tavern.
 - Valdrakken Wind Chimes (7 Gold): Your Start of Combat effects trigger an extra time.
+- Valorous Medallion (3 Gold): Start of Combat: Give your minions +6/+6.
+- Warband Whistle (2 Gold): Gain a free Refresh that contains plain copies of minions in your warband.
+- Wax Lance (3 Gold): Discover a Tier 7 minion with a Dark Gift.
 - Wicked Tome (5 Gold): Avenge (4): Your Tavern spells give an extra +1/+1 this game.
+- Wildfeather Duster (1 Gold): After you summon 6 Beasts, get a random Beast. (6 left!)
+- Wisdomball Supply (2 Gold): Get a Knockoff Wisdomball. At the start of each turn, repeat this.
 - Wizard's Pipe (5 Gold): Whenever you cast a Tavern spell, give your minions with no type +4/+4.
 - Wolfhead Flail (5 Gold): At the end of your turn, trigger your two left-most Deathrattles.
-- Yogg-Tastic Pastry (5 Gold): Spin the Wheel of Yogg-Saron. At the start of each turn, spin it again.

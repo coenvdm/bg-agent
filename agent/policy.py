@@ -6,12 +6,12 @@ Architecture:
   - Zone embedding: 0=board, 1=shop, 2=hand, 3=opponent_board
   - CLS token prepended
   - Single Transformer encoder over [CLS + 7 board + 7 shop + 10 hand + 7 opp] = 32 tokens
-  - type_head:    CLS + scalar_context → 8 action-type logits
-  - pointer_head: per-token scorers (sell/buy/place) acting directly on Transformer
-                  outputs for board/shop/hand tokens → 24 card-pointer logits
+  - type_head:    CLS + scalar_context → 9 action-type logits
+  - pointer_head: per-token scorers (sell/buy/place/activate) acting directly on
+                  Transformer outputs for board/shop/hand tokens → 24 card-pointer logits
   - value_head:   CLS + scalar_context → scalar value
 
-Action types (8, matching BGPolicyV2 BC model):
+Action types (9; 0-7 match the original BGPolicyV2 BC model, 8 added later):
   0 buy        → pointer: shop  slot  [PTR_SHOP_OFF  + i,  i in 0-6]
   1 sell       → pointer: board slot  [PTR_BOARD_OFF + i,  i in 0-6]
   2 place      → pointer: hand  slot  [PTR_HAND_OFF  + i,  i in 0-9]
@@ -20,6 +20,9 @@ Action types (8, matching BGPolicyV2 BC model):
   5 level_up   → no pointer
   6 hero_power → no pointer
   7 end_turn   → no pointer
+  8 activate   → pointer: board slot  [PTR_BOARD_OFF + i,  i in 0-6] (minion's
+                 own "Activate (N)" ability; reuses the board zone since the
+                 target is always the activating minion itself)
 
 Pointer layout (24, matching BGPolicyV2 BC model):
   [0-6]   shop  slots
@@ -38,7 +41,7 @@ scalar_context layout (94 dims):
 from __future__ import annotations
 
 import logging
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -50,13 +53,13 @@ logger = logging.getLogger(__name__)
 CARD_DIM   = 44
 SCALAR_DIM = 100  # 24 own-board + 64 all-opponents (8×8, own slot zeroed) + 6 lobby + 6 economy
 
-# ── Action type space (matches BGPolicyV2) ────────────────────────────────────
-N_ACTION_TYPES    = 8
+# ── Action type space (0-7 match BGPolicyV2; 8=activate added for Activate (N) minions) ──
+N_ACTION_TYPES    = 9
 ACTION_TYPE_NAMES = ["buy", "sell", "place", "reroll", "freeze",
-                     "level_up", "hero_power", "end_turn"]
+                     "level_up", "hero_power", "end_turn", "activate"]
 
 # Types that require a card pointer; all others use ptr_idx = -1
-TYPES_WITH_POINTER = frozenset({0, 1, 2})  # buy, sell, place
+TYPES_WITH_POINTER = frozenset({0, 1, 2, 8})  # buy, sell, place, activate
 
 # ── Pointer space (matches BGPolicyV2) ────────────────────────────────────────
 SHOP_ZONE_SIZE  = 7
@@ -73,6 +76,7 @@ _ZONE_SLICE = {
     0: (PTR_SHOP_OFF,  SHOP_ZONE_SIZE),
     1: (PTR_BOARD_OFF, BOARD_ZONE_SIZE),
     2: (PTR_HAND_OFF,  HAND_ZONE_SIZE),
+    8: (PTR_BOARD_OFF, BOARD_ZONE_SIZE),  # activate → board zone (same slot as sell)
 }
 
 
@@ -523,8 +527,25 @@ class BGPolicyNetwork(nn.Module):
 
 # ── Action mask builders ──────────────────────────────────────────────────────
 
+def _activatable_board_slots(board, gold: int) -> List[bool]:
+    """Return, per board slot (up to BOARD_ZONE_SIZE), whether Activate is usable now.
+
+    A slot is activatable when its minion has activate_cost > 0, hasn't been
+    activated yet this turn, and the player can afford the Gold cost.
+    """
+    out = []
+    for slot in board[:BOARD_ZONE_SIZE]:
+        if not _slot_occupied(slot):
+            out.append(False)
+            continue
+        cost = getattr(slot, "activate_cost", 0) if not isinstance(slot, dict) else slot.get("activate_cost", 0)
+        used = getattr(slot, "activated_this_turn", False) if not isinstance(slot, dict) else slot.get("activated_this_turn", False)
+        out.append(bool(cost) and cost > 0 and not used and gold >= cost)
+    return out
+
+
 def build_type_mask(player_state) -> torch.Tensor:
-    """Build a [8] boolean mask of valid action types from a player state.
+    """Build a [9] boolean mask of valid action types from a player state.
 
     Accepts either a dataclass/object with attribute access or a plain dict.
 
@@ -538,6 +559,7 @@ def build_type_mask(player_state) -> torch.Tensor:
     5 level_up   : tavern_tier < 6 AND gold >= level_cost
     6 hero_power : not used this turn AND charges > 0 AND gold >= cost AND hero active
     7 end_turn   : always valid
+    8 activate   : any board minion has an unused, affordable Activate (N) ability
     """
     if isinstance(player_state, dict):
         gold        = player_state.get("gold", 0)
@@ -601,6 +623,7 @@ def build_type_mask(player_state) -> torch.Tensor:
         and _hp_active
     )  # hero_power
     mask[7] = True                                                  # end_turn
+    mask[8] = any(_activatable_board_slots(board, gold))            # activate
     return mask
 
 
@@ -658,6 +681,13 @@ def build_pointer_mask(player_state, type_idx: int) -> torch.Tensor:
                 mask[PTR_HAND_OFF + i] = True
         if not mask.any():
             mask[PTR_HAND_OFF:PTR_HAND_OFF + HAND_ZONE_SIZE] = True
+    elif type_idx == 8:        # activate → board zone, only currently-activatable minions
+        gold = player_state.get("gold", 0) if isinstance(player_state, dict) else getattr(player_state, "gold", 0)
+        for i, activatable in enumerate(_activatable_board_slots(board, gold)):
+            if activatable:
+                mask[PTR_BOARD_OFF + i] = True
+        if not mask.any():
+            mask[PTR_BOARD_OFF:PTR_BOARD_OFF + BOARD_ZONE_SIZE] = True
     elif type_idx == -1:       # full occupancy mask, all zones
         for i, slot in enumerate(shop[:SHOP_ZONE_SIZE]):
             if _slot_occupied(slot):

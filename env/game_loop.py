@@ -405,6 +405,7 @@ class BattlegroundsGame:
             tier=d.get("tier", 1),
             magnetic=is_magnetic,
             is_spell=is_spell,
+            activate_cost=int(card_def.get("activate_cost") or 0),
         )
 
     # ------------------------------------------------------------------
@@ -468,12 +469,14 @@ class BattlegroundsGame:
         player_id:
             Index into self.players.
         type_action:
-            Action type index (0-7), matching ACTION_TYPE_NAMES in policy.py:
+            Action type index (0-8), matching ACTION_TYPE_NAMES in policy.py:
             0=buy, 1=sell, 2=place, 3=reroll, 4=freeze, 5=level_up,
-            6=hero_power, 7=end_turn.
+            6=hero_power, 7=end_turn, 8=activate.
         ptr_action:
-            Card pointer index (0-23) for buy/sell/place; -1 otherwise.
+            Card pointer index (0-23) for buy/sell/place/activate; -1 otherwise.
             Layout: shop[0-6] | board[7-13] | hand[14-23].
+            activate reuses the board zone (7-13) — it targets the activating
+            minion itself, same slot as sell.
 
         Returns
         -------
@@ -531,6 +534,15 @@ class BattlegroundsGame:
                     ps.buy_discount = 0  # consume one-shot discount
                 self.hero_handler.on_buy(ps, minion)
                 self.effect_handler.on_buy(ps, minion)
+                # Living Prison (Activate): the next minion bought this turn gives
+                # its stats to the activating minion, one-shot.
+                living_prison_src = getattr(ps, "_living_prison_source", None)
+                if living_prison_src is not None:
+                    ps._living_prison_source = None  # type: ignore[attr-defined]
+                    if living_prison_src in ps.board:
+                        living_prison_src.perm_atk_bonus += minion.attack
+                        living_prison_src.perm_hp_bonus  += minion.health
+                        living_prison_src.max_health     += minion.health
                 from env.triple_system import check_and_process_triple
                 check_and_process_triple(ps, self.tavern_pool)
 
@@ -581,9 +593,13 @@ class BattlegroundsGame:
                         ]
                         if minion.magnetic and mech_targets:
                             target = mech_targets[-1]
-                            target.attack += minion.attack
-                            target.health += minion.health
-                            target.max_health += minion.max_health
+                            # Drone Duplicator (Activate): doubles the next Magnetization onto it.
+                            dbl = 2 if getattr(target, "_magnetize_double_pending", False) else 1
+                            if dbl == 2:
+                                target._magnetize_double_pending = False  # type: ignore[attr-defined]
+                            target.attack += minion.attack * dbl
+                            target.health += minion.health * dbl
+                            target.max_health += minion.max_health * dbl
                             if minion.divine_shield:
                                 target.divine_shield = True
                             if minion.taunt:
@@ -687,6 +703,18 @@ class BattlegroundsGame:
             self.hero_handler.on_end_turn(ps)
             self.trinket_handler.apply_on_round_end(ps)
             done = True
+
+        elif type_action == 8:
+            # activate: ptr_action is board slot index (ptr 7-13 → slot 0-6),
+            # targeting the activating minion itself (same zone as sell).
+            i = ptr_action - PTR_BOARD_OFF
+            if 0 <= i < len(ps.board) and ps.board[i] is not None:
+                minion = ps.board[i]
+                cost = minion.activate_cost
+                if cost > 0 and not minion.activated_this_turn and ps.gold >= cost:
+                    ps.gold -= cost
+                    minion.activated_this_turn = True
+                    self.effect_handler.on_activate(ps, minion)
 
         return self._get_observation(player_id), reward, done
 
@@ -988,6 +1016,8 @@ class BattlegroundsGame:
                 ps.level_cost = max(0, ps.level_cost - 1)
                 ps.hero_power_used = False
                 ps._rerolls_this_turn = 0  # type: ignore[attr-defined]
+                for m in ps.board:
+                    m.activated_this_turn = False
                 ps.phi_board = self._board_win_prob(ps)  # reset baseline so shaping is within-turn only
                 ps.shop = self._draw_shop(ps)
                 ps.frozen = False

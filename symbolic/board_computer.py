@@ -24,13 +24,19 @@ TRIBE_LIST = [
 # Aura cards whose removal would hurt board power.
 # Maps normalised card_id fragment → (atk_bonus_per_trigger, hp_bonus_per_trigger)
 # These are used for a rough delta estimate when the card_def marks is_aura=True.
+# Kept in sync with AURA_CARDS in bg_card_pipeline.py — re-review after every
+# card pool refresh (season change) since retired cards must be dropped here too.
+# Only roaring_recruiter and cage_gnawer have a full combat-time mechanical
+# implementation in combat_sim.py; the rest are buy-phase spell-cast/gold-spend
+# triggers not yet wired into effect_handler.py, so this dict is their only
+# representation — a rough estimate for aura_dependency_score, not a live effect.
 _KNOWN_AURA_CARDS = {
-    "twilight_watcher": (1, 3),       # +1/+3 per Dragon attack
     "roaring_recruiter": (3, 1),      # +3/+1 per Dragon attack (on attacker)
-    "shore_marauder": (1, 1),         # passive +1/+1 to Pirates + Elementals
-    "lord_of_the_ruins": (2, 1),      # +2/+1 after Demon deals damage
-    "hardy_orca": (1, 1),             # +1/+1 when this takes damage
-    "iridescent_skyblazer": (3, 1),   # +3/+1 when Beast takes damage
+    "cage_gnawer": (2, 1),            # +2/+1 to all Beasts per Beast attack
+    "timecapn_hooktail": (1, 0),      # +1 Attack (all minions) per Tavern spell cast
+    "charging_czarina": (4, 0),       # +4 Attack (Divine Shield minions) per Tavern spell cast
+    "gunpowder_courier": (2, 0),      # +2 Attack (Pirates) per 5 Gold spent
+    "torrential_ruiner": (2, 3),      # +2/+3 (all minions) per spell cast on a friendly Naga
 }
 
 
