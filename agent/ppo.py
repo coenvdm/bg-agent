@@ -55,10 +55,10 @@ class Transition:
     shop_tokens:    np.ndarray   # [7,  44]
     hand_tokens:    np.ndarray   # [10, 44]
     opp_tokens:     np.ndarray   # [7,  44] last seen opponent board
-    scalar_context: np.ndarray   # [98]
-    type_mask:      np.ndarray   # [8]  bool — valid action types
+    scalar_context: np.ndarray   # [100]
+    type_mask:      np.ndarray   # [N_ACTION_TYPES]  bool — valid action types
     pointer_mask:   np.ndarray   # [24] bool — valid pointer slots (zone+occupancy)
-    type_action:    int          # 0-7
+    type_action:    int          # 0-8
     ptr_action:     int          # 0-23 or -1 for non-pointer types
     reward:         float
     done:           bool
@@ -218,7 +218,7 @@ class PPOTrainer:
         scalar_context: np.ndarray,
         type_action:    int,
         ptr_action:     int,
-        type_mask:      np.ndarray,     # [8]  bool
+        type_mask:      np.ndarray,     # [N_ACTION_TYPES]  bool
         pointer_mask:   np.ndarray,     # [24] bool — zone+occupancy for this type
         reward:         float,
         done:           bool,
@@ -501,12 +501,19 @@ class PPOTrainer:
         torch.save(payload, path)
         logger.info("Checkpoint saved to %s (steps=%d)", path, self.total_steps)
 
-    def load_checkpoint(self, path: str) -> None:
+    def load_checkpoint(self, path: str) -> bool:
         """Load policy weights and optimizer state from a checkpoint file.
 
         If the checkpoint was saved with an incompatible architecture (e.g. an
-        older policy_head layout), logs a warning and skips loading rather than
-        crashing — training will start from scratch / BC init instead.
+        older policy_head layout, or a type_head sized for a different action
+        space — such as any checkpoint saved before the "activate" action type
+        was added), logs a warning and skips loading rather than crashing —
+        training will start from scratch / BC init instead.
+
+        Returns True if weights were actually loaded, False if skipped due to
+        incompatibility — callers should not report a checkpoint as "resumed"
+        without checking this, since total_steps/update_count are also left
+        untouched (at their pre-call values) when this returns False.
         """
         checkpoint = torch.load(path, map_location=self.config.device)
         try:
@@ -516,7 +523,7 @@ class PPOTrainer:
                 "Checkpoint at '%s' is incompatible with the current architecture "
                 "and will be ignored: %s", path, exc
             )
-            return
+            return False
         if "optimizer_state_dict" in checkpoint:
             self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         self.total_steps  = checkpoint.get("total_steps", 0)
@@ -525,3 +532,4 @@ class PPOTrainer:
             "Loaded checkpoint from %s (steps=%d, updates=%d)",
             path, self.total_steps, self.update_count,
         )
+        return True
