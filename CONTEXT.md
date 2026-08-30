@@ -245,3 +245,14 @@ Fixed NaN divergence: switched to AdamW(weight_decay=1e-4), added NaN/Inf/large-
 - Run a short training batch to confirm `GreedyPlayAgent` picklability/sequential-path behavior under `ProcessPoolExecutor` (only smoke-tested `get_action` directly against fabricated `PlayerState`-like objects, not through the full worker/game loop).
 - Consider whether `GreedyPlayAgent` should also be usable as a `StaticAgent`-style eval opponent outside of training (e.g. for a fixed benchmark ladder), not just as a training-pool anchor.
 ---
+
+---
+### 2026-08-30 (2) — Fix asymmetric clipping that biased PPO toward over-selling
+**Files changed:** `env/game_loop.py`
+**What was done:** User reported the trained agent sells noticeably often. Traced it to `_apply_board_shape`'s two call sites in `step_shopping`: SELL added the raw potential-based shaped reward `α·(γ·Φ(s')−Φ(s))` uncapped (despite a `# SELL: keep negative` comment that the code never enforced), while PLACE clipped the same term to `max(0.0, ...)`. Φ(s) is a 30-trial Monte Carlo win-probability estimate, so it's noisy — PLACE could never register a bad outcome (worst case 0) while SELL's noise landed on both sides, occasionally paying out a positive reward for selling purely from simulation variance. This also broke the policy-invariance guarantee of potential-based shaping (Ng et al. 1999), which only holds when the shaping term is applied symmetrically — the clip was quietly injecting a hand-made bias rather than just speeding up learning. Removed the `max(0.0, ...)` clip from PLACE so both actions now receive the raw, unclipped `_apply_board_shape` result, restoring the theoretical guarantee that shaping doesn't change the optimal policy, only the speed of learning it. Also updated the now-inaccurate `# SELL: keep negative` comment.
+**Current state:** Both PLACE and SELL apply identical, unclipped potential-based board shaping. Verified via three full 8-player, 25-round random-action games (seeds 1-3) completing without error post-change; did not run a real training pass (CPU-only, no GPU in this environment) to confirm the sell-frequency behavior actually drops — that needs a real multi-thousand-game run.
+**Open questions / next steps:**
+- Should be verified with an actual PPO training run (the notebook's `N_GAMES` training cell) and a look at `RecordingAgent` trace cells to confirm sell frequency actually decreases, not just that the code no longer contains the asymmetry.
+- The empty-board penalty (-0.30) and hand penalty (-0.08/card) were left untouched — if over-selling persists after this fix, the hand penalty forcing cards out of hand (which requires selling first once the board is full) is the next suspect to look at.
+- `_board_win_prob`'s reliance on a potentially stale `next_opponent_id` snapshot (set once per round, can lag a turn or two behind the opponent's real board) is a separate source of Φ noise/bias not addressed here.
+---
