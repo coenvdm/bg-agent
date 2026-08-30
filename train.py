@@ -55,6 +55,19 @@ N_GREEDY_SLOTS    = 2   # opponent slots permanently assigned to GreedyPlayAgent
 SNAPSHOT_EVERY    = 10  # rolling snapshot every N PPO updates
 MILESTONE_EVERY   = 50  # protected milestone snapshot every N PPO updates
 
+# Board-shape stats-potential anneal: early-training scaffolding (see
+# BattlegroundsGame.shape_stats_weight) that fades to 0 as ppo_trainer.total_steps
+# grows, so the deterministic-but-crude stats proxy never outlasts its usefulness.
+# Untuned initial guess — revisit once real training data shows whether it's helping.
+BOARD_SHAPE_STATS_WEIGHT_INIT   = 0.25
+BOARD_SHAPE_STATS_ANNEAL_STEPS  = 250_000
+
+
+def _stats_weight_for_step(total_steps: int) -> float:
+    """Linear decay from BOARD_SHAPE_STATS_WEIGHT_INIT to 0 over the anneal window."""
+    frac = max(0.0, 1.0 - total_steps / BOARD_SHAPE_STATS_ANNEAL_STEPS)
+    return BOARD_SHAPE_STATS_WEIGHT_INIT * frac
+
 
 # -------------------------------------------------------------------------
 # Snapshot pool for historical self-play
@@ -631,9 +644,11 @@ def _worker_run_game(task: tuple) -> tuple:
 
     Parameters (unpacked from *task*)
     ---------------------------------
-    current_sd : dict                            — current policy.state_dict() snapshot
-    opp_sds    : List[tuple | str | None]        — one entry per opponent slot
-    seed       : int | None                      — per-game RNG seed
+    current_sd   : dict                          — current policy.state_dict() snapshot
+    opp_sds      : List[tuple | str | None]      — one entry per opponent slot
+    seed         : int | None                    — per-game RNG seed
+    stats_weight : float                         — BattlegroundsGame.shape_stats_weight
+                                                    for this game (see _stats_weight_for_step)
 
     card_defs and device are read from the per-process globals set by
     _worker_init, so they are NOT re-pickled on every call.
@@ -651,7 +666,7 @@ def _worker_run_game(task: tuple) -> tuple:
     import numpy as _np
     import torch as _torch
 
-    current_sd, opp_sds, seed = task
+    current_sd, opp_sds, seed, stats_weight = task
     card_defs = _W_CARD_DEFS
     device    = _W_DEVICE
 
@@ -722,15 +737,16 @@ def _worker_run_game(task: tuple) -> tuple:
             agent_labels[pid] = tag
 
     game = BattlegroundsGame(
-        card_defs        = card_defs,
-        agents           = agents,
-        board_computer   = board_comp,
-        firestone_client = firestone,
-        matchmaker       = matchmaker,
-        tavern_pool      = tavern_pool,
-        n_players        = N_PLAYERS,
-        seed             = seed,
-        batched          = True,
+        card_defs          = card_defs,
+        agents             = agents,
+        board_computer     = board_comp,
+        firestone_client   = firestone,
+        matchmaker         = matchmaker,
+        tavern_pool        = tavern_pool,
+        n_players          = N_PLAYERS,
+        seed               = seed,
+        batched            = True,
+        shape_stats_weight = stats_weight,
     )
     result = game.run_game()
 
@@ -905,11 +921,13 @@ def _train_parallel(
 
             # Use total_steps as seed offset so each re-run gets fresh seeds
             seed_base = ppo_trainer.total_steps
+            stats_weight = _stats_weight_for_step(ppo_trainer.total_steps)
             tasks = [
                 (
                     sd,
                     opp_sds,
                     (seed + seed_base + i) if seed is not None else None,
+                    stats_weight,
                 )
                 for i in range(batch_n)
             ]

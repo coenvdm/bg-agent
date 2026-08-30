@@ -21,7 +21,7 @@ import numpy as np
 from env.player_state import MinionState, OpponentSnapshot, PlayerState
 from env.tavern_pool import TavernPool
 from env.matchmaker import Matchmaker
-from symbolic.board_computer import SymbolicBoardComputer
+from symbolic.board_computer import SymbolicBoardComputer, _board_power
 from symbolic.firestone_client import FirestoneClient
 from symbolic.combat_sim import BGCombatSim
 from symbolic.effect_handler import EffectHandler
@@ -40,6 +40,13 @@ logger = logging.getLogger(__name__)
 BOARD_SHAPE_ALPHA = 0.20   # scale: strong enough that selling a minion is immediately costly
 BOARD_SHAPE_GAMMA = 1.0    # undiscounted: sell+place cancel exactly when phi is unchanged
 BOARD_SHAPE_TRIALS = 30    # sim trials per shaping call (~0.5 ms each)
+
+# Deterministic, noise-free secondary potential blended into the MC win-probability
+# estimate — see BattlegroundsGame.shape_stats_weight. Purely a low-variance training
+# aid for early training (annealed toward 0 by train.py); the real objective stays
+# win-probability, not raw stats. BOARD_SHAPE_STATS_SATURATION is the total effective
+# attack+health at which this potential reads 0.5 (rough mid-game board, untuned).
+BOARD_SHAPE_STATS_SATURATION = 30.0
 
 FINAL_PLACEMENT_REWARD: Dict[int, float] = {
     1: +4.0,
@@ -225,6 +232,12 @@ class BattlegroundsGame:
         Hard cap on rounds before the game is forced to end (default 40).
     seed:
         Optional RNG seed for reproducibility.
+    shape_stats_weight:
+        Weight in [0, 1] given to the deterministic board-stats potential when
+        blended into board-shape reward, vs. the noisy MC win-probability
+        estimate (weight 1 - shape_stats_weight). 0 = pure win-probability
+        (default, unchanged behaviour). Callers doing training-progress
+        annealing (see train.py) pass a decaying value per game.
     """
 
     def __init__(
@@ -239,6 +252,7 @@ class BattlegroundsGame:
         max_rounds: int = 40,
         seed: Optional[int] = None,
         batched: bool = True,
+        shape_stats_weight: float = 0.0,
     ) -> None:
         self.card_defs       = card_defs
         self.agents          = agents or [None] * n_players
@@ -248,6 +262,7 @@ class BattlegroundsGame:
         self.tavern_pool     = tavern_pool
         self.n_players       = n_players
         self.max_rounds      = max_rounds
+        self.shape_stats_weight = shape_stats_weight
         self.batched         = batched
         self._rng            = random.Random(seed)
         self.encoder         = CardEncoder(card_defs)
@@ -439,6 +454,32 @@ class BattlegroundsGame:
         except Exception:
             return 0.5
 
+    def _board_stats_potential(self, ps) -> float:
+        """Deterministic, noise-free potential: a saturating function of total
+        effective board stats (attack+health), reusing the same _board_power
+        helper the symbolic layer already uses elsewhere. Bounded to [0, 1),
+        monotonic in board stats, zero noise (unlike the MC win-probability
+        estimate). Only ever used blended via shape_stats_weight, never alone.
+        """
+        if not ps.board:
+            return 0.0
+        power = _board_power([_minion_to_dict(m) for m in ps.board])
+        return power / (power + BOARD_SHAPE_STATS_SATURATION)
+
+    def _board_potential(self, ps) -> float:
+        """Φ(s) used for board-shape reward: the real (noisy) win-probability
+        estimate, optionally blended with the deterministic stats potential.
+
+        shape_stats_weight is meant as early-training scaffolding only — the
+        caller (train.py) anneals it toward 0 over training so the long-run
+        objective stays win-probability, not raw stats. At weight 0 this is
+        exactly the old behaviour (pure _board_win_prob).
+        """
+        w = self.shape_stats_weight
+        if w <= 0.0:
+            return self._board_win_prob(ps)
+        return (1.0 - w) * self._board_win_prob(ps) + w * self._board_stats_potential(ps)
+
     def _apply_board_shape(self, ps) -> float:
         """Compute potential-based shaped reward and update ps.phi_board.
 
@@ -447,7 +488,7 @@ class BattlegroundsGame:
         This is called after any action that modifies the board (PLACE, SELL).
         Guaranteed not to change the optimal policy (Ng et al. 1999).
         """
-        phi_after = self._board_win_prob(ps)
+        phi_after = self._board_potential(ps)
         shaped = BOARD_SHAPE_ALPHA * (BOARD_SHAPE_GAMMA * phi_after - ps.phi_board)
         ps.phi_board = phi_after
         return shaped
@@ -1018,7 +1059,7 @@ class BattlegroundsGame:
                 ps._rerolls_this_turn = 0  # type: ignore[attr-defined]
                 for m in ps.board:
                     m.activated_this_turn = False
-                ps.phi_board = self._board_win_prob(ps)  # reset baseline so shaping is within-turn only
+                ps.phi_board = self._board_potential(ps)  # reset baseline so shaping is within-turn only
                 ps.shop = self._draw_shop(ps)
                 ps.frozen = False
                 self.hero_handler.on_start_of_round(ps)
