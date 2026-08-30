@@ -76,37 +76,49 @@ class SnapshotPool:
     Usage::
 
         pool = SnapshotPool(capacity=20)
-        pool.add(policy.state_dict())                    # rolling
-        pool.add(policy.state_dict(), is_milestone=True) # protected
-        opp_sds = pool.sample_n(5)   # five independent draws
+        pool.add(policy.state_dict(), update_count=10)                    # rolling
+        pool.add(policy.state_dict(), update_count=50, is_milestone=True) # protected
+        opp_sds = pool.sample_n(5)   # five independent (state_dict, tag) draws
+
+    Each entry is a ``(state_dict, tag)`` pair where *tag* is a short label
+    like ``"snapshot_u10"`` or ``"milestone_u50"`` identifying which PPO
+    update the snapshot was frozen at — used to attribute wins/losses back
+    to a specific point in training (see ``_append_agent_stats``).
     """
 
     def __init__(self, capacity: int = 20) -> None:
         self.capacity    = capacity
-        self._snapshots:  List[dict] = []   # rolling, evictable
-        self._milestones: List[dict] = []   # protected, never evicted
+        self._snapshots:  List[tuple] = []   # rolling, evictable: (state_dict, tag)
+        self._milestones: List[tuple] = []   # protected, never evicted
 
-    def add(self, state_dict: dict, *, is_milestone: bool = False) -> None:
+    def add(
+        self,
+        state_dict: dict,
+        *,
+        is_milestone: bool = False,
+        update_count: Optional[int] = None,
+    ) -> None:
         """Append a CPU clone of *state_dict* to the rolling buffer.
 
         If *is_milestone* is True, also add to the protected milestone list.
         """
+        tag  = f"{'milestone' if is_milestone else 'snapshot'}_u{update_count}"
         snap = {k: v.detach().cpu().clone() for k, v in state_dict.items()}
-        self._snapshots.append(snap)
+        self._snapshots.append((snap, tag))
         if len(self._snapshots) > self.capacity:
             self._snapshots.pop(0)
         if is_milestone:
             self._milestones.append(
-                {k: v.detach().cpu().clone() for k, v in state_dict.items()}
+                ({k: v.detach().cpu().clone() for k, v in state_dict.items()}, tag)
             )
 
-    def sample(self) -> Optional[dict]:
-        """Return a uniformly sampled snapshot, or None if the pool is empty."""
+    def sample(self) -> Optional[tuple]:
+        """Return a uniformly sampled (state_dict, tag) pair, or None if empty."""
         pool = self._snapshots + self._milestones
         return random.choice(pool) if pool else None
 
-    def sample_n(self, n: int) -> List[Optional[dict]]:
-        """Return *n* independently sampled snapshots (with replacement)."""
+    def sample_n(self, n: int) -> List[Optional[tuple]]:
+        """Return *n* independently sampled (state_dict, tag) pairs (with replacement)."""
         pool = self._snapshots + self._milestones
         if not pool:
             return [None] * n
@@ -610,7 +622,8 @@ def _worker_run_game(task: tuple) -> tuple:
 
     N_TRAIN_PLAYERS slots use the current policy and collect PPO transitions.
     The remaining slots use per-slot opponent entries from opp_sds:
-      - dict   : frozen historical BGPolicyNetwork snapshot → StaticAgent
+      - (dict, tag) : frozen historical BGPolicyNetwork snapshot → StaticAgent,
+                      tagged e.g. "snapshot_u12" / "milestone_u50"
       - "heuristic" : HeuristicAgent (no network, leveling-focused)
       - "greedy"    : GreedyPlayAgent (no network, buys/plays everything,
                       only sells to make room for a higher-tier minion)
@@ -618,9 +631,9 @@ def _worker_run_game(task: tuple) -> tuple:
 
     Parameters (unpacked from *task*)
     ---------------------------------
-    current_sd : dict                    — current policy.state_dict() snapshot
-    opp_sds    : List[dict | str | None] — one entry per opponent slot
-    seed       : int | None              — per-game RNG seed
+    current_sd : dict                            — current policy.state_dict() snapshot
+    opp_sds    : List[tuple | str | None]        — one entry per opponent slot
+    seed       : int | None                      — per-game RNG seed
 
     card_defs and device are read from the per-process globals set by
     _worker_init, so they are NOT re-pickled on every call.
@@ -629,7 +642,10 @@ def _worker_run_game(task: tuple) -> tuple:
     -------
     (transitions, summary_dict)
       transitions  : List[Transition]   — only from training-agent slots
-      summary_dict : {"placements": dict, "final_rewards": dict, "n_rounds": int}
+      summary_dict : {"placements": dict, "final_rewards": dict, "n_rounds": int,
+                       "agent_labels": {player_id: label}} — label identifies which
+                       agent occupied that seat ("train_current", "heuristic",
+                       "greedy", "snapshot_uN", "milestone_uN") for win-rate tracking.
     """
     import random as _random
     import numpy as _np
@@ -671,8 +687,10 @@ def _worker_run_game(task: tuple) -> tuple:
     opp_pids = [pid for pid in range(N_PLAYERS) if pid not in train_pids]
 
     agents: List[Any] = [None] * N_PLAYERS
+    agent_labels: Dict[int, str] = {}
     for pid in train_pids:
         agents[pid] = PPOAgent(current_policy, ppo_trainer, player_id=pid, device=device)
+        agent_labels[pid] = "train_current"
 
     # Build opponent agents; deduplicate policy networks by state_dict identity
     # to avoid loading the same weights into multiple BGPolicyNetwork instances.
@@ -681,22 +699,27 @@ def _worker_run_game(task: tuple) -> tuple:
         entry = opp_sds[slot_i]
         if entry == "heuristic":
             agents[pid] = HeuristicAgent(player_id=pid)
+            agent_labels[pid] = "heuristic"
         elif entry == "greedy":
             agents[pid] = GreedyPlayAgent(player_id=pid)
+            agent_labels[pid] = "greedy"
         elif entry is None:
             # Pool still empty for this slot — promote to training agent
             agents[pid] = PPOAgent(current_policy, ppo_trainer, player_id=pid, device=device)
+            agent_labels[pid] = "train_current"
         else:
-            sd_id = id(entry)
+            sd, tag = entry
+            sd_id = id(sd)
             if sd_id not in _policy_cache:
                 pol = BGPolicyNetwork(
                     card_dim=44, d_model=256, nhead=8, num_layers=4,
                     scalar_dim=100, dropout=0.1,
                 ).to(device)
-                pol.load_state_dict(entry)
+                pol.load_state_dict(sd)
                 pol.eval()
                 _policy_cache[sd_id] = pol
             agents[pid] = StaticAgent(_policy_cache[sd_id], player_id=pid, device=device)
+            agent_labels[pid] = tag
 
     game = BattlegroundsGame(
         card_defs        = card_defs,
@@ -715,6 +738,7 @@ def _worker_run_game(task: tuple) -> tuple:
         "placements":    result.placements,
         "final_rewards": result.final_rewards,
         "n_rounds":      result.n_rounds,
+        "agent_labels":  agent_labels,
     }
     return ppo_trainer.buffer.transitions, summary
 
@@ -722,6 +746,45 @@ def _worker_run_game(task: tuple) -> tuple:
 # -------------------------------------------------------------------------
 # Logging helpers
 # -------------------------------------------------------------------------
+
+def _append_agent_stats(
+    path: Path,
+    game_idx: int,
+    total_steps: int,
+    summary: dict,
+) -> None:
+    """Append one JSONL row per player for a finished game.
+
+    Written continuously to *path* (default data/agent_stats.jsonl) so that
+    per-agent-type win-rate can be tracked across training sessions/kernel
+    restarts, not just within one in-memory run. Row fields:
+      game        : game index local to the calling training run (not
+                    globally unique across restarts — do not use as an x-axis)
+      total_steps : cumulative PPO transitions collected so far (monotonic
+                    across checkpoint resumes — the right x-axis for "over time")
+      timestamp   : unix time the row was written
+      pid         : player_id (0-7)
+      label       : agent identity ("train_current", "heuristic", "greedy",
+                    "snapshot_uN", "milestone_uN")
+      placement   : final placement (1=winner .. 8=last)
+      reward      : final accumulated reward for that player
+    """
+    labels     = summary.get("agent_labels", {})
+    placements = summary["placements"]
+    rewards    = summary["final_rewards"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as fh:
+        for pid, placement in placements.items():
+            fh.write(json.dumps({
+                "game":        game_idx,
+                "total_steps": total_steps,
+                "timestamp":   time.time(),
+                "pid":         pid,
+                "label":       labels.get(pid, "unknown"),
+                "placement":   placement,
+                "reward":      rewards.get(pid, 0.0),
+            }) + "\n")
+
 
 def log_game_stats(game_idx: int, result: GameResult, elapsed: float) -> None:
     """Print a one-line summary for the finished game."""
@@ -764,6 +827,7 @@ def _train_parallel(
     on_batch: Optional[Any] = None,
     on_update: Optional[Any] = None,
     batch_timeout: int = 300,
+    stats_path: Optional[str] = "data/agent_stats.jsonl",
 ) -> None:
     """Run self-play games in parallel using ProcessPoolExecutor.
 
@@ -794,6 +858,11 @@ def _train_parallel(
     on_update(metrics, update_count)
                        : optional callback fired after every PPO update.
     batch_timeout      : per-batch timeout in seconds (default 300)
+    stats_path         : JSONL file appended with per-player agent-identity /
+                         placement rows for every finished game (used to track
+                         which agent types — training policy, heuristic, greedy,
+                         historical snapshots — win most often over time).
+                         Pass None to disable.
     """
     from concurrent.futures import ProcessPoolExecutor
 
@@ -801,6 +870,7 @@ def _train_parallel(
     game_idx     = 0
 
     snapshot_pool  = SnapshotPool(capacity=20)
+    stats_file     = Path(stats_path) if stats_path else None
 
     # Opponent slot composition per game:
     #   N_HEURISTIC_SLOTS slots always use HeuristicAgent (leveling anchor)
@@ -875,6 +945,9 @@ def _train_parallel(
                 batch_summaries.append(summary)
                 batch_transitions.append(transitions)
 
+                if stats_file is not None:
+                    _append_agent_stats(stats_file, g, ppo_trainer.total_steps, summary)
+
                 winner_id   = min(summary["placements"], key=summary["placements"].get)
                 mean_reward = float(np.mean(list(summary["final_rewards"].values())))
                 logger.info(
@@ -896,7 +969,8 @@ def _train_parallel(
                     sd_stale = True   # weights changed — reclone before next batch
                     if update_count % SNAPSHOT_EVERY == 0:
                         is_milestone = (update_count % MILESTONE_EVERY == 0)
-                        snapshot_pool.add(policy.state_dict(), is_milestone=is_milestone)
+                        snapshot_pool.add(policy.state_dict(), is_milestone=is_milestone,
+                                          update_count=update_count)
                         if is_milestone:
                             logger.info(
                                 "Milestone snapshot added (update=%d, milestones=%d)",
@@ -978,6 +1052,8 @@ def train(args: argparse.Namespace) -> None:
         n_games, update_interval, args.device, not args.no_firestone, n_workers,
     )
 
+    stats_file = Path(args.stats_path) if args.stats_path else None
+
     if n_workers > 1:
         _train_parallel(
             n_games, policy, ppo_trainer, card_defs,
@@ -987,6 +1063,7 @@ def train(args: argparse.Namespace) -> None:
             checkpoint_path=args.checkpoint,
             seed=args.seed,
             device=args.device,
+            stats_path=args.stats_path,
         )
     else:
         for game_idx in range(1, n_games + 1):
@@ -996,6 +1073,16 @@ def train(args: argparse.Namespace) -> None:
 
             elapsed = time.time() - t0
             log_game_stats(game_idx, result, elapsed)
+
+            if stats_file is not None:
+                # Single-process path is pure self-play: every seat is the
+                # current training policy.
+                summary = {
+                    "placements":    result.placements,
+                    "final_rewards": result.final_rewards,
+                    "agent_labels":  {pid: "train_current" for pid in result.placements},
+                }
+                _append_agent_stats(stats_file, game_idx, ppo_trainer.total_steps, summary)
 
             # PPO update every update_interval games
             if game_idx % update_interval == 0 and len(ppo_trainer.buffer) > 0:
@@ -1080,6 +1167,13 @@ def parse_args() -> argparse.Namespace:
         "--dry-run", action="store_true",
         dest="dry_run",
         help="Run 2 games and exit (for testing the pipeline end-to-end).",
+    )
+    p.add_argument(
+        "--stats-path", type=str, default="data/agent_stats.jsonl",
+        dest="stats_path",
+        help="JSONL path logging per-game per-player agent identity and "
+             "placement, for tracking win rate by agent type over time. "
+             "Pass '' to disable.",
     )
     p.add_argument(
         "--log-level", type=str, default="INFO",

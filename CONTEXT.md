@@ -265,3 +265,14 @@ Fixed NaN divergence: switched to AdamW(weight_decay=1e-4), added NaN/Inf/large-
 **Open questions / next steps:**
 - This mix is a starting point, not a tuned value — revisit once training data shows whether 2 scripted anchors each is too much (crowds out historical self-play diversity) or the right balance.
 ---
+
+---
+### 2026-08-30 (3) — Track per-agent-type win rate over training
+**Files changed:** `train.py`, `agent_stats.py` (new), `explore.ipynb`
+**What was done:** Added agent-identity tagging through the opponent-pool pipeline so every finished game records which agent occupied each seat: `train_current` (live policy), `heuristic`, `greedy`, or `snapshot_uN`/`milestone_uN` (a frozen historical policy tagged by the PPO update it was frozen at). `SnapshotPool.add`/`sample_n` now carry `(state_dict, tag)` pairs instead of bare state dicts. `_worker_run_game` builds a `pid -> label` map and returns it in the game summary; `_train_parallel` appends one JSONL row per player per game to `data/agent_stats.jsonl` (via new `_append_agent_stats`), including `total_steps` as the restart-safe "training progress" x-axis (the `game` field resets every call so it's not safe to plot against). The single-process (`--workers 1`) path logs the same way with everyone labeled `train_current`. Added `agent_stats.py` with `load`/`summary_table`/`rolling_winrate`/`plot_family_winrates` to aggregate the log by agent family and plot rolling win rate vs. the 1/8 baseline. Wired a matching cell into `explore.ipynb` right after the existing PPO-training-loss plot.
+**Current state:** Verified end-to-end with a short `--workers 2 --no-firestone` smoke run — labels (`train_current`/`heuristic`/`greedy`) and rows land correctly in the JSONL log, and `agent_stats.py`'s summary table / rolling plot both render against it. Snapshot-tag dispatch (`(sd, tag)` vs the `"heuristic"`/`"greedy"` sentinels vs `None`) was verified in isolation since the smoke run was too short to populate the snapshot pool (needs 10+ PPO updates).
+**Open questions / next steps:**
+- No automated test covers `_worker_run_game`'s label assignment directly (only manual smoke-tested) — consider a unit test if this logic gets touched again.
+- `agent_stats.py`'s `_family()` collapses all individual snapshot tags into two buckets (`rolling_snapshot`/`milestone_snapshot`) for chart readability; the raw per-tag `label` column is still in the DataFrame if finer-grained drill-down (e.g. win rate of one specific milestone) is ever needed.
+- `data/agent_stats.jsonl` grows unbounded across sessions; no rotation/pruning implemented yet.
+---
