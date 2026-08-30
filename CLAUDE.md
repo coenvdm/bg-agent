@@ -138,18 +138,45 @@ Always mask invalid actions (no gold to buy, board full, etc.).
 
 ## Reward Shaping
 
-```python
-def round_reward(player, result):
-    r  = +0.5  if result.win   else 0.0
-    r += -0.3  if result.loss  else 0.0
-    r += -0.05 * damage_taken          # normalized by max health
-    r += +0.05 * damage_dealt
-    r += (4 - current_rank) * 0.1     # rank in lobby (1=best)
-    return r
+**Source of truth is `env/game_loop.py` — this section is a summary, not a
+spec. Update this section (not the other way around) whenever the constants
+below change.**
 
-FINAL_PLACEMENT_REWARD = {1:+4.0, 2:+2.0, 3:+1.0, 4:0.0,
-                           5:-1.0, 6:-2.0, 7:-3.0, 8:-4.0}
-```
+Four components combine into the total reward:
+
+1. **`compute_round_reward`** — dense per-combat-round signal:
+   ```python
+   r  =  0.5  if result == "win"  else 0.0
+   r += -0.3  if result == "loss" else 0.0
+   r += -0.05 * (damage_taken / max_health)
+   r +=  0.05 * (damage_dealt  / max_health)
+   r += (prev_rank - cur_rank) * 0.15
+   r +=  0.1   # flat survival bonus for being alive this round
+   ```
+2. **`_end_of_turn_reward`** — fired on END_TURN: `-0.08` per card left in
+   hand, and `-0.05 * gold * gold_scale` for unspent gold, where `gold_scale`
+   fades from 1.0 down to a floor of 0.2 by round 16+.
+3. **Potential-based board-strength shaping** (`_apply_board_shape`) — on
+   every PLACE/SELL, runs a 30-trial Monte Carlo combat sim to estimate
+   win-probability Φ(s), and pays `α · (γ · Φ(s') − Φ(s))` with
+   `BOARD_SHAPE_ALPHA = 0.20`, `BOARD_SHAPE_GAMMA = 1.0`. PLACE is clipped to
+   `max(0, shaped)`; SELL keeps the negative. `ps.phi_board` resets at the
+   start of every round so shaping never leaks value across turns. An empty
+   board penalty (`-0.30`) fires on the SELL action that empties the board.
+4. **`FINAL_PLACEMENT_REWARD`** — fires immediately at the moment a player
+   is eliminated (not at game end); survivors receive it at game end instead.
+   ```python
+   FINAL_PLACEMENT_REWARD = {1:+4.0, 2:+2.0, 3:+1.0, 4:0.0,
+                              5:-1.0, 6:-2.0, 7:-3.0, 8:-4.0}
+   ```
+
+PPO uses `gamma=0.997`, `gae_lambda=0.95` (raised from `gamma=0.99` so the
+final placement reward doesn't decay away before reaching early-round
+decisions).
+
+The board-shaping constants (`BOARD_SHAPE_ALPHA/GAMMA`, the empty-board
+penalty's firing point) went through several exploit-driven fixes on
+2026-04-19 — see `CONTEXT.md` for the history before retuning them again.
 
 ---
 

@@ -51,6 +51,7 @@ PIPELINE_SCRIPT = Path(__file__).parent / "bg_card_pipeline.py"
 N_PLAYERS         = 8
 N_TRAIN_PLAYERS   = 2   # player slots per game that use the current policy and collect transitions
 N_HEURISTIC_SLOTS = 1   # opponent slots permanently assigned to HeuristicAgent
+N_GREEDY_SLOTS    = 1   # opponent slots permanently assigned to GreedyPlayAgent
 SNAPSHOT_EVERY    = 10  # rolling snapshot every N PPO updates
 MILESTONE_EVERY   = 50  # protected milestone snapshot every N PPO updates
 
@@ -380,6 +381,75 @@ class HeuristicAgent:
         pass
 
 
+class GreedyPlayAgent:
+    """Naive scripted opponent: buys and plays everything, never sells —
+    except to make room for a strictly higher-tier minion in the shop.
+
+    Provides the same get_action / record_transition* interface as
+    HeuristicAgent so game_loop.py requires zero changes.  Uses no policy
+    network — pure rule-based logic — so it is cheap and always picklable.
+
+    Priority order each step:
+      1. Place — any card sitting in hand onto the board (board has room)
+      2. Sell  — the lowest-tier board minion, but ONLY when the board is
+                 full (7/7) AND the shop currently offers a minion with a
+                 strictly higher tier than that weakest-tier board minion
+      3. Buy   — the first affordable minion in the shop (left to right)
+      4. End turn
+    """
+
+    supports_batching = False  # forces sequential shopping path in game_loop
+
+    def __init__(self, player_id: int) -> None:
+        self.player_id = player_id
+
+    def get_action(self, obs: dict) -> tuple:
+        ps        = obs["player_state"]
+        type_mask = build_type_mask(ps)
+
+        def valid(t: int) -> bool:
+            return bool(type_mask[t].item())
+
+        # 1. Place any card from hand onto the board (type 2)
+        if valid(2):
+            for i, m in enumerate(ps.hand):
+                if m is not None and getattr(m, "card_id", ""):
+                    return 2, PTR_HAND_OFF + i
+
+        # 2. Sell the lowest-tier board minion, only to make room for a
+        #    strictly higher-tier minion currently sitting in the shop
+        if valid(1) and len(ps.board) >= 7:
+            worst_idx, worst_tier = -1, float("inf")
+            for i, m in enumerate(ps.board):
+                if m is not None and getattr(m, "card_id", ""):
+                    tier = getattr(m, "tier", 1)
+                    if tier < worst_tier:
+                        worst_tier, worst_idx = tier, i
+            if worst_idx >= 0:
+                shop_has_upgrade = any(
+                    m is not None and getattr(m, "card_id", "")
+                    and getattr(m, "tier", 1) > worst_tier
+                    for m in ps.shop
+                )
+                if shop_has_upgrade:
+                    return 1, PTR_BOARD_OFF + worst_idx
+
+        # 3. Buy the first affordable minion in the shop (type 0)
+        if valid(0):
+            for i, m in enumerate(ps.shop):
+                if m is not None and getattr(m, "card_id", ""):
+                    return 0, PTR_SHOP_OFF + i
+
+        # 4. End turn
+        return 7, 0
+
+    def record_transition(self, *_a, **_kw) -> None:  # no-op
+        pass
+
+    def record_transition_precomputed(self, *_a, **_kw) -> None:  # no-op
+        pass
+
+
 # -------------------------------------------------------------------------
 # Card definitions loader
 # -------------------------------------------------------------------------
@@ -542,6 +612,8 @@ def _worker_run_game(task: tuple) -> tuple:
     The remaining slots use per-slot opponent entries from opp_sds:
       - dict   : frozen historical BGPolicyNetwork snapshot → StaticAgent
       - "heuristic" : HeuristicAgent (no network, leveling-focused)
+      - "greedy"    : GreedyPlayAgent (no network, buys/plays everything,
+                      only sells to make room for a higher-tier minion)
       - None   : promote to PPOAgent (warm-up fallback when pool is empty)
 
     Parameters (unpacked from *task*)
@@ -609,6 +681,8 @@ def _worker_run_game(task: tuple) -> tuple:
         entry = opp_sds[slot_i]
         if entry == "heuristic":
             agents[pid] = HeuristicAgent(player_id=pid)
+        elif entry == "greedy":
+            agents[pid] = GreedyPlayAgent(player_id=pid)
         elif entry is None:
             # Pool still empty for this slot — promote to training agent
             agents[pid] = PPOAgent(current_policy, ppo_trainer, player_id=pid, device=device)
@@ -730,9 +804,10 @@ def _train_parallel(
 
     # Opponent slot composition per game:
     #   N_HEURISTIC_SLOTS slots always use HeuristicAgent (leveling anchor)
+    #   N_GREEDY_SLOTS slots always use GreedyPlayAgent (naive buy/play anchor)
     #   remaining slots sample independently from the snapshot pool
-    N_OPP_SLOTS    = N_PLAYERS - N_TRAIN_PLAYERS          # 6
-    n_policy_slots = N_OPP_SLOTS - N_HEURISTIC_SLOTS      # 5
+    N_OPP_SLOTS    = N_PLAYERS - N_TRAIN_PLAYERS                        # 6
+    n_policy_slots = N_OPP_SLOTS - N_HEURISTIC_SLOTS - N_GREEDY_SLOTS   # 4
 
     pool = ProcessPoolExecutor(
         max_workers=n_workers,
@@ -751,9 +826,12 @@ def _train_parallel(
                 sd = {k: v.detach().cpu().clone() for k, v in policy.state_dict().items()}
                 sd_stale = False
 
-            # Build per-slot opponent list: 5 independent policy snapshots + 1 heuristic.
+            # Build per-slot opponent list: 4 independent policy snapshots +
+            # 1 heuristic (leveling) + 1 greedy (naive buy/play).
             policy_sds = snapshot_pool.sample_n(n_policy_slots)
-            opp_sds    = policy_sds + ["heuristic"] * N_HEURISTIC_SLOTS
+            opp_sds    = (policy_sds
+                          + ["heuristic"] * N_HEURISTIC_SLOTS
+                          + ["greedy"] * N_GREEDY_SLOTS)
 
             # Use total_steps as seed offset so each re-run gets fresh seeds
             seed_base = ppo_trainer.total_steps
