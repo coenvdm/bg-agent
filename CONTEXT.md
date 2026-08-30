@@ -207,3 +207,11 @@ Fixed NaN divergence: switched to AdamW(weight_decay=1e-4), added NaN/Inf/large-
 - `torch==2.2.2` pulled in NVIDIA CUDA wheel dependencies (`nvidia-cublas-cu12` etc.) even for local CPU-only use, since PyPI's default `torch` package bundles them; harmless but adds noticeable install size/time. A CPU-only index (`--index-url https://download.pytorch.org/whl/cpu`) would avoid that if install size becomes a concern.
 - `requirements.txt` and `environment.yml` now agree in spirit (both want modern torch/numpy) but are still two separate files that could drift again — consider consolidating to one source of truth next time either is touched.
 ---
+
+---
+### 2026-08-29 — Add missing pandas dependency to environment.yml
+**Files changed:** `environment.yml`
+**What was done:** User selected the newly-created `bg-agent` kernel in `explore.ipynb` and hit `ModuleNotFoundError: No module named 'pandas'`. My env-creation session had only checked the training-loop cells (46-56) for imports, missing that the dataset-exploration cells (0-24) use `pandas` for DataFrame-based board/hero stats. A full scan of every code cell's import statements confirmed pandas was the only gap. Added `pandas==2.2.3` to `environment.yml` and installed it directly into the existing env (`pip install pandas==2.2.3` inside `bg-agent`) rather than rebuilding from scratch.
+**Current state:** `bg-agent` env now has every package `explore.ipynb` imports across all 57 cells, verified by regex-scanning the full notebook JSON for import statements rather than spot-checking cells.
+**Open questions / next steps:** None outstanding for the environment itself.
+---
