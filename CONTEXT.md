@@ -256,3 +256,12 @@ Fixed NaN divergence: switched to AdamW(weight_decay=1e-4), added NaN/Inf/large-
 - The empty-board penalty (-0.30) and hand penalty (-0.08/card) were left untouched — if over-selling persists after this fix, the hand penalty forcing cards out of hand (which requires selling first once the board is full) is the next suspect to look at.
 - `_board_win_prob`'s reliance on a potentially stale `next_opponent_id` snapshot (set once per round, can lag a turn or two behind the opponent's real board) is a separate source of Φ noise/bias not addressed here.
 ---
+
+---
+### 2026-08-30 (2) — Rebalance training opponent-pool slot mix
+**Files changed:** `train.py`
+**What was done:** Changed the fixed opponent-slot counts from 1 `HeuristicAgent` + 1 `GreedyPlayAgent` + 4 sampled historical snapshots to 2 + 2 + 2, as a starting point for the two scripted anchors ([[greedy-play-agent]]) now that both exist. `N_HEURISTIC_SLOTS` and `N_GREEDY_SLOTS` are each `2`; `n_policy_slots` derives from the remainder (`N_OPP_SLOTS - N_HEURISTIC_SLOTS - N_GREEDY_SLOTS = 2`), so no other code needed to change.
+**Current state:** Each game's 6 non-training seats are now 2 sampled historical snapshots + 2 `HeuristicAgent` + 2 `GreedyPlayAgent`.
+**Open questions / next steps:**
+- This mix is a starting point, not a tuned value — revisit once training data shows whether 2 scripted anchors each is too much (crowds out historical self-play diversity) or the right balance.
+---

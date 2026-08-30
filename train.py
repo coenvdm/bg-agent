@@ -50,8 +50,8 @@ CARD_DEFS_PATH = Path(__file__).parent / "bg_card_definitions.json"
 PIPELINE_SCRIPT = Path(__file__).parent / "bg_card_pipeline.py"
 N_PLAYERS         = 8
 N_TRAIN_PLAYERS   = 2   # player slots per game that use the current policy and collect transitions
-N_HEURISTIC_SLOTS = 1   # opponent slots permanently assigned to HeuristicAgent
-N_GREEDY_SLOTS    = 1   # opponent slots permanently assigned to GreedyPlayAgent
+N_HEURISTIC_SLOTS = 2   # opponent slots permanently assigned to HeuristicAgent
+N_GREEDY_SLOTS    = 2   # opponent slots permanently assigned to GreedyPlayAgent
 SNAPSHOT_EVERY    = 10  # rolling snapshot every N PPO updates
 MILESTONE_EVERY   = 50  # protected milestone snapshot every N PPO updates
 
@@ -807,7 +807,7 @@ def _train_parallel(
     #   N_GREEDY_SLOTS slots always use GreedyPlayAgent (naive buy/play anchor)
     #   remaining slots sample independently from the snapshot pool
     N_OPP_SLOTS    = N_PLAYERS - N_TRAIN_PLAYERS                        # 6
-    n_policy_slots = N_OPP_SLOTS - N_HEURISTIC_SLOTS - N_GREEDY_SLOTS   # 4
+    n_policy_slots = N_OPP_SLOTS - N_HEURISTIC_SLOTS - N_GREEDY_SLOTS   # 2
 
     pool = ProcessPoolExecutor(
         max_workers=n_workers,
@@ -826,8 +826,8 @@ def _train_parallel(
                 sd = {k: v.detach().cpu().clone() for k, v in policy.state_dict().items()}
                 sd_stale = False
 
-            # Build per-slot opponent list: 4 independent policy snapshots +
-            # 1 heuristic (leveling) + 1 greedy (naive buy/play).
+            # Build per-slot opponent list: 2 independent policy snapshots +
+            # 2 heuristic (leveling) + 2 greedy (naive buy/play).
             policy_sds = snapshot_pool.sample_n(n_policy_slots)
             opp_sds    = (policy_sds
                           + ["heuristic"] * N_HEURISTIC_SLOTS
