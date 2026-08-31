@@ -420,3 +420,12 @@ Learned to filter vast.ai offers by `cpu_cores_effective == cpu_cores` (ratio 1.
 - Should re-run the placement-vs-baselines / entropy / board-size analysis again once enough updates have accumulated on this instance, since the batch_size/worker-count change is itself a training-dynamics change worth accounting for when reading trend lines.
 - Instance still billing continuously ($0.118/hr on remaining vast.ai credit); remember to stop/destroy contract 49396123 when the run is done.
 ---
+
+---
+### 2026-08-31 (10) — Add vast-ai-training skill capturing this session's GPU-rental lessons
+**Files changed:** `.claude/skills/vast-ai-training/SKILL.md` (new)
+**What was done:** Packaged the operational knowledge from sessions (5)-(9) -- renting vast.ai instances, migrating a running training job, and the GPU speedup work -- into a project skill so future sessions don't have to rediscover the same failure modes. Covers: filtering offers by `cpu_cores_effective/cpu_cores` ratio to find genuinely dedicated (non-fractional) hosts instead of trusting the advertised vCPU count; checking `/sys/fs/cgroup/cpu.max` immediately after boot as the only trustworthy real-CPU-quota signal; when to give up on a stuck Docker image pull vs. being patient; the fork-vs-spawn CUDA multiprocessing crash and the `if __name__ == "__main__":` guard needed to stop spawn from re-executing a launch script's setup code in every worker; the transient rsync "No data available" error on a checkpoint mid-write; and a monitoring/cleanup checklist (stable SSH alias reused across migrations, quiet background sync loops, stopping the old instance before destroying it).
+**Current state:** Skill file committed under `.claude/skills/vast-ai-training/`. Training itself continues unaffected on the RTX 4060 Ti instance (contract 49396123).
+**Open questions / next steps:**
+- Skill hasn't been exercised end-to-end from a fresh session yet -- next time a vast.ai instance is needed, confirm the skill actually gets picked up and the checklist holds up in practice, then refine if anything was missing.
+---
