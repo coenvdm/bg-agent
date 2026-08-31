@@ -913,7 +913,10 @@ def _train_parallel(
                          historical snapshots — win most often over time).
                          Pass None to disable.
     """
+    import multiprocessing
     from concurrent.futures import ProcessPoolExecutor
+
+    mp_context = multiprocessing.get_context("spawn")
 
     update_count = 0
     game_idx     = 0
@@ -930,6 +933,7 @@ def _train_parallel(
 
     pool = ProcessPoolExecutor(
         max_workers=n_workers,
+        mp_context=mp_context,
         initializer=_worker_init,
         initargs=(card_defs, device),
     )
@@ -978,6 +982,7 @@ def _train_parallel(
                 pool.shutdown(wait=False)
                 pool = ProcessPoolExecutor(
                     max_workers=n_workers,
+                    mp_context=mp_context,
                     initializer=_worker_init,
                     initargs=(card_defs, device),
                 )

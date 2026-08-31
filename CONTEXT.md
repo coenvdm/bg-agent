@@ -373,3 +373,14 @@ Fixed by making the `type_idx == -1` branch check `_trinket_pending`/`_discover`
 **Current state:** Verified with a real 36-game/3-update smoke test — all 10 panels render correctly, including the windowed panels correctly showing empty (not crashing) when there isn't yet enough data for their window (20 games / 10 updates). History persistence (`data/fresh_training_history.json`) extended to cover all new series so a resume doesn't lose them.
 **Open questions / next steps:**
 - Not yet applied to the actual live run (same as every fix today — the running process has the old script in memory; needs a restart to pick this up).
+
+---
+### 2026-08-31 (6) — Fix CUDA fork crash in ProcessPoolExecutor when training on GPU
+**Files changed:** `train.py`
+**What was done:** Rented a vast.ai GPU instance (GTX 1660, contract 49382151) via the `vastai` CLI to run `run_fresh_training.py` remotely. First launch crash-looped every batch with `RuntimeError: Cannot re-initialize CUDA in forked subprocess` — `_train_parallel`'s `ProcessPoolExecutor` used the default `fork` start method, which is fine on CPU-only local runs but breaks the moment `device="cuda"` and the parent process has already touched CUDA before spawning workers. Fixed by building a `multiprocessing.get_context("spawn")` and passing it as `mp_context=` to both `ProcessPoolExecutor` constructions in `_train_parallel` (the initial pool and the one rebuilt after a worker error).
+**Current state:** Training is running cleanly on the rented instance (contract 49382151, `ssh vast-bg-agent`) inside a `tmux` session named `train`, 6 workers, fresh start (`N_GAMES=5000`). A background sync loop on this machine pulls `data/training_progress.png` and `data/fresh_training_history.json` from the instance every 20s into the local `data/` dir so the chart updates live like the old local notebook runs. Local repo's own `bg_agent_ppo*.pt` weights were left untouched — this run's checkpoints only exist on the remote instance so far.
+**Open questions / next steps:**
+- Remote checkpoints (`bg_agent_ppo.pt` / `_backup.pt` / `_best.pt`) need to be pulled back down (or the run left to finish) before they're usable locally.
+- Instance is billed continuously (~$0.048/hr on $7.85 credit) until stopped — remember to `vastai stop instance 49382151` or destroy it when done.
+- The same fork-vs-CUDA issue would resurface for any other `ProcessPoolExecutor`/multiprocessing spot that touches CUDA in the parent before forking — worth a quick audit if more GPU-parallel code gets added.
+---
