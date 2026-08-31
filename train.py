@@ -17,6 +17,7 @@ import os
 import random
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -155,6 +156,7 @@ class PPOAgent:
         player_id: int,
         device: str = "cpu",
         deterministic: bool = False,
+        game_uid: Any = None,
     ) -> None:
         self.policy       = policy
         self.trainer      = ppo_trainer
@@ -164,6 +166,15 @@ class PPOAgent:
         self._last_obs: Optional[dict] = None
         self._cached_type_mask: Optional[np.ndarray] = None
         self._cached_ptr_mask:  Optional[np.ndarray] = None
+        # Identifies which (game, player) trajectory this agent's transitions
+        # belong to, so RolloutBuffer.compute_advantages never bootstraps GAE
+        # across a different player's or game's transitions that happen to
+        # land next to this one in a shared buffer (multiple training players
+        # share one PPOTrainer per game, and multiple games get merged into
+        # one buffer per update). game_uid should be unique per game — the
+        # per-game seed is a natural choice; falls back to a fresh uuid so
+        # this is still safe (if less reproducible) when seed is None.
+        self.traj_id = (game_uid if game_uid is not None else uuid.uuid4().hex, player_id)
 
     def get_action(self, obs: dict) -> tuple:
         """Select an action given an observation dict.
@@ -238,6 +249,7 @@ class PPOAgent:
             reward         = reward,
             done           = done,
             opp_tokens     = obs.get("opp_tokens"),
+            traj_id        = self.traj_id,
         )
 
     def record_transition_precomputed(
@@ -273,6 +285,7 @@ class PPOAgent:
             log_prob       = log_prob,
             value          = value,
             opp_tokens     = obs.get("opp_tokens"),
+            traj_id        = self.traj_id,
         )
 
 
@@ -587,9 +600,11 @@ def run_one_game(
     device     = components["ppo_config"].device
     card_defs  = components["card_defs"]
 
-    # All 8 players share the same policy (self-play)
+    # All 8 players share the same policy (self-play) and the same PPOTrainer
+    # buffer, which may also persist across multiple run_one_game calls in a
+    # serial training loop -- game_idx makes each call's trajectories distinct.
     agents: List[PPOAgent] = [
-        PPOAgent(policy, trainer, player_id=pid, device=device)
+        PPOAgent(policy, trainer, player_id=pid, device=device, game_uid=game_idx)
         for pid in range(N_PLAYERS)
     ]
 
@@ -704,7 +719,7 @@ def _worker_run_game(task: tuple) -> tuple:
     agents: List[Any] = [None] * N_PLAYERS
     agent_labels: Dict[int, str] = {}
     for pid in train_pids:
-        agents[pid] = PPOAgent(current_policy, ppo_trainer, player_id=pid, device=device)
+        agents[pid] = PPOAgent(current_policy, ppo_trainer, player_id=pid, device=device, game_uid=seed)
         agent_labels[pid] = "train_current"
 
     # Build opponent agents; deduplicate policy networks by state_dict identity
@@ -720,7 +735,7 @@ def _worker_run_game(task: tuple) -> tuple:
             agent_labels[pid] = "greedy"
         elif entry is None:
             # Pool still empty for this slot — promote to training agent
-            agents[pid] = PPOAgent(current_policy, ppo_trainer, player_id=pid, device=device)
+            agents[pid] = PPOAgent(current_policy, ppo_trainer, player_id=pid, device=device, game_uid=seed)
             agent_labels[pid] = "train_current"
         else:
             sd, tag = entry

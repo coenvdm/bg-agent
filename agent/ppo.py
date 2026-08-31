@@ -11,7 +11,7 @@ import logging
 import random
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -64,6 +64,10 @@ class Transition:
     done:           bool
     value:          float        # stored for GAE bootstrap
     log_prob:       float        # stored for importance-sampling ratio
+    traj_id:        Any = None   # identifies which (game, player) trajectory this
+                                  # transition belongs to — see compute_advantages.
+                                  # None means "caller didn't tag it", which is only
+                                  # safe when the whole buffer really is one trajectory.
 
 
 # ------------------------------------------------------------------
@@ -102,11 +106,25 @@ class RolloutBuffer:
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Compute GAE advantages and discounted returns.
 
+        The buffer is not one trajectory — it's however many (game, player)
+        rollouts got merged into it (multiple training players per game, and
+        multiple games per update batch). Transitions are grouped by
+        traj_id and GAE is run independently within each group, using the
+        group's own chronological order, so the recursion never bootstraps
+        off a neighbouring transition that happens to belong to a different
+        player or game. (Previously this walked the flat buffer as if
+        transitions[t+1] were always "what happens after t", which silently
+        pulled in an unrelated trajectory's value at every player/game
+        boundary — see CONTEXT.md 2026-08-31 for the diagnosis.)
+
         Parameters
         ----------
         last_value:
-            Bootstrap value of the state *after* the final transition
-            (0.0 when the episode ended, V(s_T) when truncated).
+            Bootstrap value for a genuinely truncated rollout — applied only
+            to whichever trajectory contains the chronologically-last
+            transition in the buffer, and only if that transition isn't
+            already done=True (0.0 when the episode ended, V(s_T) when
+            truncated mid-episode).
 
         Returns
         -------
@@ -115,20 +133,31 @@ class RolloutBuffer:
         """
         n = len(self.transitions)
         advantages = np.zeros(n, dtype=np.float32)
-        last_gae = 0.0
 
-        for t in reversed(range(n)):
-            tr = self.transitions[t]
-            if t == n - 1:
-                next_value = last_value
-                next_non_terminal = 0.0 if tr.done else 1.0
-            else:
-                next_value = self.transitions[t + 1].value
-                next_non_terminal = 0.0 if tr.done else 1.0
+        groups: Dict[Any, List[int]] = {}
+        for i, tr in enumerate(self.transitions):
+            groups.setdefault(tr.traj_id, []).append(i)
 
-            delta = tr.reward + gamma * next_value * next_non_terminal - tr.value
-            last_gae = delta + gamma * gae_lambda * next_non_terminal * last_gae
-            advantages[t] = last_gae
+        for idxs in groups.values():
+            last_gae = 0.0
+            for k in reversed(range(len(idxs))):
+                i  = idxs[k]
+                tr = self.transitions[i]
+                if k == len(idxs) - 1:
+                    # Tail of this trajectory's segment in the buffer. Only the
+                    # segment containing the buffer's actual last transition
+                    # gets the caller's last_value; every other segment's tail
+                    # should already be done=True (elimination/game-end), which
+                    # zeroes next_non_terminal regardless of next_value.
+                    next_value = last_value if i == n - 1 else 0.0
+                    next_non_terminal = 0.0 if tr.done else 1.0
+                else:
+                    next_value = self.transitions[idxs[k + 1]].value
+                    next_non_terminal = 0.0 if tr.done else 1.0
+
+                delta = tr.reward + gamma * next_value * next_non_terminal - tr.value
+                last_gae = delta + gamma * gae_lambda * next_non_terminal * last_gae
+                advantages[i] = last_gae
 
         returns = advantages + np.array([t.value for t in self.transitions], dtype=np.float32)
         return advantages, returns
@@ -223,11 +252,17 @@ class PPOTrainer:
         reward:         float,
         done:           bool,
         opp_tokens:     Optional[np.ndarray] = None,
+        traj_id:        Any = None,
     ) -> None:
         """Build a Transition (computing value/log_prob from policy) and add it.
 
         Runs a single forward pass in eval mode to obtain the stored value
         and log_prob for importance-ratio computation during updates.
+
+        traj_id should uniquely identify the (game, player) this transition
+        came from whenever more than one trajectory may share this buffer
+        (e.g. multiple training players per game, or multiple games merged
+        before an update) — see RolloutBuffer.compute_advantages.
         """
         dev = torch.device(self.config.device)
 
@@ -267,6 +302,7 @@ class PPOTrainer:
             done=done,
             value=value_f,
             log_prob=log_prob_f,
+            traj_id=traj_id,
         )
         self.buffer.add(t)
         self.total_steps += 1
@@ -286,12 +322,13 @@ class PPOTrainer:
         log_prob:       float,
         value:          float,
         opp_tokens:     Optional[np.ndarray] = None,
+        traj_id:        Any = None,
     ) -> None:
         """Store a transition with pre-computed log_prob and value.
 
         Skips the evaluate_actions() forward pass — use this when log_prob and
         value were already computed by get_action_batch() to avoid redundant
-        inference.
+        inference. See collect_transition for traj_id semantics.
         """
         if opp_tokens is None:
             opp_tokens = np.zeros((7, 44), dtype=np.float32)
@@ -309,6 +346,7 @@ class PPOTrainer:
             done=done,
             value=value,
             log_prob=log_prob,
+            traj_id=traj_id,
         )
         self.buffer.add(t)
         self.total_steps += 1
