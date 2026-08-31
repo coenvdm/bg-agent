@@ -514,10 +514,25 @@ class PPOTrainer:
         self.buffer.clear()
         self.update_count += 1
 
-        # Aggregate
-        avg = {k: float(np.mean(v)) if v else 0.0 for k, v in epoch_metrics.items()}
+        # Aggregate. If every mini-batch got skipped this update (KL exceeded
+        # target_kl on the very first mini-batch of the very first epoch, before
+        # anything was appended -- or every mini-batch hit the NaN/abnormal-loss
+        # guard), no gradient step happened at all: this batch of collected data
+        # was discarded with zero training on it. Report NaN rather than 0.0 for
+        # that case -- 0.0 previously looked like an (impossibly) perfect loss
+        # instead of "no update happened", which silently hid how often this was
+        # occurring (~5% of updates in early testing of the 2026-08-31 GAE fix).
+        n_minibatches = len(epoch_metrics["total_loss"])
+        if n_minibatches == 0:
+            logger.warning(
+                "PPO update %d: every mini-batch skipped (KL or NaN guard) -- "
+                "buffer discarded with zero gradient steps applied.",
+                self.update_count,
+            )
+        avg = {k: float(np.mean(v)) if v else float("nan") for k, v in epoch_metrics.items()}
+        avg["n_minibatches"] = n_minibatches
         for k, v in avg.items():
-            self.metrics[k].append(v)
+            self.metrics.setdefault(k, []).append(v)
 
         return avg
 
