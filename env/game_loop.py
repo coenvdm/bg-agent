@@ -41,12 +41,29 @@ BOARD_SHAPE_ALPHA = 0.20   # scale: strong enough that selling a minion is immed
 BOARD_SHAPE_GAMMA = 1.0    # undiscounted: sell+place cancel exactly when phi is unchanged
 BOARD_SHAPE_TRIALS = 30    # sim trials per shaping call (~0.5 ms each)
 
-# Deterministic, noise-free secondary potential blended into the MC win-probability
-# estimate — see BattlegroundsGame.shape_stats_weight. Purely a low-variance training
-# aid for early training (annealed toward 0 by train.py); the real objective stays
-# win-probability, not raw stats. BOARD_SHAPE_STATS_SATURATION is the total effective
-# attack+health at which this potential reads 0.5 (rough mid-game board, untuned).
+# Deterministic, noise-free board-strength potential -- see BattlegroundsGame.
+# shape_stats_weight, which train.py now fixes at 1.0 (see BOARD_SHAPE_STATS_WEIGHT):
+# this fully replaced the MC win-probability estimate as the board-shape potential
+# 2026-08-31, after a full training run showed reward/placement plateauing and then
+# regressing right around when the old anneal-to-0 schedule finished fading this
+# potential out (~250k steps) in favour of the noisy win-probability estimate, with
+# a rising sell:place ratio and shrinking board size in that same window -- consistent
+# with the policy learning to farm noise in the 30-trial MC estimate rather than
+# actually improving the board. See CONTEXT.md for the full analysis.
+#
+# BOARD_SHAPE_STATS_SATURATION is the total effective attack+health+keyword+synergy
+# value at which this potential reads 0.5 (rough mid-game board, untuned).
 BOARD_SHAPE_STATS_SATURATION = 30.0
+
+# Per-instance bonus for a "punches above its raw stats" keyword -- Divine Shield,
+# Taunt, Reborn, and Windfury all add real combat value a plain atk+hp sum misses.
+# Untuned initial guess, same as BOARD_SHAPE_STATS_SATURATION.
+BOARD_STATS_KEYWORD_BONUS = 3.0
+
+# Flat bonus when the board has >=4 minions of one tribe -- mirrors CLAUDE.md's
+# "synergistic" threshold (Symbolic Layer Rule 4). Binary, not per-card, since going
+# from 4->5 of a tribe is a much smaller jump than crossing the threshold at all.
+BOARD_STATS_SYNERGY_BONUS = 5.0
 
 # Potential-based leveling reward shaping: rewards LEVEL_UP for closing the gap to a
 # rough "on-curve" tavern tier for the current round (see _expected_tier_for_round).
@@ -484,27 +501,58 @@ class BattlegroundsGame:
             return 0.5
 
     def _board_stats_potential(self, ps) -> float:
-        """Deterministic, noise-free potential: a saturating function of total
-        effective board stats (attack+health), reusing the same _board_power
-        helper the symbolic layer already uses elsewhere. Bounded to [0, 1),
-        monotonic in board stats, zero noise (unlike the MC win-probability
-        estimate). Only ever used blended via shape_stats_weight, never alone.
+        """Deterministic, noise-free board-strength potential: total effective
+        stats (attack+health, via the same _board_power helper the symbolic
+        layer uses elsewhere) plus keyword and tribal-synergy bonuses, saturating
+        toward 1.0. Bounded to [0, 1), monotonic in board quality, zero noise.
+
+        This is quality-weighted, not count-weighted -- a board of seven 1/1s
+        scores barely above a board of two well-statted minions, so hoarding
+        weak minions to fill slots doesn't pay off the way it would under a
+        raw board-size proxy. Selling a weak minion to make room for a stronger
+        one causes a momentary dip (the sale drops power immediately) but the
+        replacement's placement raises the score net-positive, which is what
+        makes "sell weak, buy strong" a learnable win rather than a pure cost.
         """
         if not ps.board:
             return 0.0
-        power = _board_power([_minion_to_dict(m) for m in ps.board])
-        return power / (power + BOARD_SHAPE_STATS_SATURATION)
+        board_dicts = [_minion_to_dict(m) for m in ps.board]
+        power = _board_power(board_dicts)
+
+        keyword_bonus = 0.0
+        for m in board_dicts:
+            if m.get("divine_shield"):
+                keyword_bonus += BOARD_STATS_KEYWORD_BONUS
+            if m.get("taunt"):
+                keyword_bonus += BOARD_STATS_KEYWORD_BONUS
+            if m.get("reborn"):
+                keyword_bonus += BOARD_STATS_KEYWORD_BONUS
+            if m.get("windfury"):
+                keyword_bonus += BOARD_STATS_KEYWORD_BONUS
+
+        from symbolic.effect_handler import _minion_tribes as _get_tribes
+        tribe_counts: Dict[str, int] = {}
+        for m in ps.board:
+            for t in _get_tribes(m, self.card_defs):
+                tribe_counts[t] = tribe_counts.get(t, 0) + 1
+        synergy_bonus = BOARD_STATS_SYNERGY_BONUS if tribe_counts and max(tribe_counts.values()) >= 4 else 0.0
+
+        value = power + keyword_bonus + synergy_bonus
+        return value / (value + BOARD_SHAPE_STATS_SATURATION)
 
     def _board_potential(self, ps) -> float:
-        """Φ(s) used for board-shape reward: the real (noisy) win-probability
-        estimate, optionally blended with the deterministic stats potential.
+        """Φ(s) used for board-shape reward: the deterministic stats potential,
+        optionally blended with the noisy MC win-probability estimate.
 
-        shape_stats_weight is meant as early-training scaffolding only — the
-        caller (train.py) anneals it toward 0 over training so the long-run
-        objective stays win-probability, not raw stats. At weight 0 this is
-        exactly the old behaviour (pure _board_win_prob).
+        shape_stats_weight is fixed at BOARD_SHAPE_STATS_WEIGHT (see train.py) --
+        no longer annealed toward 0. At weight 1.0 (the current default) this
+        skips _board_win_prob entirely: no point paying for a 30-trial combat
+        sim whose result gets multiplied by zero, and it's one less noisy call
+        in the hottest path in self-play (every PLACE/SELL action).
         """
         w = self.shape_stats_weight
+        if w >= 1.0:
+            return self._board_stats_potential(ps)
         if w <= 0.0:
             return self._board_win_prob(ps)
         return (1.0 - w) * self._board_win_prob(ps) + w * self._board_stats_potential(ps)

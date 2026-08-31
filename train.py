@@ -56,18 +56,17 @@ N_GREEDY_SLOTS    = 2   # opponent slots permanently assigned to GreedyPlayAgent
 SNAPSHOT_EVERY    = 10  # rolling snapshot every N PPO updates
 MILESTONE_EVERY   = 50  # protected milestone snapshot every N PPO updates
 
-# Board-shape stats-potential anneal: early-training scaffolding (see
-# BattlegroundsGame.shape_stats_weight) that fades to 0 as ppo_trainer.total_steps
-# grows, so the deterministic-but-crude stats proxy never outlasts its usefulness.
-# Untuned initial guess — revisit once real training data shows whether it's helping.
-BOARD_SHAPE_STATS_WEIGHT_INIT   = 0.25
-BOARD_SHAPE_STATS_ANNEAL_STEPS  = 250_000
-
-
-def _stats_weight_for_step(total_steps: int) -> float:
-    """Linear decay from BOARD_SHAPE_STATS_WEIGHT_INIT to 0 over the anneal window."""
-    frac = max(0.0, 1.0 - total_steps / BOARD_SHAPE_STATS_ANNEAL_STEPS)
-    return BOARD_SHAPE_STATS_WEIGHT_INIT * frac
+# Board-shape potential weight (see BattlegroundsGame.shape_stats_weight /
+# _board_potential): fixed at 1.0 -- the deterministic, quality-weighted stats+
+# keyword+synergy potential is the board-shape signal, full stop, no MC
+# win-probability blend. This used to anneal from 0.25 down to 0 over 250k steps
+# (as early-training-only scaffolding); a full training run showed reward and
+# placement-vs-baseline plateauing then regressing right around when that anneal
+# finished (~update 106 of 312), with sell:place ratio climbing toward 1.0 and
+# board size shrinking in the same window -- consistent with the policy farming
+# noise in the 30-trial MC estimate once the deterministic anchor faded out. See
+# CONTEXT.md (2026-08-31) for the full analysis before re-introducing a MC blend.
+BOARD_SHAPE_STATS_WEIGHT = 1.0
 
 
 # -------------------------------------------------------------------------
@@ -681,7 +680,7 @@ def _worker_run_game(task: tuple) -> tuple:
     opp_sds      : List[tuple | str | None]      — one entry per opponent slot
     seed         : int | None                    — per-game RNG seed
     stats_weight : float                         — BattlegroundsGame.shape_stats_weight
-                                                    for this game (see _stats_weight_for_step)
+                                                    for this game (see BOARD_SHAPE_STATS_WEIGHT)
 
     card_defs and device are read from the per-process globals set by
     _worker_init, so they are NOT re-pickled on every call.
@@ -958,7 +957,7 @@ def _train_parallel(
 
             # Use total_steps as seed offset so each re-run gets fresh seeds
             seed_base = ppo_trainer.total_steps
-            stats_weight = _stats_weight_for_step(ppo_trainer.total_steps)
+            stats_weight = BOARD_SHAPE_STATS_WEIGHT
             tasks = [
                 (
                     sd,
