@@ -35,11 +35,48 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Reward constants (CLAUDE.md)
 # ---------------------------------------------------------------------------
-
-# Potential-based board-strength reward shaping
-BOARD_SHAPE_ALPHA = 0.20   # scale: strong enough that selling a minion is immediately costly
-BOARD_SHAPE_GAMMA = 1.0    # undiscounted: sell+place cancel exactly when phi is unchanged
-BOARD_SHAPE_TRIALS = 30    # sim trials per shaping call (~0.5 ms each)
+#
+# --- Unified potential-based reward shaping (Ng, Harada & Russell 1999) ----
+#
+# A single potential Φ(s) (stored in PlayerState.phi) replaces the old, split
+# phi_board/phi_tier scheme. The old scheme reset both potentials at the start
+# of every round, which is a one-sided ratchet: the agent was PAID for
+# building board/tier strength up within a turn, but was never CHARGED when
+# combat (or simply falling behind the tavern-tier curve as round_num
+# advances) reduced it, because the baseline was silently re-established at
+# the next round's start. This both produced farmable, degenerate incentives
+# (a 312-update run showed sell:place climbing 0.46->0.84 and level_rate
+# collapsing 0.12->0.036 while reward improved and placement stayed flat --
+# see CONTEXT.md 2026-08-31) and broke the policy-invariance guarantee this
+# shaping style exists to provide, since Ng et al.'s proof requires Φ to be a
+# genuine function of state evaluated consistently across the whole episode.
+#
+# Fix: Φ(s) is initialised once, to Φ(s_0), in reset() (see PlayerState.phi's
+# docstring) and NEVER reset again. BattlegroundsGame._apply_potential_shaping
+# is called at EVERY point a reward is finalised for a player -- every
+# step_shopping action type, not only PLACE/SELL/LEVEL_UP, and once per round
+# right after combat resolves in run_game -- so the shaping term telescopes
+# exactly across the episode: with SHAPE_GAMMA matching PPOConfig.gamma
+# exactly, the PPO-discounted sum of shaped rewards collapses to
+# SHAPE_ALPHA * (SHAPE_GAMMA**T * Φ(s_T) - Φ(s_0)), independent of the path
+# taken. Consequently ANY cyclic action sequence (buy/sell churn, level-then-
+# idle, freeze/unfreeze, ...) that returns Φ to the same value nets ~0 shaped
+# reward (up to the tiny (SHAPE_GAMMA - 1) discount drag on intermediate
+# states -- expected and harmless, see the scratchpad telescoping test), while
+# a genuinely improving board/tier trajectory that is KEPT nets positive. This
+# is the structural guarantee against farming shaping instead of playing.
+SHAPE_ALPHA = 0.20   # shaping scale; matches the old BOARD_SHAPE_ALPHA
+                      # magnitude -- board-strength was always the dominant of
+                      # the two old potentials, and Φ is now normalised to
+                      # [0, 1] (see _potential), so this bounds the maximum
+                      # possible telescoped shaping magnitude for a whole
+                      # episode to +-SHAPE_ALPHA.
+SHAPE_GAMMA = 0.997   # MUST match PPOConfig.gamma (agent/ppo.py) -- this is
+                      # not a free tuning knob. Using anything else (e.g. the
+                      # old undiscounted 1.0) breaks the exact telescoping
+                      # identity above, which is what makes the invariance
+                      # guarantee hold with PPO's own GAE discounting.
+BOARD_SHAPE_TRIALS = 30    # sim trials per _board_win_prob call (~0.5 ms each)
 
 # Deterministic, noise-free board-strength potential -- see BattlegroundsGame.
 # shape_stats_weight, which train.py now fixes at 1.0 (see BOARD_SHAPE_STATS_WEIGHT):
@@ -65,14 +102,51 @@ BOARD_STATS_KEYWORD_BONUS = 3.0
 # from 4->5 of a tribe is a much smaller jump than crossing the threshold at all.
 BOARD_STATS_SYNERGY_BONUS = 5.0
 
-# Potential-based leveling reward shaping: rewards LEVEL_UP for closing the gap to a
-# rough "on-curve" tavern tier for the current round (see _expected_tier_for_round).
-# Deliberately smaller than BOARD_SHAPE_ALPHA -- this should nudge leveling pace, not
-# compete with board quality for priority. Capped at Φ=1.0 (see _tier_potential) so
-# there's no payout for leveling past what's useful for the round, and no way to farm
-# it repeatedly -- each tier only ever contributes its potential jump once.
-TIER_SHAPE_ALPHA = 0.10
-TIER_SHAPE_GAMMA = 1.0
+# Weights combining the board-strength and tavern-tier-pace components into
+# the single unified potential Φ(s) (see BattlegroundsGame._potential). Both
+# components are already normalised to [0, 1] (see _board_potential /
+# _tier_potential), so weights that sum to 1.0 keep Φ(s) in [0, 1] too. The
+# 2:1 split mirrors the old BOARD_SHAPE_ALPHA (0.20) : TIER_SHAPE_ALPHA (0.10)
+# ratio -- board quality was always weighted about twice as heavily as
+# leveling pace.
+BOARD_POTENTIAL_WEIGHT = 0.67
+TIER_POTENTIAL_WEIGHT  = 1.0 - BOARD_POTENTIAL_WEIGHT  # = 0.33; exact complement
+                                                         # guarantees weights sum to 1.0
+
+# --- Dense per-round / per-action reward terms -----------------------------
+#
+# These terms fire every round or every action, so across a typical ~10-15
+# round game they accumulate far more often than the once-per-game
+# FINAL_PLACEMENT_REWARD (below), which is the actual objective (spans -4..
+# +4). Measured on 20 games of mixed GreedyPlayAgent/HeuristicAgent scripted
+# baselines (see CONTEXT.md 2026-08-31 for the full decomposition): with the
+# flat per-round survival bonus removed (see compute_round_reward), the
+# remaining dense terms summed to ~-6.49/player-game against a
+# FINAL_PLACEMENT_REWARD mean of only ~-0.375/player-game (~17x) -- dense
+# terms were large enough to swamp even a 1st-place finish (+4) into a
+# net-negative total reward, which is exactly the "optimizing the shaping
+# instead of the game" failure mode this rebalance fixes.
+#
+# DENSE_REWARD_SCALE rescales every dense coefficient below by the same
+# shared factor (rather than retuning each independently) so the *relative*
+# weighting between dense terms — already reasoned about individually when
+# each was introduced — is preserved. 0.30 brings the post-removal dense
+# total to about -1.9/player-game: comfortably below FINAL_PLACEMENT_REWARD's
+# +-4 span (so a strong finish can no longer be drowned out) while still
+# leaving a meaningful per-round gradient, roughly the size of one placement-
+# rank step (e.g. 2nd->3rd is a swing of 1.0).
+DENSE_REWARD_SCALE = 0.30
+
+WIN_REWARD          =  0.5  * DENSE_REWARD_SCALE   # was 0.5;  compute_round_reward win term
+LOSS_PENALTY         = -0.3  * DENSE_REWARD_SCALE   # was -0.3; compute_round_reward loss term
+DAMAGE_TAKEN_COEF    =  0.05 * DENSE_REWARD_SCALE   # was 0.05; compute_round_reward
+DAMAGE_DEALT_COEF    =  0.05 * DENSE_REWARD_SCALE   # was 0.05; compute_round_reward
+RANK_DELTA_COEF      =  0.15 * DENSE_REWARD_SCALE   # was 0.15; compute_round_reward
+HAND_PENALTY_COEF    =  0.08 * DENSE_REWARD_SCALE   # was 0.08; _end_of_turn_reward
+GOLD_PENALTY_COEF    =  0.05 * DENSE_REWARD_SCALE   # was 0.05; _end_of_turn_reward
+EMPTY_BOARD_PENALTY  =  0.30 * DENSE_REWARD_SCALE   # was 0.30 flat; step_shopping SELL
+REROLL_PENALTY_BASE  =  0.05 * DENSE_REWARD_SCALE   # was 0.05; step_shopping REROLL
+REROLL_PENALTY_STEP  =  0.05 * DENSE_REWARD_SCALE   # was 0.05/reroll past 2; step_shopping REROLL
 
 FINAL_PLACEMENT_REWARD: Dict[int, float] = {
     1: +4.0,
@@ -107,24 +181,31 @@ def compute_round_reward(
 ) -> float:
     """Dense reward shaping for one shopping+combat round.
 
-    Components
+    Components (coefficients scaled by DENSE_REWARD_SCALE -- see the module
+    constants block for why: unscaled, these dense per-round terms summed to
+    roughly 17x FINAL_PLACEMENT_REWARD's magnitude, drowning out the actual
+    objective)
     ----------
-    Combat outcome : +0.5 win / -0.3 loss
-    Damage taken   : -0.05 * (damage / max_health)  — penalise health loss
-    Damage dealt   : +0.05 * (damage / max_health)  — reward hurting opponents
-    Rank delta     : (prev_rank - cur_rank) * 0.15  — positive when rank improves;
-                     fires both on combat health changes AND opponent eliminations
-    Survival bonus : +0.1 flat for being alive this round
+    Combat outcome : +WIN_REWARD win / LOSS_PENALTY loss
+    Damage taken   : -DAMAGE_TAKEN_COEF * (damage / max_health)  — penalise health loss
+    Damage dealt   : +DAMAGE_DEALT_COEF * (damage / max_health)  — reward hurting opponents
+    Rank delta     : (prev_rank - cur_rank) * RANK_DELTA_COEF  — positive when rank
+                     improves; fires both on combat health changes AND opponent
+                     eliminations
 
-    Note: gold efficiency (-0.05 * unspent_gold) is applied in step_shopping
-    at END_TURN, not here, since it fires mid-round before combat.
+    Note: gold efficiency (-GOLD_PENALTY_COEF * unspent_gold) is applied in
+    step_shopping at END_TURN, not here, since it fires mid-round before combat.
+
+    The flat +0.1 per-round survival bonus that used to live here was removed
+    2026-08-31: it was unconditional passive income (~+1.2/game, fired merely
+    for being alive) that diluted the placement signal without rewarding any
+    actual decision -- see CONTEXT.md for the STEP 0 measurement that found it.
     """
-    r  =  0.5  if result == "win"  else 0.0
-    r += -0.3  if result == "loss" else 0.0
-    r += -0.05 * (damage_taken / max_health)
-    r +=  0.05 * (damage_dealt  / max_health)
-    r += (prev_rank - cur_rank) * 0.15
-    r +=  0.1   # survival bonus
+    r  = WIN_REWARD          if result == "win"  else 0.0
+    r += LOSS_PENALTY         if result == "loss" else 0.0
+    r += -DAMAGE_TAKEN_COEF * (damage_taken / max_health)
+    r +=  DAMAGE_DEALT_COEF * (damage_dealt  / max_health)
+    r += (prev_rank - cur_rank) * RANK_DELTA_COEF
     return r
 
 
@@ -316,7 +397,7 @@ class BattlegroundsGame:
 
         Used only as the denominator for tier-shape potential (_tier_potential) --
         not a hard target or a claim about optimal play. Untuned; revisit alongside
-        TIER_SHAPE_ALPHA if leveling ends up over/under-incentivized in practice.
+        TIER_POTENTIAL_WEIGHT if leveling ends up over/under-incentivized in practice.
         """
         if round_num <= 1:
             return 1
@@ -334,11 +415,15 @@ class BattlegroundsGame:
     def _end_of_turn_reward(self, ps) -> float:
         """Shared reward shaping applied at the end of every shopping phase.
 
-        Empty-board penalty  : -0.30 if the board is empty — breaks level-then-
-                               end-turn degenerate policy.
-        Hand penalty         : -0.08 per card left in hand — cards in hand don't
-                               fight; discourages buying without placing.
-        Gold efficiency      : -0.05 * unspent_gold (scaled down over rounds).
+        Empty-board penalty  : -EMPTY_BOARD_PENALTY if the board is empty — breaks
+                               level-then-end-turn degenerate policy.
+        Hand penalty         : -HAND_PENALTY_COEF per card left in hand — cards in
+                               hand don't fight; discourages buying without placing.
+        Gold efficiency      : -GOLD_PENALTY_COEF * unspent_gold (scaled down over
+                               rounds).
+
+        Coefficients scaled by DENSE_REWARD_SCALE -- see the module constants
+        block.
         """
         r = 0.0
         board_size = len(ps.board)
@@ -346,10 +431,10 @@ class BattlegroundsGame:
         # Empty-board penalty fires at the SELL action that empties the board (not here)
         # so that credit assignment is immediate rather than deferred.
         # Hand penalty: bought cards that aren't placed don't help in combat
-        r -= 0.08 * hand_size
+        r -= HAND_PENALTY_COEF * hand_size
         # Unspent gold penalty (fades to 20% by round 16+)
         gold_scale = max(0.2, 1.0 - (ps.round_num - 1) / 15.0)
-        r -= 0.05 * ps.gold * gold_scale
+        r -= GOLD_PENALTY_COEF * ps.gold * gold_scale
         return r
 
     def _level_cost_for_tier(self, current_tier: int) -> int:
@@ -408,6 +493,9 @@ class BattlegroundsGame:
             )
             # Draw initial shop
             ps.shop = self._draw_shop(ps)
+            # Φ(s_0) -- the one and only reset point for ps.phi. See PlayerState.phi
+            # and the module constants block for why it must never be reset again.
+            ps.phi = self._potential(ps)
             self.players.append(ps)
 
         return [self._get_observation(pid) for pid in range(self.n_players)]
@@ -541,14 +629,16 @@ class BattlegroundsGame:
         return value / (value + BOARD_SHAPE_STATS_SATURATION)
 
     def _board_potential(self, ps) -> float:
-        """Φ(s) used for board-shape reward: the deterministic stats potential,
+        """Board-strength component of Φ(s): the deterministic stats potential,
         optionally blended with the noisy MC win-probability estimate.
 
         shape_stats_weight is fixed at BOARD_SHAPE_STATS_WEIGHT (see train.py) --
         no longer annealed toward 0. At weight 1.0 (the current default) this
         skips _board_win_prob entirely: no point paying for a 30-trial combat
         sim whose result gets multiplied by zero, and it's one less noisy call
-        in the hottest path in self-play (every PLACE/SELL action).
+        in the hottest path in self-play (every action -- see
+        _apply_potential_shaping). Bounded to [0, 1] either way, since both
+        _board_stats_potential and _board_win_prob (a probability) are.
         """
         w = self.shape_stats_weight
         if w >= 1.0:
@@ -557,41 +647,56 @@ class BattlegroundsGame:
             return self._board_win_prob(ps)
         return (1.0 - w) * self._board_win_prob(ps) + w * self._board_stats_potential(ps)
 
-    def _apply_board_shape(self, ps) -> float:
-        """Compute potential-based shaped reward and update ps.phi_board.
-
-        r_shaped = α * (γ * Φ(s') - Φ(s))
-
-        This is called after any action that modifies the board (PLACE, SELL).
-        Guaranteed not to change the optimal policy (Ng et al. 1999).
-        """
-        phi_after = self._board_potential(ps)
-        shaped = BOARD_SHAPE_ALPHA * (BOARD_SHAPE_GAMMA * phi_after - ps.phi_board)
-        ps.phi_board = phi_after
-        return shaped
-
     def _tier_potential(self, ps) -> float:
-        """Φ_tier(s): tavern tier as a fraction of the round's on-curve tier,
-        capped at 1.0 -- reaching or exceeding the curve fully saturates this
-        potential, so there's no reward for leveling further than useful for
-        the round, only for closing a real gap.
+        """Tier-pace component of Φ(s): tavern tier as a fraction of the round's
+        on-curve tier, capped at 1.0 -- reaching or exceeding the curve fully
+        saturates this component, so there's no reward for leveling further
+        than useful for the round, only for closing a real gap.
         """
         expected = self._expected_tier_for_round(ps.round_num)
         return min(1.0, ps.tavern_tier / expected)
 
-    def _apply_tier_shape(self, ps) -> float:
-        """Compute potential-based leveling reward and update ps.phi_tier.
+    def _potential(self, ps) -> float:
+        """Unified potential Φ(s) for true potential-based reward shaping.
 
-        r_shaped = α_tier * (γ_tier * Φ_tier(s') - Φ_tier(s))
+        Φ(s) = BOARD_POTENTIAL_WEIGHT * _board_potential(s)
+             + TIER_POTENTIAL_WEIGHT  * _tier_potential(s)
 
-        Called after a successful LEVEL_UP. ps.phi_tier resets to the round's
-        starting potential at round start (mirrors ps.phi_board), so a player
-        who fell behind curve gets full credit for catching back up this round
-        rather than paying for the gap that opened on earlier rounds.
+        Both components are already normalised to [0, 1] and the weights sum
+        to 1.0, so Φ(s) ∈ [0, 1] for every reachable state. This single Φ
+        replaces the old separate board/tier potentials (see PlayerState.phi
+        and the module constants block for why the split-and-reset design was
+        broken) -- see _apply_potential_shaping for how it's paid out.
         """
-        phi_after = self._tier_potential(ps)
-        shaped = TIER_SHAPE_ALPHA * (TIER_SHAPE_GAMMA * phi_after - ps.phi_tier)
-        ps.phi_tier = phi_after
+        return (BOARD_POTENTIAL_WEIGHT * self._board_potential(ps)
+                + TIER_POTENTIAL_WEIGHT * self._tier_potential(ps))
+
+    def _apply_potential_shaping(self, ps) -> float:
+        """Pay potential-based shaped reward for one transition and advance ps.phi.
+
+        r_shaped = SHAPE_ALPHA * (SHAPE_GAMMA * Φ(s') - Φ(s))
+
+        Must be called at EVERY point a reward is finalised for *ps* -- every
+        step_shopping action type (BUY, SELL, PLACE, REROLL, FREEZE, LEVEL_UP,
+        HERO_POWER, END_TURN, ACTIVATE), plus once per round right after
+        combat resolves in run_game -- not only on board-changing actions.
+        Telescoping is only exact when Φ is evaluated at every transition;
+        skipping any of them would reopen a smaller version of the exact bug
+        this replaced (see module constants block / CONTEXT.md 2026-08-31).
+
+        Because ps.phi is never reset mid-episode, and SHAPE_GAMMA matches
+        PPOConfig.gamma exactly, the PPO-discounted sum of every shaped reward
+        paid out over a whole game collapses (telescopes) to exactly
+            SHAPE_ALPHA * (SHAPE_GAMMA**T * Φ(s_T) - Φ(s_0))
+        regardless of the path taken to get there -- any cyclic action
+        sequence (buy/sell churn, level-then-idle, freeze/unfreeze, ...) that
+        returns Φ to the same value nets ~0 shaped reward. This is the
+        structural guarantee against farming shaping instead of playing;
+        guaranteed not to change the optimal policy (Ng et al. 1999).
+        """
+        phi_after = self._potential(ps)
+        shaped = SHAPE_ALPHA * (SHAPE_GAMMA * phi_after - ps.phi)
+        ps.phi = phi_after
         return shaped
 
     # ------------------------------------------------------------------
@@ -641,6 +746,10 @@ class BattlegroundsGame:
                     reward += self._end_of_turn_reward(ps)
                     self.hero_handler.on_end_turn(ps)
                     done = True
+            # Potential shaping fires here too -- trinkets can buff the board
+            # immediately on selection, and every reward-emitting point must
+            # evaluate Φ for the telescoping identity to hold exactly.
+            reward += self._apply_potential_shaping(ps)
             return self._get_observation(player_id), reward, done
 
         # ── Discover in progress: only BUY(0/1/2) is valid ───────────────────
@@ -659,8 +768,12 @@ class BattlegroundsGame:
                 ps.discover_pending = []
                 if len(ps.hand) < 10:
                     ps.hand.append(chosen)
-            # All other actions are ignored while discover is pending
-            return self._get_observation(player_id), 0.0, False
+            # All other actions are ignored while discover is pending. Still
+            # evaluate shaping (see comment above) -- discover doesn't touch
+            # board/tier so this is normally a no-op modulo the tiny
+            # (SHAPE_GAMMA - 1) discount drag.
+            shaped = self._apply_potential_shaping(ps)
+            return self._get_observation(player_id), shaped, False
 
         if type_action == 0:
             # buy: ptr_action is shop slot index (ptr 0-6 → slot 0-6)
@@ -710,9 +823,8 @@ class BattlegroundsGame:
                         cards = self.tavern_pool.draw(ps.tavern_tier, 1)
                         for card in cards:
                             ps.hand.append(self._dict_to_minion(card))
-                reward += self._apply_board_shape(ps)  # potential-based, unclipped
                 if not ps.board:                        # emptied the board — charge penalty here for clean credit assignment
-                    reward -= 0.30
+                    reward -= EMPTY_BOARD_PENALTY
 
         elif type_action == 2:
             # place: ptr_action is hand slot index (ptr 14-23 → slot 0-9)
@@ -777,7 +889,12 @@ class BattlegroundsGame:
                                     minion.max_health     += 1 * mult
                         from env.triple_system import check_and_process_triple
                         check_and_process_triple(ps, self.tavern_pool)
-                        reward += self._apply_board_shape(ps)  # potential-based, unclipped
+                    # Potential shaping (see the single call at the end of this
+                    # method) now fires for BOTH branches above (spell cast or
+                    # minion placement) -- the old code only paid it for the
+                    # minion branch, silently skipping shaping on spell casts even
+                    # though spells (Blood Gem, Timecap'n Hooktail's aura, ...)
+                    # can change board strength just as much as a placement can.
 
         elif type_action == 3:
             # reroll — consume a free refresh (Refreshing Anomaly) before spending gold
@@ -789,7 +906,7 @@ class BattlegroundsGame:
                     ps.gold -= ps.reroll_cost
                     # Escalating penalty: 1-2 rerolls ok, 3+ gets expensive fast
                     _n_rerolls = getattr(ps, "_rerolls_this_turn", 0)
-                    reward -= 0.05 + 0.05 * max(0, _n_rerolls - 2)
+                    reward -= REROLL_PENALTY_BASE + REROLL_PENALTY_STEP * max(0, _n_rerolls - 2)
                     ps._rerolls_this_turn = _n_rerolls + 1  # type: ignore[attr-defined]
                 ps.frozen = False
                 ps.shop = self._draw_shop(ps)
@@ -822,7 +939,6 @@ class BattlegroundsGame:
                 ps.frozen = False
                 ps.shop = self._draw_shop(ps)
                 self.hero_handler.on_tavern_upgrade(ps)
-                reward += self._apply_tier_shape(ps)
 
         elif type_action == 6:
             # hero_power: mark as used unconditionally so passive/unsupported heroes
@@ -859,6 +975,17 @@ class BattlegroundsGame:
                     minion.activated_this_turn = True
                     self.effect_handler.on_activate(ps, minion)
 
+        # Potential shaping fires for every dispatched action type above (BUY,
+        # SELL, PLACE, REROLL, FREEZE, LEVEL_UP, HERO_POWER, END_TURN, ACTIVATE)
+        # via this single call site, whether or not the action's own
+        # preconditions were met -- a no-op/failed action leaves Φ(s) unchanged
+        # so this correctly contributes ~0 (modulo the tiny (SHAPE_GAMMA - 1)
+        # discount drag), and a single call site is much easier to audit for
+        # "every transition is covered" than scattering it through every
+        # branch (the previous design's bug, board-shape reward that only
+        # fired on the minion sub-branch of PLACE, came from exactly that
+        # kind of scattering).
+        reward += self._apply_potential_shaping(ps)
         return self._get_observation(player_id), reward, done
 
     def _apply_game_buffs(self, ps: PlayerState, minion: MinionState) -> None:
@@ -1161,8 +1288,16 @@ class BattlegroundsGame:
                 ps._rerolls_this_turn = 0  # type: ignore[attr-defined]
                 for m in ps.board:
                     m.activated_this_turn = False
-                ps.phi_board = self._board_potential(ps)  # reset baseline so shaping is within-turn only
-                ps.phi_tier  = self._tier_potential(ps)   # same within-turn-only reset for leveling shape
+                # NOTE: ps.phi is intentionally NOT reset here. The old code
+                # re-baselined phi_board/phi_tier every round, discarding any
+                # potential drop since the last evaluation (e.g. falling behind
+                # the tavern-tier curve as round_num just advanced above) --
+                # exactly the one-sided ratchet this whole rework removes. The
+                # drift since last round's post-combat evaluation is picked up
+                # automatically by the next _apply_potential_shaping call (the
+                # first shopping action this round, or the forced END_TURN if
+                # none is taken) against the still-live ps.phi baseline. See
+                # the module constants block and CONTEXT.md (2026-08-31).
                 ps.shop = self._draw_shop(ps)
                 ps.frozen = False
                 self.hero_handler.on_start_of_round(ps)
@@ -1254,6 +1389,18 @@ class BattlegroundsGame:
                         result=result_info["result"],
                         max_health=ps.max_health,
                     )
+                    # Potential shaping, evaluated right after combat -- the
+                    # charge the old per-round reset silently absorbed. In this
+                    # simulator combat doesn't itself mutate ps.board (win/loss
+                    # is resolved as an aggregate win-prob/damage estimate, not
+                    # by tracking which individual minions died), so this call
+                    # is usually a near-noop today; it exists so (a) any future
+                    # change that does let combat weaken the board is charged
+                    # automatically with no further wiring, and (b) it closes
+                    # the telescoping sum for this round for every player who
+                    # fought, including ones eliminated this round (their Φ(s_T)
+                    # is fixed here, at the moment their episode ends).
+                    r += self._apply_potential_shaping(ps)
                     # Fire placement reward immediately on elimination so the
                     # agent doesn't have to wait until game end for this signal.
                     if pid in new_dead:

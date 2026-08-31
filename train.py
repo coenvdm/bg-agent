@@ -505,6 +505,63 @@ class GreedyPlayAgent:
         pass
 
 
+class EvalAgent:
+    """Wraps a policy for read-only, deterministic evaluation.
+
+    Used only by evaluate_policy(): selects the argmax action under the
+    masked action distribution (BGPolicyNetwork.get_action(...,
+    deterministic=True)) instead of sampling, so the eval metric reflects
+    the policy's learned mode rather than exploration noise.
+
+    record_transition* are no-ops and this class never references a
+    PPOTrainer or a rollout buffer -- evaluate_policy cannot disturb any
+    training state through this agent, even when called mid-training-run.
+
+    supports_batching = False forces BattlegroundsGame's sequential
+    per-player action-selection path (see
+    BattlegroundsGame._agents_support_batching), which is what makes the
+    deterministic flag take effect at all: the batched shopping path calls
+    policy.get_action_batch() directly and always samples, with no
+    deterministic option and no per-agent hook to change that.
+    """
+
+    supports_batching = False
+
+    def __init__(self, policy: BGPolicyNetwork, player_id: int, device: str = "cpu") -> None:
+        self.policy    = policy
+        self.player_id = player_id
+        self.device    = device
+
+    def get_action(self, obs: dict) -> tuple:
+        ps  = obs["player_state"]
+        dev = torch.device(self.device)
+
+        t_mask   = build_type_mask(ps)
+        t_mask_t = t_mask.unsqueeze(0).to(dev)
+        p_mask_t = build_pointer_mask(ps, -1).unsqueeze(0).to(dev)
+
+        board_t  = torch.tensor(obs["board_tokens"][None],   dtype=torch.float32, device=dev)
+        shop_t   = torch.tensor(obs["shop_tokens"][None],    dtype=torch.float32, device=dev)
+        hand_t   = torch.tensor(obs["hand_tokens"][None],    dtype=torch.float32, device=dev)
+        scalar_t = torch.tensor(obs["scalar_context"][None], dtype=torch.float32, device=dev)
+        opp_np   = obs.get("opp_tokens")
+        opp_t    = torch.tensor(opp_np[None], dtype=torch.float32, device=dev) if opp_np is not None else None
+
+        with torch.no_grad():
+            type_idx, ptr_idx, _, _ = self.policy.get_action(
+                board_t, shop_t, hand_t, scalar_t,
+                type_mask=t_mask_t, pointer_mask=p_mask_t,
+                deterministic=True, opp_tokens=opp_t,
+            )
+        return type_idx, ptr_idx
+
+    def record_transition(self, *_a, **_kw) -> None:  # no-op — eval collects no data
+        pass
+
+    def record_transition_precomputed(self, *_a, **_kw) -> None:  # no-op
+        pass
+
+
 # -------------------------------------------------------------------------
 # Card definitions loader
 # -------------------------------------------------------------------------
@@ -791,6 +848,96 @@ def _worker_run_game(task: tuple) -> tuple:
     return ppo_trainer.buffer.transitions, summary
 
 
+def _worker_run_eval_game(task: tuple) -> tuple:
+    """Run ONE evaluate_policy() game in a subprocess.
+
+    Mirrors the body of evaluate_policy's sequential per-game loop exactly:
+    one deterministic EvalAgent on the eval seat, GreedyPlayAgent/HeuristicAgent
+    on the other seven. Collects no PPO transitions, builds no PPOTrainer, and
+    touches no trainer state -- this is a read-only measurement, same as the
+    sequential path.
+
+    Parameters (unpacked from *task*)
+    ---------------------------------
+    game_idx  : int                  — 0-based index into the requested
+                                        n_games sequence. Determines
+                                        eval_pid = game_idx % N_PLAYERS (same
+                                        seat-rotation rule as the sequential
+                                        path) and is echoed back in the return
+                                        value so the caller can aggregate by
+                                        sorted game index rather than
+                                        completion order.
+    policy_sd : dict                 — policy.state_dict() snapshot (CPU
+                                        tensors; see evaluate_policy)
+    opponent  : {"greedy","heuristic"}
+    game_seed : int | None           — per-game seed, already derived by the
+                                        caller as (base_seed + game_idx) --
+                                        NEVER derived from worker scheduling
+                                        order, so results are identical
+                                        regardless of n_workers.
+
+    card_defs is read from the per-process global set by _worker_init.
+    Device is always "cpu" for the eval pool (see evaluate_policy) --
+    each CUDA context costs real VRAM and eval is latency- not
+    throughput-bound, so N cheap CPU workers beat a handful of CUDA ones.
+
+    Returns
+    -------
+    (game_idx, placement, n_rounds)
+      placement : the eval seat's final placement (1=winner .. 8=last)
+      n_rounds  : rounds the game lasted (cheap to report, not currently
+                  aggregated by evaluate_policy but handy for diagnostics)
+    """
+    card_defs = _W_CARD_DEFS
+    device    = _W_DEVICE
+
+    game_idx, policy_sd, opponent, game_seed = task
+    eval_pid = game_idx % N_PLAYERS
+
+    board_comp = SymbolicBoardComputer(card_defs)
+    firestone  = FirestoneClient(firestone_path=None, mock_mode=True)
+
+    policy = BGPolicyNetwork(
+        card_dim=44, d_model=256, nhead=8, num_layers=4,
+        scalar_dim=100, dropout=0.1,
+    ).to(device)
+    policy.load_state_dict(policy_sd)
+    policy.eval()
+
+    tavern_pool = TavernPool(card_defs, seed=game_seed)
+    matchmaker  = Matchmaker(n_players=N_PLAYERS, seed=game_seed)
+
+    agents: List[Any] = [None] * N_PLAYERS
+    for pid in range(N_PLAYERS):
+        if pid == eval_pid:
+            # supports_batching = False forces BattlegroundsGame's sequential
+            # per-player action path for every seat this game -- the ONLY
+            # path that honours EvalAgent's deterministic=True argmax. Do
+            # not swap this for a batching-capable agent. See EvalAgent's
+            # docstring for the full explanation.
+            agents[pid] = EvalAgent(policy, player_id=pid, device=device)
+        elif opponent == "greedy":
+            agents[pid] = GreedyPlayAgent(player_id=pid)
+        else:
+            agents[pid] = HeuristicAgent(player_id=pid)
+
+    game = BattlegroundsGame(
+        card_defs         = card_defs,
+        agents            = agents,
+        board_computer    = board_comp,
+        firestone_client  = firestone,
+        matchmaker        = matchmaker,
+        tavern_pool       = tavern_pool,
+        n_players         = N_PLAYERS,
+        seed              = game_seed,
+        batched           = True,  # moot: every seat's agent sets
+                                    # supports_batching=False, forcing the
+                                    # sequential path regardless.
+    )
+    result = game.run_game()
+    return game_idx, result.placements[eval_pid], result.n_rounds
+
+
 # -------------------------------------------------------------------------
 # Logging helpers
 # -------------------------------------------------------------------------
@@ -1053,6 +1200,305 @@ def _train_parallel(
                     logger.info("Checkpoint saved at game %d → %s", game_idx, checkpoint_path)
     finally:
         pool.shutdown(wait=True)
+
+
+# -------------------------------------------------------------------------
+# Honest evaluation: fixed scripted opponent, deterministic policy
+# -------------------------------------------------------------------------
+
+def _evaluate_policy_sequential(
+    policy: BGPolicyNetwork,
+    card_defs: Dict[str, dict],
+    n_games: int,
+    opponent: str,
+    device: str,
+    seed: Optional[int],
+) -> List[int]:
+    """Single-process implementation of the evaluate_policy game loop.
+
+    This is the original (pre-parallel) evaluate_policy body, extracted so it
+    can serve double duty: the n_workers<=1 path, and the fallback used by
+    evaluate_policy when parallel pool construction fails (see
+    _evaluate_policy_parallel / evaluate_policy).
+
+    Returns the raw list of eval-seat placements, one per game, in game-index
+    order (index g -> eval_pid = g % N_PLAYERS, game_seed = seed + g).
+    """
+    # Stateless, safe to share across all n_games below (see build_components /
+    # _worker_run_game — SymbolicBoardComputer only ever reads card_defs, and
+    # mock_mode=True FirestoneClient holds no per-game state either).
+    board_comp = SymbolicBoardComputer(card_defs)
+    firestone  = FirestoneClient(firestone_path=None, mock_mode=True)
+
+    placements: List[int] = []
+    for g in range(n_games):
+        game_seed = (seed + g) if seed is not None else None
+        # Rotate which seat the policy occupies so no single table
+        # position is systematically favoured/disfavoured over n_games.
+        eval_pid = g % N_PLAYERS
+
+        # Fresh per game — both are stateful (draw history / pairing
+        # history), exactly like _worker_run_game builds a fresh pair
+        # for every game rather than reusing one across a batch.
+        tavern_pool = TavernPool(card_defs, seed=game_seed)
+        matchmaker  = Matchmaker(n_players=N_PLAYERS, seed=game_seed)
+
+        agents: List[Any] = [None] * N_PLAYERS
+        for pid in range(N_PLAYERS):
+            if pid == eval_pid:
+                agents[pid] = EvalAgent(policy, player_id=pid, device=device)
+            elif opponent == "greedy":
+                agents[pid] = GreedyPlayAgent(player_id=pid)
+            else:
+                agents[pid] = HeuristicAgent(player_id=pid)
+
+        game = BattlegroundsGame(
+            card_defs         = card_defs,
+            agents            = agents,
+            board_computer    = board_comp,
+            firestone_client  = firestone,
+            matchmaker        = matchmaker,
+            tavern_pool       = tavern_pool,
+            n_players         = N_PLAYERS,
+            seed              = game_seed,
+            batched           = True,  # moot here: GreedyPlayAgent/
+                                        # HeuristicAgent set
+                                        # supports_batching=False, which
+                                        # forces the sequential path for
+                                        # every seat including EvalAgent's
+                                        # — see _agents_support_batching.
+        )
+        result = game.run_game()
+        placements.append(result.placements[eval_pid])
+    return placements
+
+
+def _evaluate_policy_parallel(
+    policy: BGPolicyNetwork,
+    card_defs: Dict[str, dict],
+    n_games: int,
+    opponent: str,
+    seed: Optional[int],
+    n_workers: int,
+) -> List[int]:
+    """Parallel implementation of the evaluate_policy game loop.
+
+    Dispatches n_games independent single-game tasks across a
+    ProcessPoolExecutor of up to n_workers CPU worker processes (see
+    _worker_run_eval_game), mirroring the ProcessPoolExecutor/spawn-context/
+    _worker_init machinery _train_parallel already uses for training games.
+
+    Determinism vs. n_workers: each task's seed is derived as (seed + g) from
+    the game index g alone, exactly like the sequential path — NEVER from
+    worker scheduling/completion order. pool.map already returns results in
+    input order, but results are additionally sorted by the game index each
+    result carries before placements are extracted, as a defensive guarantee
+    that this function returns bit-identical output to
+    _evaluate_policy_sequential for the same (policy, seed) regardless of
+    n_workers or however results happen to arrive from the pool.
+
+    Workers always run the policy on CPU regardless of the training
+    process's device: each CUDA context costs ~0.3-0.6GB of VRAM, the target
+    GPU has only 8GB, and eval is latency-bound (many small forward passes)
+    rather than throughput-bound, so CPU is the right choice for many
+    concurrent eval workers. This is why _worker_init is called with
+    device="cpu" below no matter what the caller's `device` argument was —
+    that argument only affects the sequential path (n_workers<=1, or the
+    fallback below if pool construction fails).
+
+    Raises on any pool-construction failure (caller — evaluate_policy — is
+    responsible for catching and falling back to the sequential path).
+    """
+    import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor
+
+    mp_context = multiprocessing.get_context("spawn")
+
+    # CPU tensors only — never pickle a live CUDA module across a spawn
+    # boundary (see _train_parallel's identical `sd` snapshot pattern).
+    policy_sd = {k: v.detach().cpu().clone() for k, v in policy.state_dict().items()}
+
+    tasks = [
+        (
+            g,
+            policy_sd,
+            opponent,
+            (seed + g) if seed is not None else None,
+        )
+        for g in range(n_games)
+    ]
+
+    pool = ProcessPoolExecutor(
+        max_workers=max(1, min(n_workers, n_games)),
+        mp_context=mp_context,
+        initializer=_worker_init,
+        initargs=(card_defs, "cpu"),
+    )
+    try:
+        results = list(pool.map(_worker_run_eval_game, tasks))
+    finally:
+        pool.shutdown(wait=True)
+
+    # Aggregate by game index, not completion/arrival order (see docstring).
+    results.sort(key=lambda r: r[0])
+    return [placement for _game_idx, placement, _n_rounds in results]
+
+
+def evaluate_policy(
+    policy: BGPolicyNetwork,
+    card_defs: Dict[str, dict],
+    n_games: int = 32,
+    opponent: str = "greedy",
+    device: str = "cpu",
+    seed: Optional[int] = None,
+    n_workers: int = 1,
+) -> Dict[str, Any]:
+    """Measure the current policy's raw skill against a FIXED scripted opponent.
+
+    This is the only progress signal in this module that a shaping term or a
+    co-evolving opponent pool cannot inflate:
+
+    - Mean training reward includes potential-based shaping (board-shape,
+      tier-shape -- see game_loop.py / CLAUDE.md) that can rise even while
+      the policy's actual in-game skill doesn't improve at all (this is
+      exactly what happened in the 312-update/731k-step run analysed
+      2026-08-31: reward improved, placement never left 4.58).
+    - train_placements / heuristic_placements / greedy_placements (tracked
+      in run_fresh_training.py's on_batch/on_update callbacks) are measured
+      each game against whichever mix of SnapshotPool snapshots / heuristic /
+      greedy seats that game happened to draw. The snapshot pool co-evolves
+      with the training policy, so if the whole pool improves together those
+      numbers can plateau around ~4.5 forever -- they can't tell "no one got
+      better" apart from "everyone got better together."
+
+    Seating exactly one deterministic policy seat against seven seats of a
+    scripted opponent that never changes turns "placement" back into an
+    absolute measurement: a drop in mean_placement here can only mean the
+    policy itself improved.
+
+    Determinism: actions are selected via argmax over the masked action
+    distribution (BGPolicyNetwork.get_action(..., deterministic=True), the
+    same flag PPOAgent already exposes for its own `deterministic` mode --
+    see EvalAgent) rather than sampled, so this measures the policy's
+    learned mode, not exploration noise.
+
+    Isolation: this function collects no PPO transitions, runs no optimizer
+    step, and never references a PPOTrainer, so it cannot disturb the
+    rollout buffer or any trainer counters (total_steps, update_count) even
+    when called mid-training-run. All game/tavern/matchmaker randomness for
+    the games played here comes from *seed* alone (TavernPool/Matchmaker/
+    BattlegroundsGame all take their own local `random.Random` instances,
+    per-game, exactly as the parallel training workers already do -- see
+    _worker_run_game). As a belt-and-braces guard against any incidental use
+    of the *global* random/np.random/torch RNGs deeper in the symbolic/env
+    stack, this function also snapshots and restores all three global RNG
+    states around the whole call, so it is safe to call between PPO updates
+    without perturbing anything the training loop's own global-RNG usage
+    depends on (e.g. SnapshotPool.sample_n in _train_parallel draws from the
+    global `random` module).
+
+    Parameters
+    ----------
+    policy : BGPolicyNetwork
+        Network to evaluate. Not mutated by this call (only .eval()/no_grad
+        forward passes are run against it; its train()/eval() mode flag is
+        restored to whatever it was on entry).
+    card_defs : dict
+        Card definitions dict, same shape used elsewhere in this module
+        (see load_card_defs).
+    n_games : int
+        Number of games to play (default 32).
+    opponent : {"greedy", "heuristic"}
+        Which scripted agent fills the other 7 seats each game.
+    device : str
+        Torch device for the policy's eval forward passes. Only affects the
+        sequential path (n_workers<=1, or the fallback if parallel pool
+        construction fails) — parallel workers always run on CPU regardless
+        of this argument; see _evaluate_policy_parallel.
+    seed : int, optional
+        Base seed for this call. None = non-deterministic (system entropy).
+    n_workers : int
+        Number of parallel CPU worker processes to evaluate games with
+        (default 1 = sequential, in-process, honouring `device`). With
+        n_workers > 1, games are dispatched across a ProcessPoolExecutor
+        (see _evaluate_policy_parallel / _worker_run_eval_game), each worker
+        running the policy on CPU. Per-game seeds are derived from (seed,
+        game index) alone, so results are identical to the sequential path
+        for the same (policy, seed) regardless of n_workers — see the
+        n_workers=1 vs n_workers=8 equality check exercised in this module's
+        verification. If pool construction itself fails, this function logs
+        a warning and falls back to the sequential path rather than
+        propagating.
+
+    Returns
+    -------
+    dict with keys: mean_placement, top1_rate, top4_rate, n_games, opponent.
+    On ANY exception during evaluation (including a parallel pool failure
+    that also fails to fall back), this function logs a warning and returns
+    this same dict shape with every metric set to float("nan") instead of
+    propagating — a failed eval must never take down a multi-hour training
+    run. Callers should treat NaN metrics as "eval unavailable this round"
+    rather than a real measurement.
+    """
+    if opponent not in ("greedy", "heuristic"):
+        raise ValueError(
+            f"evaluate_policy: unknown opponent {opponent!r}, expected 'greedy' or 'heuristic'"
+        )
+
+    was_training  = policy.training
+    _random_state = random.getstate()
+    _np_state     = np.random.get_state()
+    _torch_state  = torch.get_rng_state()
+    try:
+        try:
+            if n_workers > 1:
+                try:
+                    placements = _evaluate_policy_parallel(
+                        policy, card_defs, n_games, opponent, seed, n_workers,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "evaluate_policy: parallel pool failed (%s: %s) -- "
+                        "falling back to sequential eval",
+                        type(exc).__name__, exc,
+                    )
+                    placements = _evaluate_policy_sequential(
+                        policy, card_defs, n_games, opponent, device, seed,
+                    )
+            else:
+                placements = _evaluate_policy_sequential(
+                    policy, card_defs, n_games, opponent, device, seed,
+                )
+
+            placements_arr = np.asarray(placements, dtype=np.float64)
+            return {
+                "mean_placement": float(placements_arr.mean()),
+                "top1_rate":       float((placements_arr == 1).mean()),
+                "top4_rate":       float((placements_arr <= 4).mean()),
+                "n_games":         n_games,
+                "opponent":        opponent,
+            }
+        except Exception as exc:
+            # Belt-and-braces: even the sequential fallback above raised (or
+            # n_workers<=1 raised directly). A failed eval must never kill a
+            # multi-hour training job -- log and hand back NaN metrics in the
+            # same shape a real result would have, instead of propagating.
+            logger.warning(
+                "evaluate_policy: eval failed (%s: %s) -- returning NaN metrics",
+                type(exc).__name__, exc,
+            )
+            return {
+                "mean_placement": float("nan"),
+                "top1_rate":       float("nan"),
+                "top4_rate":       float("nan"),
+                "n_games":         n_games,
+                "opponent":        opponent,
+            }
+    finally:
+        random.setstate(_random_state)
+        np.random.set_state(_np_state)
+        torch.set_rng_state(_torch_state)
+        policy.train(was_training)
 
 
 # -------------------------------------------------------------------------

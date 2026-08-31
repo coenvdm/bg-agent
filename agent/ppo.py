@@ -30,16 +30,20 @@ logger = logging.getLogger(__name__)
 class PPOConfig:
     """Hyperparameters for the PPO trainer."""
 
-    lr: float = 3e-4
+    lr: float = 2.5e-4
+    lr_final: float = 5e-5     # lr linearly anneals lr -> lr_final over anneal_steps
     gamma: float = 0.997       # discount factor — long episodes (~120 steps) need high gamma
     gae_lambda: float = 0.95   # GAE λ
     clip_eps: float = 0.2      # PPO clip epsilon
     value_coef: float = 0.5    # value loss coefficient
-    entropy_coef: float = 0.05 # entropy bonus coefficient
+    entropy_coef: float = 0.015        # entropy bonus coefficient (start of anneal)
+    entropy_coef_final: float = 0.004  # entropy bonus coefficient (end of anneal)
+    anneal_steps: int = 4_000_000  # total_steps at which lr/entropy reach their *_final values
     max_grad_norm: float = 0.5 # gradient clipping norm
-    n_epochs: int = 4          # PPO update epochs per rollout (KL early-stop may cut short)
-    target_kl: float = 0.02    # KL divergence threshold for early stopping epochs
-    batch_size: int = 64
+    n_epochs: int = 4          # PPO update epochs per rollout (KL early-stop may cut epochs
+                                # short BETWEEN epochs only — epoch 0 always runs in full)
+    target_kl: float = 0.03    # KL divergence threshold for early stopping between epochs
+    batch_size: int = 256
     device: str = "cpu"
 
 
@@ -221,6 +225,10 @@ class PPOTrainer:
         PPOConfig hyperparameters.
     """
 
+    # Number of raw-return samples that must be folded into ret_rms before
+    # ret_std trusts its own estimate over the fresh-start default of 1.0.
+    _RET_RMS_MIN_COUNT: float = 10.0
+
     def __init__(self, policy: BGPolicyNetwork, config: PPOConfig) -> None:
         self.policy  = policy
         self.config  = config
@@ -228,12 +236,74 @@ class PPOTrainer:
         self.buffer  = RolloutBuffer()
         self.total_steps  = 0
         self.update_count = 0
+
+        # ── FIX 3: persistent running RETURN scale (not per-batch return
+        # normalisation) — see ret_std / _update_ret_rms / update() for the
+        # full convention. This is a running second moment of raw returns
+        # about ZERO, deliberately never mean-centred: the value head's
+        # zero point must stay pinned to raw reward units so GAE deltas
+        # (which mix stored values with raw rewards) stay on one consistent
+        # scale for the whole run, not a different offset/scale every update.
+        self.ret_rms_var: float = 1.0
+        self.ret_rms_count: float = 0.0
+
         self.metrics: Dict[str, List[float]] = {
             "policy_loss": [],
             "value_loss":  [],
             "entropy":     [],
             "total_loss":  [],
         }
+
+    # ------------------------------------------------------------------
+    # Return-scale (ret_std) bookkeeping — FIX 3
+    # ------------------------------------------------------------------
+
+    @property
+    def ret_std(self) -> float:
+        """Current running scale of the raw return distribution.
+
+        This is an RMS (root of a second moment about zero), NOT a
+        mean-centred std — no mean is ever subtracted, so a value of 1.0
+        (raw units) stays a fixed, stable reference point across the whole
+        run rather than drifting with every update like the old per-batch
+        return normalisation did.
+
+        Floored at 1e-4 to avoid dividing by ~0, and pinned to 1.0 until at
+        least `_RET_RMS_MIN_COUNT` return samples have been folded in, so
+        early updates (where the running estimate is itself noisy) don't
+        divide value targets by a near-arbitrary number.
+
+        Used to convert between the value head's native output units
+        ("per current ret_std at the time of that forward pass") and RAW
+        reward units: collect_transition/store_transition multiply the
+        network's raw output by this before storing into the buffer, and
+        update() divides GAE-derived raw returns by this to form value
+        targets. Any external caller computing `last_value` for update()
+        directly from get_action/get_action_batch must apply the same
+        multiplication first.
+        """
+        if self.ret_rms_count < self._RET_RMS_MIN_COUNT:
+            return 1.0
+        return max(1e-4, float(np.sqrt(max(self.ret_rms_var, 0.0))))
+
+    def _update_ret_rms(self, returns: np.ndarray) -> None:
+        """Fold this batch's raw returns into the running second-moment estimate.
+
+        Combines the running E[return^2] with this batch's E[return^2] via a
+        count-weighted average (a Welford-style parallel combination, minus
+        the mean-tracking half — see the ret_std docstring for why no mean is
+        subtracted). Must be called with RAW-scale returns, before those
+        returns are divided by ret_std to form value targets.
+        """
+        batch_count = returns.size
+        if batch_count == 0:
+            return
+        batch_second_moment = float(np.mean(np.square(returns)))
+        total_count = self.ret_rms_count + batch_count
+        self.ret_rms_var = (
+            self.ret_rms_var * self.ret_rms_count + batch_second_moment * batch_count
+        ) / total_count
+        self.ret_rms_count = total_count
 
     # ------------------------------------------------------------------
     # Data collection
@@ -285,7 +355,12 @@ class PPOTrainer:
                 board_t, shop_t, hand_t, scalar_t,
                 t_action_t, p_action_t, t_mask_t, p_mask_t, opp_t,
             )
-        value_f    = float(values.squeeze().item())
+        # FIX 3: the value head's raw output is in units of the CURRENT
+        # ret_std, not raw reward units. Multiply back to raw units here so
+        # everything stored in the buffer — and the GAE deltas in
+        # compute_advantages, which mix tr.value with tr.reward — stays on
+        # one consistent scale for the whole run. See PPOTrainer.ret_std.
+        value_f    = float(values.squeeze().item()) * self.ret_std
         log_prob_f = float(log_probs.squeeze().item())
 
         t = Transition(
@@ -329,6 +404,13 @@ class PPOTrainer:
         Skips the evaluate_actions() forward pass — use this when log_prob and
         value were already computed by get_action_batch() to avoid redundant
         inference. See collect_transition for traj_id semantics.
+
+        `value` must be the RAW network value-head output — exactly what
+        get_action / get_action_batch return, i.e. NOT yet rescaled. This
+        method applies the same ret_std -> raw-reward-units conversion that
+        collect_transition applies internally (see FIX 3 / PPOTrainer.ret_std),
+        so Transition.value is on a consistent raw-reward scale no matter
+        which of the two entry points populated it.
         """
         if opp_tokens is None:
             opp_tokens = np.zeros((7, 44), dtype=np.float32)
@@ -344,7 +426,7 @@ class PPOTrainer:
             ptr_action=ptr_action,
             reward=reward,
             done=done,
-            value=value,
+            value=value * self.ret_std,
             log_prob=log_prob,
             traj_id=traj_id,
         )
@@ -361,16 +443,33 @@ class PPOTrainer:
         Parameters
         ----------
         last_value:
-            Bootstrap value for GAE (0 if episode ended, V(s_T) if truncated).
+            Bootstrap value for GAE, in RAW reward units (0 if episode ended,
+            V(s_T) if truncated) — the same convention as Transition.value
+            (see collect_transition / ret_std). If this was obtained directly
+            from get_action / get_action_batch, multiply it by `self.ret_std`
+            first: those methods return the value head's native units, not
+            raw reward units.
 
         Returns
         -------
-        Dict of average loss metrics for this update batch.
+        Dict of average metrics for this update batch:
+        policy_loss, value_loss, entropy, total_loss, n_minibatches,
+        approx_kl, clip_frac, explained_var, lr, entropy_coef, ret_std.
 
         Algorithm
         ---------
-        1. Compute GAE advantages (normalised) and discounted returns.
-        2. For n_epochs:
+        1. Compute GAE advantages and RAW-scale discounted returns.
+        2. Update the persistent running return-scale (ret_std) from this
+           batch's raw returns, then divide returns by it to form value
+           targets — see the FIX 3 comment below for why this replaced
+           per-batch return mean/std normalisation.
+        3. Normalise advantages (mean 0 / std 1) — this one stays per-batch
+           and scale-free; it has no persistent-units meaning to preserve.
+        4. Linearly anneal lr and entropy_coef from cfg.*/cfg.*_final based
+           on self.total_steps / cfg.anneal_steps.
+        5. For n_epochs (KL is checked only BETWEEN epochs — epoch 0 always
+           runs to completion, so an update can never apply zero gradient
+           steps purely because of the KL guard):
            a. Shuffle transitions into mini-batches of size batch_size.
            b. For each mini-batch:
               - evaluate_actions → new_log_probs, new_values, entropy
@@ -378,51 +477,84 @@ class PPOTrainer:
               - surr1 = ratio * adv
               - surr2 = clip(ratio, 1±ε) * adv
               - policy_loss = -mean(min(surr1, surr2))
-              - value_loss  = 0.5 * mean((returns - new_values)^2)
+              - value_loss  = 0.5 * mean((value_targets - new_values)^2)
               - entropy_loss = -mean(entropy)
               - total = policy_loss + value_coef*value_loss + entropy_coef*entropy_loss
               - backward + grad_clip + optimizer step
-        3. Clear buffer, increment update_count.
+        6. Clear buffer, increment update_count.
         """
         if len(self.buffer) == 0:
             logger.warning("PPOTrainer.update called on empty buffer — skipping.")
             return {}
 
         cfg = self.config
+
+        # ── FIX 4: linear lr / entropy_coef annealing ───────────────────────
+        # progress saturates at 1.0 once total_steps reaches anneal_steps and
+        # stays there, so lr/entropy_coef hold at their *_final values for the
+        # rest of training instead of extrapolating past the schedule.
+        progress = min(1.0, self.total_steps / cfg.anneal_steps)
+        lr = cfg.lr + (cfg.lr_final - cfg.lr) * progress
+        entropy_coef = cfg.entropy_coef + (cfg.entropy_coef_final - cfg.entropy_coef) * progress
+        for param_group in self.optimizer.param_groups:
+            param_group["lr"] = lr
+
         adv_np, ret_np = self.buffer.compute_advantages(
             cfg.gamma, cfg.gae_lambda, last_value
         )
 
-        # Clip returns before value-function fitting to prevent loss spikes when
-        # the reward distribution shifts (e.g. new shaping terms added mid-run).
-        ret_np = np.clip(ret_np, -10.0, 10.0)
+        # ── FIX 3: persistent running return scale, not per-batch return
+        # normalisation ─────────────────────────────────────────────────────
+        # The OLD code re-centred and re-scaled `ret_np` to mean 0 / std 1 on
+        # EVERY update — a different offset and scale each time — while
+        # compute_advantages' `delta = reward + gamma*next_value - value` mixed
+        # those normalised values with RAW rewards. The baseline was never on
+        # the same scale as what it was meant to baseline, so advantages were
+        # close to noise and the value function chased a moving target.
+        #
+        # Fix: track ONE running scale (`ret_std`, no mean-subtraction so the
+        # zero point stays pinned to raw reward units — see the ret_std
+        # docstring) across the whole run. Transition.value is now stored in
+        # RAW reward units (collect_transition/store_transition multiply the
+        # network's raw output by ret_std before storing). Here we only
+        # divide by ret_std to form the value head's *targets* for this batch.
+        self._update_ret_rms(ret_np)
+        running_std = self.ret_std
+        ret_target_np = ret_np / running_std
 
-        # Normalise advantages
+        # Normalise advantages — standard, scale-free PPO practice; unlike
+        # returns this has no persistent "raw units" meaning to preserve.
         adv_mean = adv_np.mean()
         adv_std  = adv_np.std() + 1e-8
         adv_np   = (adv_np - adv_mean) / adv_std
 
-        # Normalise returns so value-function targets stay on a consistent unit
-        # scale across updates (same idea as advantage normalisation).
-        ret_mean = ret_np.mean()
-        ret_std  = ret_np.std() + 1e-8
-        ret_np   = (ret_np - ret_mean) / ret_std
-
         data  = self.buffer.to_tensors(cfg.device)
         dev   = torch.device(cfg.device)
         adv_t = torch.tensor(adv_np, dtype=torch.float32, device=dev)
-        ret_t = torch.tensor(ret_np, dtype=torch.float32, device=dev)
+        ret_t = torch.tensor(ret_target_np, dtype=torch.float32, device=dev)
+
+        # explained_var is computed once, on RAW-scale returns/values for the
+        # whole batch (not the ret_std-scaled value targets) — it answers
+        # "how good is the value function in the units the game actually
+        # cares about," which the ret_std scaling would otherwise obscure.
+        values_np = data["values"].cpu().numpy()
+        var_ret = float(np.var(ret_np))
+        if var_ret < 1e-8:
+            explained_var = float("nan")
+        else:
+            explained_var = float(1.0 - np.var(ret_np - values_np) / var_ret)
 
         n = len(self.buffer)
         indices = list(range(n))
 
         epoch_metrics: Dict[str, List[float]] = {
-            "policy_loss": [], "value_loss": [], "entropy": [], "total_loss": []
+            "policy_loss": [], "value_loss": [], "entropy": [], "total_loss": [],
+            "approx_kl": [], "clip_frac": [],
         }
 
         self.policy.train()
         for epoch_i in range(cfg.n_epochs):
-            epoch_kl = 0.0
+            epoch_kls: List[float] = []
             random.shuffle(indices)
             for start in range(0, n, cfg.batch_size):
                 batch_idx = indices[start: start + cfg.batch_size]
@@ -465,32 +597,37 @@ class PPOTrainer:
                 # when old_log_prob is -inf (stale near-zero-prob transitions)
                 new_log_probs_c = new_log_probs.clamp(min=-20.0)
                 b_old_lp_c      = b_old_lp.clamp(min=-20.0)
-                ratio = torch.exp(new_log_probs_c - b_old_lp_c)
+                logratio = new_log_probs_c - b_old_lp_c
+                ratio = logratio.exp()
 
-                # KL early stopping: approximate KL(old||new) = mean(old_lp - new_lp).
-                # If the policy has drifted too far from the data, stop updating —
-                # further gradient steps would be on stale importance weights.
+                # KL estimator — Schulman's k3 (http://joschu.net/blog/kl-approx.html):
+                # approx_kl = E[(ratio - 1) - logratio], a low-variance, non-negative
+                # estimator of KL(old||new). The old signed estimator
+                # mean(old_lp - new_lp) was noisy enough that, combined with only
+                # ~3 minibatches/update and a mid-epoch break, a single unlucky
+                # minibatch could trip early stopping and discard the rest of the
+                # epoch's gradient steps (measured: 8/264 updates applied zero
+                # gradient steps in a 312-update run).
                 with torch.no_grad():
-                    approx_kl = (b_old_lp_c - new_log_probs_c).mean().item()
-                epoch_kl = max(epoch_kl, approx_kl)
-                if approx_kl > cfg.target_kl:
-                    break  # stop this epoch early
+                    approx_kl = ((ratio - 1.0) - logratio).mean()
+                    clip_frac = ((ratio - 1.0).abs() > cfg.clip_eps).float().mean()
+                epoch_kls.append(float(approx_kl.item()))
 
                 # Clipped surrogate objective
                 surr1 = ratio * b_adv
                 surr2 = torch.clamp(ratio, 1.0 - cfg.clip_eps, 1.0 + cfg.clip_eps) * b_adv
                 policy_loss = -torch.min(surr1, surr2).mean()
 
-                # Value loss — plain MSE (no value clipping).
+                # Value loss — plain MSE against ret_std-scaled targets (no value clipping).
                 value_loss = 0.5 * (new_values - b_ret).pow(2).mean()
 
-                # Entropy bonus
+                # Entropy bonus — entropy_coef is this update's annealed value (FIX 4)
                 entropy_loss = -entropy.mean()
 
                 total_loss = (
                     policy_loss
                     + cfg.value_coef  * value_loss
-                    + cfg.entropy_coef * entropy_loss
+                    + entropy_coef * entropy_loss
                 )
 
                 if not torch.isfinite(total_loss):
@@ -506,31 +643,49 @@ class PPOTrainer:
                 epoch_metrics["value_loss"].append(float(value_loss.item()))
                 epoch_metrics["entropy"].append(float(-entropy_loss.item()))
                 epoch_metrics["total_loss"].append(float(total_loss.item()))
+                epoch_metrics["approx_kl"].append(float(approx_kl.item()))
+                epoch_metrics["clip_frac"].append(float(clip_frac.item()))
 
-            if epoch_kl > cfg.target_kl:
-                logger.debug("KL early stop at epoch %d (kl=%.4f)", epoch_i, epoch_kl)
-                break  # stop remaining epochs too
+            # KL is checked only BETWEEN epochs now, never mid-epoch (FIX 2).
+            # The old code broke out of the minibatch loop the instant one
+            # minibatch's signed KL estimate exceeded target_kl; with only a
+            # few minibatches per update that could discard an entire epoch's
+            # remaining gradient steps on one noisy sample, or even abort the
+            # whole update before the first epoch finished. Epoch 0 always
+            # runs to completion regardless of KL, so this guard alone can
+            # never make an update apply zero gradient steps.
+            if epoch_kls:
+                mean_epoch_kl = float(np.mean(epoch_kls))
+                if mean_epoch_kl > cfg.target_kl:
+                    logger.debug(
+                        "KL early stop after epoch %d (kl=%.4f)", epoch_i, mean_epoch_kl
+                    )
+                    break  # stop remaining epochs
 
         self.buffer.clear()
         self.update_count += 1
 
-        # Aggregate. If every mini-batch got skipped this update (KL exceeded
-        # target_kl on the very first mini-batch of the very first epoch, before
-        # anything was appended -- or every mini-batch hit the NaN/abnormal-loss
-        # guard), no gradient step happened at all: this batch of collected data
-        # was discarded with zero training on it. Report NaN rather than 0.0 for
-        # that case -- 0.0 previously looked like an (impossibly) perfect loss
-        # instead of "no update happened", which silently hid how often this was
-        # occurring (~5% of updates in early testing of the 2026-08-31 GAE fix).
+        # Aggregate. If every mini-batch got skipped this update (the NaN /
+        # abnormal-loss guard fired on all of them), no gradient step happened
+        # at all: this batch of collected data was discarded with zero
+        # training on it. Report NaN rather than 0.0 for that case -- 0.0
+        # previously looked like an (impossibly) perfect loss instead of "no
+        # update happened", which silently hid how often this was occurring.
+        # (KL can no longer cause this on its own — see the epoch-boundary
+        # comment above.)
         n_minibatches = len(epoch_metrics["total_loss"])
         if n_minibatches == 0:
             logger.warning(
-                "PPO update %d: every mini-batch skipped (KL or NaN guard) -- "
+                "PPO update %d: every mini-batch skipped (NaN guard) -- "
                 "buffer discarded with zero gradient steps applied.",
                 self.update_count,
             )
         avg = {k: float(np.mean(v)) if v else float("nan") for k, v in epoch_metrics.items()}
-        avg["n_minibatches"] = n_minibatches
+        avg["n_minibatches"]  = n_minibatches
+        avg["explained_var"]  = explained_var
+        avg["lr"]             = lr
+        avg["entropy_coef"]   = entropy_coef
+        avg["ret_std"]        = running_std
         for k, v in avg.items():
             self.metrics.setdefault(k, []).append(v)
 
@@ -548,6 +703,12 @@ class PPOTrainer:
             "total_steps":          self.total_steps,
             "update_count":         self.update_count,
             "config":               self.config.__dict__,
+            # FIX 3: persist the running return-scale so a resumed run keeps
+            # a consistent value-target scale instead of resetting to 1.0 and
+            # re-estimating from scratch (which would look like a value-loss
+            # spike right after every resume).
+            "ret_rms_var":          self.ret_rms_var,
+            "ret_rms_count":        self.ret_rms_count,
         }
         if extra:
             payload.update(extra)
@@ -581,6 +742,11 @@ class PPOTrainer:
             self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         self.total_steps  = checkpoint.get("total_steps", 0)
         self.update_count = checkpoint.get("update_count", 0)
+        # FIX 3: restore the running return-scale; tolerate older checkpoints
+        # saved before this existed by falling back to the fresh-start values
+        # (ret_std then reads as 1.0 until enough new samples accumulate).
+        self.ret_rms_var   = checkpoint.get("ret_rms_var", 1.0)
+        self.ret_rms_count = checkpoint.get("ret_rms_count", 0.0)
         logger.info(
             "Loaded checkpoint from %s (steps=%d, updates=%d)",
             path, self.total_steps, self.update_count,

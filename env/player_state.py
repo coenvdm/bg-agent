@@ -149,12 +149,19 @@ class PlayerState:
     trinket_offer_pending: bool = False
     # Spells granted by Spellcraft and trinket passives (effect_id → payload)
     active_spells: Dict[str, dict] = field(default_factory=dict)
-    # Cached win-probability used for potential-based board-strength reward shaping.
-    # Updated after every PLACE or SELL action; reset to 0.0 at game start.
-    phi_board: float = 0.0
-    # Cached tier/round-curve potential used for potential-based leveling reward
-    # shaping. Updated after every successful LEVEL_UP; reset at game start.
-    phi_tier: float = 0.0
+    # Unified potential Φ(s) for true potential-based reward shaping (Ng, Harada
+    # & Russell 1999): Φ(s) = BOARD_POTENTIAL_WEIGHT * board component +
+    # TIER_POTENTIAL_WEIGHT * tier component (see BattlegroundsGame._potential /
+    # _apply_potential_shaping in game_loop.py). Initialised to Φ(s_0) once, in
+    # reset(), and NEVER reset again mid-episode -- it must telescope across the
+    # WHOLE game for the policy-invariance guarantee to hold. The old design
+    # split this into phi_board/phi_tier and re-baselined both every round,
+    # which silently discarded any potential drop since the last evaluation --
+    # a one-sided ratchet that paid for rebuilding board/tier strength within a
+    # turn but never charged for what combat (or falling behind the tavern-tier
+    # curve as round_num advances) took away. See CLAUDE.md "Reward Shaping"
+    # and CONTEXT.md (2026-08-31) for the full history.
+    phi: float = 0.0
 
     @property
     def total_health(self) -> int:

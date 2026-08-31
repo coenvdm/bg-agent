@@ -80,6 +80,50 @@ _ZONE_SLICE = {
 }
 
 
+# ── Mask/logit sanitisation helpers ────────────────────────────────────────────
+#
+# A batch row whose mask is entirely False (a genuine state-inconsistency, or a
+# non-pointer action type sharing the pointer mask) makes `masked_fill(..., -inf)`
+# produce an all "-inf" row. softmax over an all "-inf" row is NaN, and NaN
+# survives multiplication by zero (`NaN * 0.0 == NaN` under IEEE-754) — so a
+# later `* needs_ptr.float()` guard does NOT neutralise it; it poisons every
+# downstream reduction (log_prob, entropy, loss, gradient) for the WHOLE batch,
+# not just the offending row. Confirmed root cause: 8/264 PPO updates in a
+# 312-update run applied zero gradient steps because one NaN row triggered the
+# update's NaN guard to discard the entire minibatch. These two helpers give
+# every row a well-defined distribution before any Categorical is built.
+
+def _sanitize_mask(mask: torch.Tensor) -> torch.Tensor:
+    """Replace any row that is entirely False with an all-True row.
+
+    Used at every masked_fill site so a fully-masked row degrades to "treat
+    everything as valid" (uniform, harmless once combined with downstream
+    zero-contribution guards) rather than producing -inf everywhere. Real
+    masking is untouched for every row with >=1 valid entry.
+    """
+    empty_rows = ~mask.any(dim=-1)
+    if empty_rows.any():
+        mask = mask.clone()
+        mask[empty_rows] = True
+    return mask
+
+
+def _safe_categorical(logits: torch.Tensor) -> torch.distributions.Categorical:
+    """Build a Categorical, defusing any row that is entirely -inf first.
+
+    Defence-in-depth for the action-sampling call sites (get_action,
+    get_action_batch): even though forward() now sanitises masks before its
+    own masked_fill, this guards against an all -inf row reaching Categorical
+    from any other path (e.g. a locally-combined zone/occupancy mask) without
+    needing the original mask on hand at the call site.
+    """
+    bad_rows = torch.isneginf(logits).all(dim=-1)
+    if bad_rows.any():
+        logits = logits.clone()
+        logits[bad_rows] = 0.0   # uniform fallback distribution
+    return torch.distributions.Categorical(logits=logits)
+
+
 # ── Network ───────────────────────────────────────────────────────────────────
 
 class BGPolicyNetwork(nn.Module):
@@ -261,8 +305,15 @@ class BGPolicyNetwork(nn.Module):
         pointer_logits = torch.cat([buy_logits, sell_logits, place_logits], dim=-1)  # [B, 24]
 
         if type_mask is not None:
+            # Sanitise before masked_fill: an all-False row here would fill to
+            # all -inf, and softmax(all -inf) = NaN (see module note above).
+            type_mask = _sanitize_mask(type_mask)
             type_logits = type_logits.masked_fill(~type_mask, float("-inf"))
         if pointer_mask is not None:
+            # Same guard for the pointer head — a non-pointer-type row or a
+            # state-inconsistent occupancy mask must never reach Categorical
+            # as an all -inf row.
+            pointer_mask = _sanitize_mask(pointer_mask)
             pointer_logits = pointer_logits.masked_fill(~pointer_mask, float("-inf"))
 
         return type_logits, pointer_logits, value
@@ -311,7 +362,9 @@ class BGPolicyNetwork(nn.Module):
             t_logits_1d = type_logits.squeeze(0)   # [8]
             p_logits_1d = ptr_logits.squeeze(0)    # [24]
 
-            t_dist = torch.distributions.Categorical(logits=t_logits_1d)
+            # _safe_categorical: defensive fallback in case an all -inf row
+            # ever reaches here (see module note above forward()).
+            t_dist = _safe_categorical(t_logits_1d)
             type_tensor = t_logits_1d.argmax() if deterministic else t_dist.sample()
             type_idx    = int(type_tensor.item())
             log_prob    = t_dist.log_prob(type_tensor)
@@ -330,7 +383,8 @@ class BGPolicyNetwork(nn.Module):
                         combined = zone_bits  # fallback: zone only (state inconsistency guard)
 
                 masked_ptr = p_logits_1d.masked_fill(~combined, float("-inf"))
-                p_dist     = torch.distributions.Categorical(logits=masked_ptr)
+                # Same defensive fallback as above for the pointer distribution.
+                p_dist     = _safe_categorical(masked_ptr)
                 ptr_tensor = masked_ptr.argmax() if deterministic else p_dist.sample()
                 ptr_idx    = int(ptr_tensor.item())
                 log_prob   = log_prob + p_dist.log_prob(ptr_tensor)
@@ -376,7 +430,9 @@ class BGPolicyNetwork(nn.Module):
                 scalar_context, type_mask, None, opp_tokens,
             )
             # type_logits: [B, 8], ptr_logits: [B, 24], values: [B, 1]
-            t_dist = torch.distributions.Categorical(logits=type_logits)
+            # _safe_categorical: defensive fallback for any all -inf row (see
+            # module note above forward()).
+            t_dist = _safe_categorical(type_logits)
             type_actions = type_logits.argmax(dim=-1) if deterministic else t_dist.sample()
             log_probs    = t_dist.log_prob(type_actions)  # [B]
 
@@ -395,7 +451,8 @@ class BGPolicyNetwork(nn.Module):
                         occ = zone_bits & pointer_mask[i]
                         combined = occ if occ.any() else zone_bits
                     masked_ptr = ptr_logits[i].masked_fill(~combined, float("-inf"))
-                    p_dist     = torch.distributions.Categorical(logits=masked_ptr)
+                    # Defensive fallback, same reasoning as get_action() above.
+                    p_dist     = _safe_categorical(masked_ptr)
                     ptr_actions[i] = masked_ptr.argmax() if deterministic else p_dist.sample()
                     log_probs[i]   = log_probs[i] + p_dist.log_prob(ptr_actions[i])
 
@@ -446,14 +503,24 @@ class BGPolicyNetwork(nn.Module):
             needs_ptr = needs_ptr | (type_actions == t_idx)
 
         if needs_ptr.any():
-            p_dist = torch.distributions.Categorical(logits=ptr_logits)
+            # _safe_categorical: forward() already sanitises pointer_mask so
+            # ptr_logits shouldn't contain an all -inf row, but this is cheap
+            # defence-in-depth against the NaN failure mode described above
+            # forward() (an all -inf row -> Categorical -> NaN log_prob/entropy).
+            p_dist = _safe_categorical(ptr_logits)
             # Clamp ptr_actions to [0, POINTER_DIM-1] for rows where ptr == -1;
             # those rows are masked out by needs_ptr anyway.
             safe_ptr = ptr_actions.clamp(min=0)
             ptr_lp = p_dist.log_prob(safe_ptr)        # [B]
             ptr_ent = p_dist.entropy()                # [B]
-            log_probs = log_probs + ptr_lp  * needs_ptr.float()
-            entropy   = entropy   + ptr_ent * needs_ptr.float()
+            # torch.where, NOT `* needs_ptr.float()`: if ptr_lp/ptr_ent were
+            # ever NaN for a non-pointer row (NaN * 0.0 == NaN, it does NOT
+            # zero out), the multiply would silently poison log_probs/entropy
+            # for the WHOLE batch once summed/meaned downstream. torch.where
+            # instead substitutes an exact 0.0 for those rows regardless of
+            # what the pointer head produced for them.
+            log_probs = log_probs + torch.where(needs_ptr, ptr_lp, torch.zeros_like(ptr_lp))
+            entropy   = entropy   + torch.where(needs_ptr, ptr_ent, torch.zeros_like(ptr_ent))
 
         return log_probs, values, entropy
 
