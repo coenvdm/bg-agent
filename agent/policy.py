@@ -689,9 +689,24 @@ def build_pointer_mask(player_state, type_idx: int) -> torch.Tensor:
         if not mask.any():
             mask[PTR_BOARD_OFF:PTR_BOARD_OFF + BOARD_ZONE_SIZE] = True
     elif type_idx == -1:       # full occupancy mask, all zones
-        for i, slot in enumerate(shop[:SHOP_ZONE_SIZE]):
-            if _slot_occupied(slot):
+        # Shop portion must respect trinket/discover restriction the same way
+        # the type_idx==0 branch above does -- this mask is what get_action()
+        # uses for its first, type-agnostic forward pass (before type_idx is
+        # even sampled), so leaving it as raw ps.shop occupancy here let the
+        # policy sample an out-of-range shop pointer during a trinket/discover
+        # offer (step_shopping ignores ps.shop entirely while either is
+        # pending, silently no-op'ing on anything outside the actual offer's
+        # range) -- degrading real training data, not just scripted opponents.
+        if _trinket_pending:
+            for i in range(3):
                 mask[PTR_SHOP_OFF + i] = True
+        elif _discover:
+            for i in range(min(len(_discover), SHOP_ZONE_SIZE)):
+                mask[PTR_SHOP_OFF + i] = True
+        else:
+            for i, slot in enumerate(shop[:SHOP_ZONE_SIZE]):
+                if _slot_occupied(slot):
+                    mask[PTR_SHOP_OFF + i] = True
         for i, slot in enumerate(board[:BOARD_ZONE_SIZE]):
             if _slot_occupied(slot):
                 mask[PTR_BOARD_OFF + i] = True
