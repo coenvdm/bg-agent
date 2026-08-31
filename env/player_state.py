@@ -152,6 +152,9 @@ class PlayerState:
     # Cached win-probability used for potential-based board-strength reward shaping.
     # Updated after every PLACE or SELL action; reset to 0.0 at game start.
     phi_board: float = 0.0
+    # Cached tier/round-curve potential used for potential-based leveling reward
+    # shaping. Updated after every successful LEVEL_UP; reset at game start.
+    phi_tier: float = 0.0
 
     @property
     def total_health(self) -> int:

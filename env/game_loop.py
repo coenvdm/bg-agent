@@ -48,6 +48,15 @@ BOARD_SHAPE_TRIALS = 30    # sim trials per shaping call (~0.5 ms each)
 # attack+health at which this potential reads 0.5 (rough mid-game board, untuned).
 BOARD_SHAPE_STATS_SATURATION = 30.0
 
+# Potential-based leveling reward shaping: rewards LEVEL_UP for closing the gap to a
+# rough "on-curve" tavern tier for the current round (see _expected_tier_for_round).
+# Deliberately smaller than BOARD_SHAPE_ALPHA -- this should nudge leveling pace, not
+# compete with board quality for priority. Capped at Φ=1.0 (see _tier_potential) so
+# there's no payout for leveling past what's useful for the round, and no way to farm
+# it repeatedly -- each tier only ever contributes its potential jump once.
+TIER_SHAPE_ALPHA = 0.10
+TIER_SHAPE_GAMMA = 1.0
+
 FINAL_PLACEMENT_REWARD: Dict[int, float] = {
     1: +4.0,
     2: +2.0,
@@ -285,6 +294,26 @@ class BattlegroundsGame:
         """Gold available = min(2 + round_num, 10)."""
         return min(2 + round_num, 10)
 
+    def _expected_tier_for_round(self, round_num: int) -> int:
+        """Rough 'on-curve' tavern tier for a competent player at this round.
+
+        Used only as the denominator for tier-shape potential (_tier_potential) --
+        not a hard target or a claim about optimal play. Untuned; revisit alongside
+        TIER_SHAPE_ALPHA if leveling ends up over/under-incentivized in practice.
+        """
+        if round_num <= 1:
+            return 1
+        elif round_num <= 3:
+            return 2
+        elif round_num <= 5:
+            return 3
+        elif round_num <= 7:
+            return 4
+        elif round_num <= 9:
+            return 5
+        else:
+            return 6
+
     def _end_of_turn_reward(self, ps) -> float:
         """Shared reward shaping applied at the end of every shopping phase.
 
@@ -491,6 +520,30 @@ class BattlegroundsGame:
         phi_after = self._board_potential(ps)
         shaped = BOARD_SHAPE_ALPHA * (BOARD_SHAPE_GAMMA * phi_after - ps.phi_board)
         ps.phi_board = phi_after
+        return shaped
+
+    def _tier_potential(self, ps) -> float:
+        """Φ_tier(s): tavern tier as a fraction of the round's on-curve tier,
+        capped at 1.0 -- reaching or exceeding the curve fully saturates this
+        potential, so there's no reward for leveling further than useful for
+        the round, only for closing a real gap.
+        """
+        expected = self._expected_tier_for_round(ps.round_num)
+        return min(1.0, ps.tavern_tier / expected)
+
+    def _apply_tier_shape(self, ps) -> float:
+        """Compute potential-based leveling reward and update ps.phi_tier.
+
+        r_shaped = α_tier * (γ_tier * Φ_tier(s') - Φ_tier(s))
+
+        Called after a successful LEVEL_UP. ps.phi_tier resets to the round's
+        starting potential at round start (mirrors ps.phi_board), so a player
+        who fell behind curve gets full credit for catching back up this round
+        rather than paying for the gap that opened on earlier rounds.
+        """
+        phi_after = self._tier_potential(ps)
+        shaped = TIER_SHAPE_ALPHA * (TIER_SHAPE_GAMMA * phi_after - ps.phi_tier)
+        ps.phi_tier = phi_after
         return shaped
 
     # ------------------------------------------------------------------
@@ -721,6 +774,7 @@ class BattlegroundsGame:
                 ps.frozen = False
                 ps.shop = self._draw_shop(ps)
                 self.hero_handler.on_tavern_upgrade(ps)
+                reward += self._apply_tier_shape(ps)
 
         elif type_action == 6:
             # hero_power: mark as used unconditionally so passive/unsupported heroes
@@ -1060,6 +1114,7 @@ class BattlegroundsGame:
                 for m in ps.board:
                     m.activated_this_turn = False
                 ps.phi_board = self._board_potential(ps)  # reset baseline so shaping is within-turn only
+                ps.phi_tier  = self._tier_potential(ps)   # same within-turn-only reset for leveling shape
                 ps.shop = self._draw_shop(ps)
                 ps.frozen = False
                 self.hero_handler.on_start_of_round(ps)

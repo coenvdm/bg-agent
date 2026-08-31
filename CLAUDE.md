@@ -142,7 +142,7 @@ Always mask invalid actions (no gold to buy, board full, etc.).
 spec. Update this section (not the other way around) whenever the constants
 below change.**
 
-Four components combine into the total reward:
+Five components combine into the total reward:
 
 1. **`compute_round_reward`** — dense per-combat-round signal:
    ```python
@@ -159,11 +159,25 @@ Four components combine into the total reward:
 3. **Potential-based board-strength shaping** (`_apply_board_shape`) — on
    every PLACE/SELL, runs a 30-trial Monte Carlo combat sim to estimate
    win-probability Φ(s), and pays `α · (γ · Φ(s') − Φ(s))` with
-   `BOARD_SHAPE_ALPHA = 0.20`, `BOARD_SHAPE_GAMMA = 1.0`. PLACE is clipped to
-   `max(0, shaped)`; SELL keeps the negative. `ps.phi_board` resets at the
-   start of every round so shaping never leaks value across turns. An empty
-   board penalty (`-0.30`) fires on the SELL action that empties the board.
-4. **`FINAL_PLACEMENT_REWARD`** — fires immediately at the moment a player
+   `BOARD_SHAPE_ALPHA = 0.20`, `BOARD_SHAPE_GAMMA = 1.0`, applied identically
+   (unclipped) to both PLACE and SELL — an earlier version clipped PLACE to
+   `max(0, shaped)` while leaving SELL unclipped, which broke the
+   policy-invariance guarantee this shaping relies on (Ng et al. 1999) and
+   biased the policy toward selling; fixed 2026-08-30, see `CONTEXT.md`.
+   `ps.phi_board` resets at the start of every round so shaping never leaks
+   value across turns. An empty board penalty (`-0.30`) fires on the SELL
+   action that empties the board.
+4. **Potential-based leveling shaping** (`_apply_tier_shape`) — on a
+   successful LEVEL_UP, pays `α_tier · (γ_tier · Φ_tier(s') − Φ_tier(s))` with
+   `TIER_SHAPE_ALPHA = 0.10`, `TIER_SHAPE_GAMMA = 1.0`, where
+   `Φ_tier(s) = min(1.0, tavern_tier / _expected_tier_for_round(round_num))`.
+   Added 2026-08-31 because LEVEL_UP previously had no reward term at all,
+   so PLACE (immediate board-shape payout for the same gold) strictly
+   dominated it — see `CONTEXT.md`. The `min(1.0, …)` cap means leveling past
+   the round's rough curve pays nothing extra, and `ps.phi_tier` resets at
+   round start like `ps.phi_board`, so it only ever rewards closing a real
+   gap, never repeat-farming or racing ahead of what's useful.
+5. **`FINAL_PLACEMENT_REWARD`** — fires immediately at the moment a player
    is eliminated (not at game end); survivors receive it at game end instead.
    ```python
    FINAL_PLACEMENT_REWARD = {1:+4.0, 2:+2.0, 3:+1.0, 4:0.0,
@@ -177,6 +191,11 @@ decisions).
 The board-shaping constants (`BOARD_SHAPE_ALPHA/GAMMA`, the empty-board
 penalty's firing point) went through several exploit-driven fixes on
 2026-04-19 — see `CONTEXT.md` for the history before retuning them again.
+When retuning `TIER_SHAPE_ALPHA`, watch `level_rate` *and* `board_size`/
+placement together (not `level_rate` alone) — a naive leveling incentive can
+reproduce the same kind of degenerate policy the old flat `board_size`
+reward caused (agent chases the proxy metric at the expense of what it
+actually stands for).
 
 ---
 
