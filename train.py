@@ -377,6 +377,19 @@ class HeuristicAgent:
         def valid(t: int) -> bool:
             return bool(type_mask[t].item())
 
+        # Trinket offer / discover in progress: the valid pointer range here is
+        # into ps.discover_pending or the trinket offer list, NOT ps.shop (which
+        # step_shopping ignores entirely while one of these is pending, and which
+        # this class's own buy logic below reads) -- picking based on ps.shop
+        # produces an out-of-range pointer almost every time (discover/trinket
+        # offers are ~3 items; ps.shop is up to 7), which step_shopping silently
+        # no-ops on rather than erroring, permanently stalling this agent for the
+        # rest of the turn (capped at max_actions=30) since neither state clears
+        # itself and END_TURN doesn't escape a pending discover. Index 0 is
+        # always valid here when pending (both are non-empty by construction).
+        if ps.trinket_offer_pending or ps.discover_pending:
+            return 0, PTR_SHOP_OFF + 0
+
         # 1. Level up (type 5) — mask already verifies gold >= cost
         if ps.tavern_tier < 4 and valid(5):
             return 5, 0
@@ -447,6 +460,11 @@ class GreedyPlayAgent:
 
         def valid(t: int) -> bool:
             return bool(type_mask[t].item())
+
+        # Trinket offer / discover in progress -- see HeuristicAgent.get_action
+        # for why this must be handled before the normal ps.shop-based logic.
+        if ps.trinket_offer_pending or ps.discover_pending:
+            return 0, PTR_SHOP_OFF + 0
 
         # 1. Place any card from hand onto the board (type 2)
         if valid(2):
