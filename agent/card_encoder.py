@@ -62,6 +62,8 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
+from env.player_state import minion_stats
+
 CARD_FEATURE_DIM: int = 44
 
 TRIBE_LIST: List[str] = [
@@ -226,8 +228,15 @@ class CardEncoder:
         feat = np.zeros(CARD_FEATURE_DIM, dtype=np.float32)
 
         # ---- Dims 0-11: base stats (always from the live minion dict) ----
-        feat[0] = minion.get("attack", 0) / 20.0
-        feat[1] = minion.get("health", 0) / 20.0
+        # minion_stats() tolerates both a MinionState-shaped dict ("attack"/
+        # "health") and a raw TavernPool/card-def dict ("base_atk"/"base_hp")
+        # -- see env/player_state.py. In the current call graph `minion` is
+        # always MinionState-shaped (game_loop._encode_zone always converts
+        # via _minion_to_dict first), but this guards the encoder against
+        # ever silently zeroing out the two most important features again.
+        _atk, _hp = minion_stats(minion)
+        feat[0] = _atk / 20.0
+        feat[1] = _hp / 20.0
         feat[2] = float(bool(minion.get("taunt", False)))
         feat[3] = float(bool(minion.get("divine_shield", False)))
         feat[4] = float(bool(minion.get("reborn", False)))

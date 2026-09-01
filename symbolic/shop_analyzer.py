@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Dict, List, Optional
 
+from env.player_state import minion_stats
+
 if TYPE_CHECKING:
     from symbolic.board_computer import BoardFeatures, SymbolicBoardComputer
 
@@ -166,8 +168,9 @@ class ShopAnalyzer:
         Normalised to [0, ~1]: a vanilla 20/20 would be 2.0 before cap, but in
         practice Battlegrounds cards sit comfortably below 1.0.
         """
-        atk = card.get("attack", 0)
-        hp = card.get("health", 0)
+        # minion_stats() tolerates both a MinionState-shaped dict ("attack"/
+        # "health") and a raw TavernPool/card-def dict ("base_atk"/"base_hp").
+        atk, hp = minion_stats(card)
         power = (atk + hp) / 40.0
 
         # Keyword bonuses (independent of card_def so they work on live minions)

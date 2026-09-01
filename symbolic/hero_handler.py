@@ -273,14 +273,17 @@ class HeroPowerHandler:
         higher_tier = min(6, ps.tavern_tier + 1)
         new_cards = tavern_pool.draw(higher_tier, 1)
         if new_cards:
-            from env.player_state import MinionState
+            from env.player_state import MinionState, minion_stats
             d = new_cards[0]
+            # d is a raw TavernPool draw ("base_atk"/"base_hp", not
+            # "attack"/"health") -- minion_stats() resolves either shape.
+            atk, hp = minion_stats(d)
             ps.shop[idx] = MinionState(
                 card_id=d.get("card_id", ""),
                 name=d.get("name", ""),
-                attack=d.get("attack", 0),
-                health=d.get("health", 0),
-                max_health=d.get("health", 0),
+                attack=atk,
+                health=hp,
+                max_health=hp,
                 tier=d.get("tier", higher_tier),
             )
 
@@ -291,14 +294,17 @@ class HeroPowerHandler:
         higher_tier = min(6, ps.tavern_tier + 1)
         extra = tavern_pool.draw(higher_tier, 1)
         if extra:
-            from env.player_state import MinionState
+            from env.player_state import MinionState, minion_stats
             d = extra[0]
+            # d is a raw TavernPool draw ("base_atk"/"base_hp", not
+            # "attack"/"health") -- minion_stats() resolves either shape.
+            atk, hp = minion_stats(d)
             extra_minion = MinionState(
                 card_id=d.get("card_id", ""),
                 name=d.get("name", ""),
-                attack=d.get("attack", 0),
-                health=d.get("health", 0),
-                max_health=d.get("health", 0),
+                attack=atk,
+                health=hp,
+                max_health=hp,
                 tier=d.get("tier", higher_tier),
             )
             ps.shop.append(extra_minion)

@@ -25,6 +25,8 @@ import random
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
+from env.player_state import minion_stats
+
 # ── Constants ────────────────────────────────────────────────────────────────
 
 MAX_BOARD     = 7    # maximum minions per side
@@ -288,10 +290,17 @@ def _minion_from_dict(d: dict, uid: int) -> CombatMinion:
     name_lower = name.lower()
     cleave = any(c in name_lower for c in _CLEAVE_CARDS)
 
-    atk = (d.get("attack",        0)
+    # minion_stats() tolerates both a MinionState-shaped dict ("attack"/
+    # "health") and a raw TavernPool/card-def dict ("base_atk"/"base_hp") --
+    # see env/player_state.py. In the current call graph `d` is always
+    # MinionState-shaped (board minions go through _minion_to_dict before
+    # reaching here), but this guards combat resolution against ever
+    # silently simulating with 0/0 stats again.
+    base_atk, base_hp = minion_stats(d)
+    atk = (base_atk
          + d.get("perm_atk_bonus", 0)
          + d.get("game_atk_bonus", 0))
-    hp  = (d.get("health",        0)
+    hp  = (base_hp
          + d.get("perm_hp_bonus",  0)
          + d.get("game_hp_bonus",  0))
 

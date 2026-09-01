@@ -95,6 +95,12 @@ def check_and_process_triple(ps: "PlayerState", tavern_pool: "TavernPool") -> bo
     ps.hand.append(golden_source)
 
     # Return the two non-golden source cards to the pool as plain dicts.
+    # NOTE: these use "attack"/"health" (MinionState field names), not the
+    # "base_atk"/"base_hp" TavernPool convention -- that's fine because
+    # minion_stats() (used by every dict->MinionState site, including
+    # _dict_to_minion when these get redrawn) tolerates both shapes. Other
+    # fields (tribes, keywords, ...) aren't needed here either: they're always
+    # re-looked-up from card_defs by card_id when a card is redrawn.
     pool_dicts = []
     for m in sources_to_return:
         pool_dicts.append({
@@ -116,13 +122,16 @@ def check_and_process_triple(ps: "PlayerState", tavern_pool: "TavernPool") -> bo
         rest = candidates[1:]
 
         # Convert chosen card to MinionState and add to hand.
-        from env.player_state import MinionState
+        # chosen is a raw TavernPool draw ("base_atk"/"base_hp", not
+        # "attack"/"health") -- minion_stats() resolves either shape.
+        from env.player_state import MinionState, minion_stats
+        atk, hp = minion_stats(chosen)
         chosen_minion = MinionState(
             card_id=chosen.get("card_id", chosen.get("id", "")),
             name=chosen.get("name", ""),
-            attack=chosen.get("attack", 0),
-            health=chosen.get("health", 0),
-            max_health=chosen.get("health", 0),
+            attack=atk,
+            health=hp,
+            max_health=hp,
             tier=chosen.get("tier", 1),
         )
         ps.hand.append(chosen_minion)

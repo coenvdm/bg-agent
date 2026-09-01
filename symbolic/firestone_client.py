@@ -17,6 +17,7 @@ from typing import List, Optional
 # SimResult and BGCombatSim live in combat_sim; re-export SimResult so that
 # callers which import it from here continue to work unchanged.
 from symbolic.combat_sim import BGCombatSim, SimResult  # noqa: F401
+from env.player_state import minion_stats
 
 
 class FirestoneClient:
@@ -118,12 +119,26 @@ class FirestoneClient:
         player_board: List[dict],
         opponent_board: List[dict],
     ) -> SimResult:
-        """Simple power-based heuristic: total (ATK+HP), golden counts double."""
+        """Simple power-based heuristic: total effective (ATK+HP), golden
+        counts double.
+
+        Effective stats (base + perm_*/game_* bonuses) mirror
+        symbolic.board_computer._board_power -- this used to only look at
+        base attack/health via "attack"/"health" keys, so (a) it ignored
+        every permanent/this-game buff on the board, and (b) prior to the
+        base_atk/base_hp normalisation fix (see env/player_state.py:
+        minion_stats), it silently read 0 for every minion, making this
+        heuristic's win_prob a constant 0.05 regardless of board strength.
+        This heuristic backend is what mock_mode=True (used by the actual
+        parallel self-play training workers, see train.py._worker_run_game)
+        resolves every combat with -- see CONTEXT.md 2026-09-01.
+        """
         def _power(board: List[dict]) -> float:
             total = 0.0
             for m in board:
-                atk = m.get("attack", 0)
-                hp  = m.get("health", 0)
+                atk, hp = minion_stats(m)
+                atk += m.get("perm_atk_bonus", 0) + m.get("game_atk_bonus", 0)
+                hp  += m.get("perm_hp_bonus", 0)  + m.get("game_hp_bonus", 0)
                 total += (atk + hp) * (2.0 if m.get("golden") else 1.0)
             return total
 

@@ -500,3 +500,29 @@ Raised `SHAPE_ALPHA` 0.20 -> 1.5, sized so a single good placement (Φ moves ~0.
 - If the free gap stalls above ~0.5 by update ~2500, the next lever to consider is `DENSE_REWARD_SCALE` (0.30 currently weakens the combat win/loss signal to +0.15/-0.09), not alpha again.
 - `_train_parallel`'s docstring still wrongly describes `device` as the main-process device; it only sets the workers' device.
 ---
+
+---
+### 2026-09-01 — ROOT CAUSE: every minion in the game had attack=0/health=0, making combat outcomes constant and the task unlearnable
+**Files changed:** `env/player_state.py`, `env/game_loop.py`, `agent/card_encoder.py`, `symbolic/board_computer.py`, `symbolic/firestone_client.py`, `symbolic/effect_handler.py`, `symbolic/hero_handler.py`, `symbolic/shop_analyzer.py`, `symbolic/combat_sim.py`, `env/triple_system.py`
+**What was done:** After the SHAPE_ALPHA fix still left eval placement flat at chance through update 2000 (~52,000 games; eval slope +0.033/1000 updates, i.e. slightly WORSE), tested whether the reward was misaligned by correlating per-game reward against placement: `corr = -0.973`, `r^2 = 0.948`, actually BETTER than a pure placement reward (-0.970). That refuted the "dense shaping drowns the objective" hypothesis and forced the search lower in the stack.
+
+Measured Φ_board directly against board size over real games instead of reasoning about it. Result: Φ was **identical to 4 decimal places (0.0323) for board sizes 1-6**, spanning only [0, 0.038] rather than the documented [0, 1].
+
+Root cause: `bg_card_definitions.json` and `TavernPool` use `base_atk`/`base_hp`; `MinionState` declares `attack`/`health`; every dict→MinionState conversion read `d.get("attack", 0)`. **Every minion in the game was created 0/0.** The same bug was duplicated at FIVE conversion sites (`game_loop._dict_to_minion`, `effect_handler._dict_to_minion` — so all battlecry Discover/tribe-draw effects, `hero_handler._hp_galakrond`/`_hp_infinite_toki`, `triple_system.check_and_process_triple`), plus four consumers reading stats off ambiguous dicts (`card_encoder` feat[0]/[1], `board_computer._board_power`/`_compute_combat_stats`, `firestone_client._heuristic_estimate`, `shop_analyzer._estimate_card_power`).
+
+Three consequences, all confirmed by measurement:
+1. `_board_power` sums attack+health and returns `max(total, 1.0)` -- with all-zero stats it ALWAYS returned the 1.0 floor, so Φ = 1/(1+30) = 0.0323 constant. That floor is what disguised a hard zero as a plausible-looking number for multiple sessions.
+2. `card_encoder`'s first two features (attack, health) were **always 0**, so the policy network could not distinguish a 1/1 from a 6/6.
+3. **Worst:** `train.py`'s `_worker_run_game`/`_worker_run_eval_game` -- the functions real parallel training and eval actually dispatch -- hardcode `FirestoneClient(mock_mode=True)`, whose heuristic is a board-power ratio. With both boards at power 0 it returned `max(0.05, min(0.95, 0/1e-9))` = **0.05 constant for every combat in every game**, independent of anything the policy did. Combat outcomes were arbitrary, so placement was pinned at chance and the task was literally unlearnable. This invalidates the placement numbers from every prior session, not just this one.
+
+Fix: one `minion_stats(d) -> (attack, health)` helper in `env/player_state.py`, disambiguating by KEY PRESENCE (not value, so a genuine 0-attack minion isn't misread), returning base stats only so `perm_*`/`game_*` bonuses are never double-counted. Applied at all 9 sites. Also fixed `_heuristic_estimate` to include buff bonuses (previously ignored, inconsistent with `_board_power`).
+
+Verified independently of the subagent: `minion_stats` resolves both dict shapes; `_board_power` 84.0 for 7x6/6 vs 4.0 for 2x1/1; combat win_prob strong-vs-weak **0.95**, weak-vs-strong **0.05**, **mirror 0.50** (all three were 0.05 before). Φ vs board size: corr **0.243 -> 0.912**, Φ now 0.129 (1 minion) -> 0.558 (7 minions). Zero-stat board minions 96.4% -> 0%.
+**Current state:** Fresh run launched on contract 49396123 in tmux `train`, logging to `training_statfix.log`. Reward constants deliberately UNCHANGED (`SHAPE_ALPHA=1.5`, `DENSE_REWARD_SCALE=0.30`) so this change can be attributed cleanly. Prior runs archived as `checkpoint_backups/statbug_*` and `checkpoint_backups/alpha020_*`.
+**Open questions / next steps:**
+- This is the first run in which the agent can actually see minion stats AND combat responds to board strength. Everything before it was measuring noise.
+- Now that Φ spans ~0.13-0.56 instead of a constant 0.032, `SHAPE_ALPHA=1.5` gives ~0.15 shaped reward per minion placed -- close to the sizing intent. Re-check once real learning appears; it may now be too strong rather than too weak.
+- `_worker_run_game`/`_worker_run_eval_game` hardcode `mock_mode=True`, ignoring the `use_firestone`/`--no-firestone` flag entirely (that flag only affects the sequential path). The mock heuristic is a power ratio, not real combat -- worth deciding explicitly whether training should use the real 200-trial sim now that stats are meaningful. O(1) vs MC cost tradeoff.
+- `_board_power`'s `max(total, 1.0)` floor was kept as a division guard but is exactly what masked this bug for multiple sessions -- treat any suspiciously constant symbolic quantity as a data bug until proven otherwise.
+- Methodological lesson: two full runs and two reward-tuning cycles were spent treating a DATA bug as a REWARD bug. The correlation test that refuted my own hypothesis is what redirected the search; measuring a quantity's actual empirical range (rather than trusting its documented range) should come before tuning any constant that multiplies it.
+---

@@ -627,15 +627,21 @@ class EffectHandler:
     # ------------------------------------------------------------------
 
     def _dict_to_minion(self, card: dict) -> "MinionState":
-        """Convert a card dict from TavernPool into a MinionState."""
-        from env.player_state import MinionState
+        """Convert a card dict from TavernPool into a MinionState.
+
+        card is a raw TavernPool draw (keys "base_atk"/"base_hp", not
+        "attack"/"health" -- see env.player_state.minion_stats for why this
+        matters); used for Discover and tribe-draw battlecry effects.
+        """
+        from env.player_state import MinionState, minion_stats
         cdef = self._card_defs.get(card.get("card_id", ""), {})
+        atk, hp = minion_stats(card)
         m = MinionState(
             card_id=card.get("card_id", ""),
             name=card.get("name", ""),
-            attack=card.get("attack", 0),
-            health=card.get("health", 0),
-            max_health=card.get("health", 0),
+            attack=atk,
+            health=hp,
+            max_health=hp,
             tier=card.get("tier", 1),
             golden=bool(card.get("golden", False)),
             divine_shield=bool(card.get("divine_shield", False)),

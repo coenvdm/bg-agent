@@ -89,6 +89,43 @@ class MinionState:
         return self.health + self.perm_hp_bonus + self.game_hp_bonus
 
 
+def minion_stats(d) -> Tuple[int, int]:
+    """Return (attack, health) base stats, tolerating BOTH minion-dict shapes
+    that flow through this codebase:
+
+      - A MinionState instance, or a dict built from one (e.g. via
+        env.game_loop._minion_to_dict, which is just ``m.__dict__``) --
+        stats live under the keys ``"attack"`` / ``"health"``.
+      - A raw TavernPool draw / bg_card_definitions.json entry (see
+        bg_card_pipeline.py:build_card_entry) -- stats live under
+        ``"base_atk"`` / ``"base_hp"``; these dicts have no "attack"/"health"
+        key at all.
+
+    Reading "attack"/"health" off the second shape (as several call sites
+    used to do) silently returns 0 for every minion -- this was the root
+    cause of a bug where every minion in the game had attack=0, health=0
+    (see CONTEXT.md, 2026-09-01). This is the single place that resolves the
+    ambiguity; anything reading a minion's base attack/health off a dict of
+    uncertain provenance should call this instead of inlining a ``.get()``.
+
+    Does NOT include perm_atk_bonus/perm_hp_bonus/game_atk_bonus/
+    game_hp_bonus -- callers that need *effective* stats add those
+    separately (see MinionState.effective_attack/effective_health and
+    symbolic.board_computer._board_power).
+    """
+    if d is None:
+        return 0, 0
+    if not isinstance(d, dict):
+        d = d.__dict__ if hasattr(d, "__dict__") else {}
+    atk = d.get("attack")
+    if atk is None:
+        atk = d.get("base_atk", 0)
+    hp = d.get("health")
+    if hp is None:
+        hp = d.get("base_hp", 0)
+    return atk, hp
+
+
 @dataclass
 class PlayerState:
     """Full state for one player in a Hearthstone Battlegrounds game."""

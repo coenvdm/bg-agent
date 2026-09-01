@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from env.player_state import minion_stats
+
 if TYPE_CHECKING:
     import torch
 
@@ -117,11 +119,21 @@ def _minion_to_dict(m) -> dict:
 
 
 def _board_power(board_dicts: List[dict]) -> float:
-    """Sum of effective_attack + effective_health for all minions."""
+    """Sum of effective_attack + effective_health for all minions.
+
+    minion_stats() resolves base attack/health regardless of whether a dict
+    is MinionState-shaped ("attack"/"health") or a raw TavernPool/card-def
+    dict ("base_atk"/"base_hp") -- see env/player_state.py. board_dicts here
+    is always MinionState-shaped in the current call graph (board minions go
+    through _minion_to_dict first), but this guards the reward's core power
+    metric against ever silently collapsing to the max(total, 1.0) floor for
+    every board again -- see CONTEXT.md 2026-09-01.
+    """
     total = 0.0
     for m in board_dicts:
-        atk = m.get("attack", 0) + m.get("perm_atk_bonus", 0) + m.get("game_atk_bonus", 0)
-        hp = m.get("health", 0) + m.get("perm_hp_bonus", 0) + m.get("game_hp_bonus", 0)
+        base_atk, base_hp = minion_stats(m)
+        atk = base_atk + m.get("perm_atk_bonus", 0) + m.get("game_atk_bonus", 0)
+        hp = base_hp + m.get("perm_hp_bonus", 0) + m.get("game_hp_bonus", 0)
         total += atk + hp
     return max(total, 1.0)
 
@@ -326,13 +338,14 @@ class SymbolicBoardComputer:
 
         for m in board:
             # Keywords — prefer live minion data, fall back to card_def
+            _base_atk, _base_hp = minion_stats(m)
             total_atk += (
-                m.get("attack", 0)
+                _base_atk
                 + m.get("perm_atk_bonus", 0)
                 + m.get("game_atk_bonus", 0)
             )
             total_hp += (
-                m.get("health", 0)
+                _base_hp
                 + m.get("perm_hp_bonus", 0)
                 + m.get("game_hp_bonus", 0)
             )

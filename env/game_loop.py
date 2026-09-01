@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from env.player_state import MinionState, OpponentSnapshot, PlayerState
+from env.player_state import MinionState, OpponentSnapshot, PlayerState, minion_stats
 from env.tavern_pool import TavernPool
 from env.matchmaker import Matchmaker
 from symbolic.board_computer import SymbolicBoardComputer, _board_power
@@ -569,12 +569,21 @@ class BattlegroundsGame:
                 and d.get("health", -1) < 0
             )
         )
+        # `d` is normally a raw TavernPool draw -- keys "base_atk"/"base_hp"
+        # (see bg_card_pipeline.py) -- but this is also called with dicts that
+        # already look like a MinionState (keys "attack"/"health", e.g. the
+        # partial dict triple_system.check_and_process_triple returns to the
+        # pool). minion_stats() tolerates both shapes so this stays the ONE
+        # place a card-def/pool dict becomes a MinionState; see its docstring
+        # in env/player_state.py for the full story (this used to silently
+        # construct every minion with attack=0, health=0).
+        atk, hp = minion_stats(d)
         return MinionState(
             card_id=card_id,
             name=d.get("name", ""),
-            attack=d.get("attack", 0),
-            health=d.get("health", 0),
-            max_health=d.get("health", 0),
+            attack=atk,
+            health=hp,
+            max_health=hp,
             tier=d.get("tier", 1),
             magnetic=is_magnetic,
             is_spell=is_spell,
