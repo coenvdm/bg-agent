@@ -32,6 +32,32 @@ from agent.hero_encoder import HERO_DEF_MAP, NULL_HERO_ID
 
 logger = logging.getLogger(__name__)
 
+
+def expected_tier_for_round(round_num: int) -> int:
+    """Rough 'on-curve' tavern tier for a competent player at this round.
+
+    Module-level so both BattlegroundsGame._tier_potential (the tier-shape
+    reward denominator) and the scripted opponents in train.py
+    (HeuristicAgent / GreedyPlayAgent leveling logic) share exactly ONE
+    definition -- see CLAUDE.md, "Never hardcode card interactions" spirit
+    extended to this curve: duplicating it in train.py would let the two
+    drift apart silently. Untuned; revisit alongside TIER_POTENTIAL_WEIGHT
+    if leveling ends up over/under-incentivized in practice.
+    """
+    if round_num <= 1:
+        return 1
+    elif round_num <= 3:
+        return 2
+    elif round_num <= 5:
+        return 3
+    elif round_num <= 7:
+        return 4
+    elif round_num <= 9:
+        return 5
+    else:
+        return 6
+
+
 # ---------------------------------------------------------------------------
 # Reward constants (CLAUDE.md)
 # ---------------------------------------------------------------------------
@@ -420,21 +446,11 @@ class BattlegroundsGame:
         """Rough 'on-curve' tavern tier for a competent player at this round.
 
         Used only as the denominator for tier-shape potential (_tier_potential) --
-        not a hard target or a claim about optimal play. Untuned; revisit alongside
-        TIER_POTENTIAL_WEIGHT if leveling ends up over/under-incentivized in practice.
+        not a hard target or a claim about optimal play. Delegates to the
+        module-level expected_tier_for_round() so there is exactly ONE
+        definition of the curve (also used by train.py's scripted agents).
         """
-        if round_num <= 1:
-            return 1
-        elif round_num <= 3:
-            return 2
-        elif round_num <= 5:
-            return 3
-        elif round_num <= 7:
-            return 4
-        elif round_num <= 9:
-            return 5
-        else:
-            return 6
+        return expected_tier_for_round(round_num)
 
     def _end_of_turn_reward(self, ps) -> float:
         """Shared reward shaping applied at the end of every shopping phase.

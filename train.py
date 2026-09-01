@@ -37,7 +37,7 @@ from agent.policy import (BGPolicyNetwork, N_ACTION_TYPES, POINTER_DIM,
                           build_type_mask, build_pointer_mask,
                           PTR_SHOP_OFF, PTR_BOARD_OFF, PTR_HAND_OFF)
 from agent.ppo import PPOConfig, PPOTrainer
-from env.game_loop import BattlegroundsGame, GameResult
+from env.game_loop import BattlegroundsGame, GameResult, expected_tier_for_round
 from env.matchmaker import Matchmaker
 from env.player_state import PlayerState
 from env.tavern_pool import TavernPool
@@ -358,6 +358,53 @@ class StaticAgent:
         pass
 
 
+# ---------------------------------------------------------------------------
+# Curve-based leveling for the scripted baselines (HeuristicAgent,
+# GreedyPlayAgent).
+# ---------------------------------------------------------------------------
+#
+# Both agents used to have broken or capped leveling (Greedy had none at all;
+# Heuristic hard-capped at tier 4), which made them a much weaker ceiling for
+# "the agent beats the baseline" than real Battlegrounds opponents -- see the
+# task description / CONTEXT.md for the measured impact (damage plateaus
+# ~7 instead of ~15-25, games run ~20-22 rounds instead of ~12-18). Both
+# agents now level toward the same on-curve target used by the tier-shape
+# reward potential (env.game_loop.expected_tier_for_round) so there is
+# exactly one definition of "on curve" in the codebase.
+#
+# Naive "level whenever affordable and behind curve" is itself a failure
+# mode: it can pour every turn's gold into tavern tier and field a
+# near-empty board, which would make these baselines WORSE than the old
+# tier-1/tier-4-capped versions, not better. SCRIPTED_MIN_BOARD_TO_LEVEL
+# guards against that by requiring a minimum board presence before either
+# agent will divert gold to LEVEL_UP instead of buying/placing -- 3 is a
+# light bar (well under the 7-slot cap) chosen so leveling can still start
+# early (round 2-3, once the first couple of buys have landed) without ever
+# competing with an empty board for gold.
+SCRIPTED_MIN_BOARD_TO_LEVEL = 3
+
+
+def _scripted_should_level(ps) -> bool:
+    """Shared LEVEL_UP guard for the scripted baselines.
+
+    Level only when:
+      1. Not already at the tier cap (6).
+      2. Actually BEHIND expected_tier_for_round(ps.round_num) -- leveling
+         further than the round's rough curve pays nothing extra for the
+         PPO tier-shape potential either (see _tier_potential's min(1.0, ..)
+         cap), so there's no reason for a "competent" scripted baseline to
+         over-level at the expense of board development.
+      3. The board already has at least SCRIPTED_MIN_BOARD_TO_LEVEL minions
+         -- prevents the empty-board failure mode described above by making
+         board development take priority whenever the board is thin.
+    """
+    if ps.tavern_tier >= 6:
+        return False
+    if ps.tavern_tier >= expected_tier_for_round(ps.round_num):
+        return False
+    return len(ps.board) >= SCRIPTED_MIN_BOARD_TO_LEVEL
+
+
 class HeuristicAgent:
     """Leveling-focused scripted opponent for population diversity anchoring.
 
@@ -372,7 +419,11 @@ class HeuristicAgent:
     implements.
 
     Priority order each step:
-      1. Level up  — if affordable and currently below tier 4
+      1. Level up  — curve-based: affordable, below tier 6, behind
+                     expected_tier_for_round(round_num), and the board has
+                     at least SCRIPTED_MIN_BOARD_TO_LEVEL minions already
+                     (see _scripted_should_level -- guards against pouring
+                     all gold into tier at the expense of an empty board)
       2. Buy       — highest-tier minion available in the shop
       3. Place     — any card sitting in hand onto the board
       4. Sell      — weakest board minion when board is full and a buy is possible
@@ -404,8 +455,9 @@ class HeuristicAgent:
         if ps.trinket_offer_pending or ps.discover_pending:
             return 0, PTR_SHOP_OFF + 0
 
-        # 1. Level up (type 5) — mask already verifies gold >= cost
-        if ps.tavern_tier < 4 and valid(5):
+        # 1. Level up (type 5) — mask already verifies gold >= cost;
+        #    _scripted_should_level adds the curve + board-size guard
+        if valid(5) and _scripted_should_level(ps):
             return 5, 0
 
         # 2. Buy highest-tier shop minion (type 0)
@@ -448,7 +500,21 @@ class HeuristicAgent:
 
 class GreedyPlayAgent:
     """Naive scripted opponent: buys and plays everything, never sells —
-    except to make room for a strictly higher-tier minion in the shop.
+    except to make room for a strictly higher-tier minion in the shop — and
+    now levels its tavern on the same curve any real player would.
+
+    Leveling was added because a scripted opponent that sits at tavern tier
+    1 for the entire game is not a "naive" baseline, it's a BROKEN one: with
+    real minion stats, combat damage in this sim scales with tavern tier
+    (see env/game_loop.py), so a permanently-tier-1 opponent caps the whole
+    population's late-game damage and makes "the agent beats the baseline"
+    a much weaker claim than it looks (see CLAUDE.md task notes / CONTEXT.md
+    for the measured before/after). Leveling is curve-based and guarded by
+    _scripted_should_level (see the block above HeuristicAgent) so it can't
+    regress into the opposite failure mode of dumping every turn's gold into
+    tier and fielding an empty board — everything else about this agent's
+    naive, un-optimized identity (buy first-affordable, sell only to
+    upgrade) is unchanged.
 
     Provides the same get_action / record_transition* interface as
     HeuristicAgent so game_loop.py requires zero changes.  Uses no policy
@@ -456,11 +522,12 @@ class GreedyPlayAgent:
 
     Priority order each step:
       1. Place — any card sitting in hand onto the board (board has room)
-      2. Sell  — the lowest-tier board minion, but ONLY when the board is
+      2. Level — curve-based, guarded by _scripted_should_level (see above)
+      3. Sell  — the lowest-tier board minion, but ONLY when the board is
                  full (7/7) AND the shop currently offers a minion with a
                  strictly higher tier than that weakest-tier board minion
-      3. Buy   — the first affordable minion in the shop (left to right)
-      4. End turn
+      4. Buy   — the first affordable minion in the shop (left to right)
+      5. End turn
     """
 
     supports_batching = False  # forces sequential shopping path in game_loop
@@ -486,7 +553,12 @@ class GreedyPlayAgent:
                 if m is not None and getattr(m, "card_id", ""):
                     return 2, PTR_HAND_OFF + i
 
-        # 2. Sell the lowest-tier board minion, only to make room for a
+        # 2. Level up (type 5) — mask already verifies gold >= cost;
+        #    _scripted_should_level adds the curve + board-size guard
+        if valid(5) and _scripted_should_level(ps):
+            return 5, 0
+
+        # 3. Sell the lowest-tier board minion, only to make room for a
         #    strictly higher-tier minion currently sitting in the shop
         if valid(1) and len(ps.board) >= 7:
             worst_idx, worst_tier = -1, float("inf")
@@ -504,13 +576,13 @@ class GreedyPlayAgent:
                 if shop_has_upgrade:
                     return 1, PTR_BOARD_OFF + worst_idx
 
-        # 3. Buy the first affordable minion in the shop (type 0)
+        # 4. Buy the first affordable minion in the shop (type 0)
         if valid(0):
             for i, m in enumerate(ps.shop):
                 if m is not None and getattr(m, "card_id", ""):
                     return 0, PTR_SHOP_OFF + i
 
-        # 4. End turn
+        # 5. End turn
         return 7, 0
 
     def record_transition(self, *_a, **_kw) -> None:  # no-op

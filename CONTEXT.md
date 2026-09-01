@@ -637,3 +637,37 @@ Steps/game is strongly **policy-dependent and rises as the agent improves**: a w
 - When re-measuring steps/game in future, always use `PPOTrainer.total_steps` under the real seat mix, and measure with a policy of representative strength -- the quantity roughly triples between an untrained and a trained policy.
 - Re-benchmark `N_WORKERS`/`UPDATE_INTERVAL` on the next rented host; 26/26 was tuned for the old 427-step regime and throughput should now be substantially better (~2.5x fewer steps per game).
 ---
+
+---
+### 2026-09-01 — Give scripted baselines real levelling; the 3.25 headline was mostly an artifact of tier-1 opponents
+**Files changed:** `train.py`, `env/game_loop.py`
+
+**What was done.** `GreedyPlayAgent` had NO LEVEL_UP logic at all (permanently tavern tier 1) and `HeuristicAgent` hard-capped at `tavern_tier < 4`. Both now level on a shared curve. Extracted `expected_tier_for_round(round_num)` to a module-level function in `env/game_loop.py` (the `BattlegroundsGame` method now delegates to it) so there is exactly ONE definition, imported by train.py rather than copy-pasted. Added `_scripted_should_level(ps)` shared by both agents: level only when genuinely behind curve, below the tier-6 cap, AND `len(ps.board) >= SCRIPTED_MIN_BOARD_TO_LEVEL (=3)` -- the board guard exists because naive levelling can produce an agent that pours all its gold into tiers and fields an empty board, which would be WORSE than the tier-1 version. Each agent's distinguishing behaviour is preserved: greedy still buys first-affordable left-to-right and never sells except for a strictly higher-tier upgrade; heuristic still buys highest-tier and sells its weakest when full.
+
+**Verification (12 games, 4 Heuristic/4 Greedy population, before via `git stash`):**
+| metric | before | after |
+|---|---|---|
+| tavern tier — heuristic | 4 / 4 | **6 / 6** |
+| tavern tier — greedy | 1 / 1 | **6 / 6** |
+| board size — heuristic | 7.0 | 7.0 |
+| board size — greedy | 7.0 | 6.75 |
+| n_rounds | 29.0 (20-37) | **19.75 (16-25)** |
+| damage 1-5 / 6-10 / 11-15 / 16+ | 3.04 / 7.13 / 7.05 / 7.24 (flat) | **2.97 / 8.52 / 14.06 / 14.87 (rising)** |
+
+Board size did not collapse, confirming the guard works. Damage now escalates into the real-BG 15-25 band, confirming the earlier plateau was the opponents and not the damage formula. Head-to-head, 4 new-style vs 4 old-style agents: new **3.67** vs old **5.33** mean placement -- decisive, which was the load-bearing acceptance test.
+
+**The important consequence -- our headline result was flattered.** Re-evaluated the `statfix` checkpoint (64 games each, deterministic, independent of the subagent):
+| opponent | mean placement | top1 |
+|---|---|---|
+| 7 greedy (OLD, tier-1 forever) | 3.25 | 0.49 |
+| 7 greedy (NEW, levels to 6) | **4.406** | 0.141 |
+| 7 heuristic (NEW) | 3.047 | 0.469 |
+
+**Against a competent greedy the agent is at 4.41, barely better than chance (4.5).** The 3.25 headline was largely an artifact of opponents permanently stuck at tier 1. Fair caveat: this checkpoint was also TRAINED against those crippled baselines (2 heuristic + 2 greedy seats), so evaluating it against competent ones is partly distribution shift rather than purely "the agent is weak" -- but the benchmark is honest now either way. Note the new greedy is now the STRONGER of the two baselines (big board + on-curve tier beats heuristic's sell-weakest behaviour in this sim), which inverts their former ordering.
+**Current state:** All baseline changes committed. No instance running. **Every placement number recorded in this log before this entry is measured against the old crippled baselines and is NOT comparable to anything measured after it.**
+**Open questions / next steps:**
+- A fresh training run is now warranted: it would be the first trained AND evaluated against competent opponents, on top of correct minion stats, working combat, correct action masking and escalating damage.
+- Game length landed at 19.75 rounds vs the 12-18 real-BG target. Remaining limiter is the tier-6 cap plus starting-health totals in mock combat; not tuned further deliberately.
+- Pre-existing (NOT introduced by this change, verified): `GreedyPlayAgent` can oscillate sell->buy and hit the `max_actions=30` per-turn cap in ~0.4-0.5% of turns, because it sells its weakest minion expecting to buy the shop's higher-tier "upgrade" but its buy rule then picks the first AFFORDABLE card instead. Harmless today (the engine drops the unfinished turn gracefully) but worth fixing if greedy is ever used as a serious reference.
+- `evaluate_policy`'s default `opponent="greedy"` now measures against the stronger of the two baselines, which is the right default.
+---
