@@ -1160,17 +1160,21 @@ def _train_parallel(
     on_batch: Optional[Any] = None,
     on_update: Optional[Any] = None,
     batch_timeout: int = 300,
+    queue_factor: float = 2.0,
     stats_path: Optional[str] = "data/agent_stats.jsonl",
 ) -> None:
     """Run self-play games in parallel using ProcessPoolExecutor.
 
-    Games are dispatched with a ROLLING / SLIDING WINDOW: up to *n_workers*
-    games are kept in flight at all times, and the instant one finishes the
-    next queued game is submitted immediately (see the comment block at the
-    top of the dispatch loop below for why this replaced the old
-    pool.map()-per-cohort approach). Each worker receives a frozen copy of
-    the current policy weights, runs one game, and returns its collected
-    transitions. The main process merges all transitions into
+    Games are dispatched with a ROLLING WINDOW, sized to an IN-FLIGHT TARGET
+    of ceil(n_workers * queue_factor) rather than exactly n_workers: that
+    many games are kept submitted to the pool (running OR queued inside it)
+    at all times, and the instant one finishes the window is topped back up
+    immediately (see the comment block at the top of the dispatch loop below
+    for why this replaced the old pool.map()-per-cohort approach, and the
+    comment further down for why the window is now overshot beyond
+    n_workers rather than sized exactly to it). Each worker receives a
+    frozen copy of the current policy weights, runs one game, and returns
+    its collected transitions. The main process merges all transitions into
     ppo_trainer.buffer and runs PPO updates at the normal interval.
 
     Parameters
@@ -1208,13 +1212,30 @@ def _train_parallel(
     batch_timeout      : per-game in-flight timeout in seconds (default 300)
                          -- a game still running this long after being
                          dispatched is treated as hung; see the stall
-                         detection comment below.
+                         detection comment below. With queue_factor > 1 the
+                         age check is scaled by queue_factor before being
+                         compared against this value, since a queued (not
+                         yet started) game's age includes queue wait time,
+                         not just run time -- see that comment for why.
+    queue_factor       : how large a backlog to keep submitted to the pool,
+                         as a multiple of n_workers (default 2.0). The
+                         in-flight target is ceil(n_workers * queue_factor)
+                         games submitted at once (running or merely queued
+                         inside the pool), instead of exactly n_workers.
+                         queue_factor=1.0 reproduces the exact old
+                         exactly-n_workers-in-flight behavior. See the
+                         dispatch-loop comment below for why a backlog is
+                         needed at all (short version: it keeps every worker
+                         fed straight through a blocking ppo_trainer.update()
+                         call, which a window sized to exactly n_workers
+                         cannot do).
     stats_path         : JSONL file appended with per-player agent-identity /
                          placement rows for every finished game (used to track
                          which agent types — training policy, heuristic, greedy,
                          historical snapshots — win most often over time).
                          Pass None to disable.
     """
+    import math
     import multiprocessing
     from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 
@@ -1223,6 +1244,16 @@ def _train_parallel(
     update_count = 0
     game_idx     = 0   # games RESOLVED so far: completed OR lost to error/timeout
     dispatched   = 0   # games SUBMITTED so far
+
+    # IN-FLIGHT TARGET: how many games we keep submitted to the pool (running
+    # OR merely queued inside it) at once. queue_factor==1.0 collapses this
+    # to exactly n_workers, reproducing the old window size precisely. The
+    # min(..., n_games) clamp handles short runs where there aren't even
+    # n_workers*queue_factor games to dispatch in total; the steady-state
+    # clamp against games remaining to dispatch is handled naturally by the
+    # `dispatched < n_games` guards everywhere this target is used below, so
+    # it doesn't need to be re-clamped dynamically here.
+    in_flight_target = min(math.ceil(n_workers * queue_factor), n_games)
 
     snapshot_pool  = SnapshotPool(capacity=20)
     stats_file     = Path(stats_path) if stats_path else None
@@ -1302,7 +1333,50 @@ def _train_parallel(
         # queued game into that freed slot -- no worker ever waits on
         # another worker.
         # -----------------------------------------------------------------
-        for _ in range(min(n_workers, n_games)):
+        # WHY OVERSHOOT the window past n_workers (queue_factor > 1):
+        #
+        # A window sized to exactly n_workers keeps every worker fed ONLY
+        # while this main loop is actively polling and resubmitting. But
+        # ppo_trainer.update() below is a long BLOCKING call in this same
+        # process (~90 games x ~250 transitions per update) -- while it
+        # runs, nothing harvests completed futures and nothing gets
+        # resubmitted, so every worker finishes its current game and then
+        # sits idle waiting for the main process to come back. Measured on
+        # the 48-physical-core host: workers busy ~44 cores, main process
+        # ~3.3 cores -> only ~47/92 cores in use (46% idle), with the GPU
+        # busy (i.e. inside an update) in ~23% of samples -- and batch
+        # wall-times for the same 90 games swung 3.2s / 11.5s / 15.3s, the
+        # long ones being exactly the groups that straddled an update.
+        #
+        # ProcessPoolExecutor queues submitted-but-not-yet-running tasks
+        # internally and hands each worker its next queued task the instant
+        # it finishes one, with NO involvement from this (stalled) main
+        # process. So instead of keeping exactly n_workers games in flight,
+        # we keep `in_flight_target` = ceil(n_workers * queue_factor) games
+        # submitted at once -- the extra (queue_factor - 1) * n_workers
+        # games sit queued inside the pool as a backlog that keeps workers
+        # busy straight through a main-process stall. queue_factor=1.0
+        # disables the backlog and reproduces the old exactly-n_workers
+        # window exactly.
+        #
+        # TRADEOFF -- weight staleness: each task is built by _make_task()
+        # with whatever policy snapshot `sd` is current AT SUBMIT time (see
+        # the sd/sd_stale comment above), not at run time. A game sitting in
+        # the backlog queue is therefore dispatched with weights that can go
+        # stale while it waits. With queue_factor=2.0 and UPDATE_INTERVAL ==
+        # n_workers (one PPO update per ~one window's worth of completions),
+        # the backlog is about one window deep, so a queued game is at most
+        # roughly one PPO update stale by the time it actually runs. That's
+        # an ordinary amount of off-policyness for PPO -- the importance
+        # ratio in the loss already accounts for the behavior policy having
+        # drifted from the current one -- but it IS a real (small) increase
+        # in staleness traded for keeping the box busy through update()
+        # stalls. Going much higher than queue_factor=2.0 would only make
+        # this worse without further throughput benefit: the backlog only
+        # needs to be deep enough to cover one update's wall-clock duration,
+        # not more.
+        # -----------------------------------------------------------------
+        for _ in range(in_flight_target):
             _dispatch_one()
 
         last_batch_t       = time.time()
@@ -1335,21 +1409,34 @@ def _train_parallel(
                     # discard. Mirrors the old code's behavior of discarding
                     # its whole cohort on any worker error.
                     logger.warning("Worker error (%s: %s) — rebuilding pool", type(exc).__name__, exc)
+                    # `lost` is the actual size of the in-flight dict (plus
+                    # the one future that just failed and was already popped
+                    # above) -- with queue_factor > 1 this can be up to
+                    # in_flight_target, not just n_workers. Re-prime the
+                    # fresh pool back up to in_flight_target (not just to
+                    # `lost` games), same as the initial priming loop.
                     lost = 1 + len(in_flight)
                     in_flight.clear()
                     pool.shutdown(wait=False)
                     pool = _make_pool()
                     game_idx += lost
-                    for _ in range(min(lost, n_games - dispatched)):
+                    while dispatched < n_games and len(in_flight) < in_flight_target:
                         _dispatch_one()
                     broken = True
                     break
 
-                # A slot just freed up -- dispatch its replacement before
-                # doing any of the bookkeeping below (buffer merge, stats
-                # file I/O, possible PPO update/checkpoint), so a worker
-                # never sits idle waiting on the main process.
-                if dispatched < n_games:
+                # A slot just freed up -- top the window back up to
+                # in_flight_target before doing any of the bookkeeping below
+                # (buffer merge, stats file I/O, possible PPO
+                # update/checkpoint), so workers never sit idle waiting on
+                # the main process. With queue_factor==1.0 this pops exactly
+                # once (in_flight_target == n_workers, and one slot just
+                # freed), reproducing the old single-dispatch behavior. With
+                # queue_factor > 1 it's usually also one dispatch per
+                # completion in steady state -- but a `while`, not an `if`,
+                # because after a stall/rebuild the window can be more than
+                # one slot short and needs multiple submissions to refill.
+                while dispatched < n_games and len(in_flight) < in_flight_target:
                     _dispatch_one()
 
                 prev_game_idx = game_idx
@@ -1439,20 +1526,40 @@ def _train_parallel(
             # submit timestamp per future and explicitly age-check every
             # future still in flight on every poll, independent of whether
             # anything else completed this iteration.
+            #
+            # With queue_factor > 1, a future's tracked "submit" timestamp
+            # can now include real QUEUE wait time, not just run time: a
+            # backlog of up to (queue_factor - 1) * n_workers games can sit
+            # queued inside the pool behind whatever's currently running
+            # before a worker ever picks them up. Age-checking that queued
+            # time against a threshold sized for RUN time alone would let a
+            # perfectly healthy queued game spuriously trip the timeout. So
+            # the threshold is scaled by queue_factor: a task can reasonably
+            # wait up to about (queue_factor - 1) game-durations queued
+            # before it even starts, on top of batch_timeout to run. This is
+            # deliberately conservative -- the check exists to catch a
+            # worker that's permanently wedged, not to enforce a tight SLA,
+            # so erring toward a larger allowance here just delays detecting
+            # a real hang slightly; it doesn't mask one.
             # ---------------------------------------------------------
             now = time.time()
-            stale = [f for f, t0 in in_flight.items() if now - t0 > batch_timeout]
+            effective_timeout = batch_timeout * queue_factor
+            stale = [f for f, t0 in in_flight.items() if now - t0 > effective_timeout]
             if stale:
                 logger.warning(
-                    "%d game(s) timed out after %ds — rebuilding pool",
-                    len(stale), batch_timeout,
+                    "%d game(s) timed out after %.0fs — rebuilding pool",
+                    len(stale), effective_timeout,
                 )
+                # `lost` is the actual size of the in-flight dict (may be up
+                # to in_flight_target under a backlog, not just n_workers).
                 lost = len(in_flight)
                 in_flight.clear()
                 pool.shutdown(wait=False)
                 pool = _make_pool()
                 game_idx += lost
-                for _ in range(min(lost, n_games - dispatched)):
+                # Re-prime the fresh pool back up to in_flight_target, same
+                # as the initial priming loop and the error-rebuild path.
+                while dispatched < n_games and len(in_flight) < in_flight_target:
                     _dispatch_one()
 
         # Flush any leftover partial group -- reached whether the last
