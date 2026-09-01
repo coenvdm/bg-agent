@@ -800,3 +800,29 @@ Near-linear to one worker per PHYSICAL core, then a ~10-20% hyperthreading tail,
 - Watch that `clip_frac` settles under ~0.3 and `explained_var` climbs, as in the previously-validated ~6k-transitions/update regime.
 - `benchmark_v2.py` (updates ON) supersedes `benchmark_workers.py` (updates OFF). Only the former exists on this host; do not resurrect the latter.
 ---
+
+---
+### 2026-09-01 (correction) — "chance = 4.5" is WRONG for evaluate_policy, and eval indices are not comparable across UPDATE_INTERVAL changes
+**Files changed:** none (correction to earlier entries in this log)
+**What was done:** The i9 run's first eval read `EVAL @ update 100: mean_placement=7.18, top1=0.01, top4=0.11` — alarming at first glance, and it arrived right after the weights-broadcast change, so it was investigated as a possible regression. **It is not a bug.** Two separate mistakes in how earlier entries framed these numbers:
+
+**1. `chance = 4.50` is the wrong null for this eval.** Earlier entries (including this session's) compare `evaluate_policy` results against "chance 4.50 / top1 0.125". That null only holds if all 8 seats are equally skilled. `evaluate_policy(opponent='greedy')` puts **ONE** agent against **SEVEN** GreedyPlayAgents — and since the 2026-09-01 baseline fix, greedy is genuinely strong (it holds 2.8-3.4 in-game placement across the training population). An untrained agent facing 7 competent greedy bots should therefore land near **7-8, not 4.5**. So 7.18 is roughly the UNTRAINED baseline for this eval, not evidence of a broken run. Corollary, and the more important half: the previous run's **3.95** was a substantially stronger result than this log credited — scoring below 4.5 against 7 competent greedy means beating the average greedy seat, not merely edging out chance.
+
+**2. Eval indices are NOT comparable across runs when UPDATE_INTERVAL changes.** `EVAL_EVERY` counts UPDATES, not games. At `UPDATE_INTERVAL=90` update 100 was 9,000 games; at `UPDATE_INTERVAL=24` it is **2,400 games**. The 7.18-vs-3.95 comparison was therefore between points 3.75x apart in experience. This run reaches a like-for-like comparison around update 375. **Whenever `UPDATE_INTERVAL` changes, restate eval milestones in GAMES before comparing anything.**
+
+**Weights broadcast verified healthy** (this was the real worry, since the change was new): `/dev/shm` version files advance continuously (v115->v117->v119 over 20s), exactly 3 retained, older ones reclaimed, each 13,887,447 bytes. Workers are receiving fresh weights every update. Independently corroborated by the in-game signal, which could not improve if workers were stuck on frozen weights.
+
+**In-game learning signal at 2,520 games (all 8 seats, lower = better):**
+| quarter | train | heuristic | greedy |
+|---|---|---|---|
+| Q1 | 6.384 | 2.196 | 2.813 |
+| Q2 | 5.554 | 2.282 | 3.034 |
+| Q3 | 5.389 | 2.486 | 3.359 |
+| Q4 | 5.610 | 2.558 | 3.375 |
+
+The agent improves 6.38 -> ~5.5 while BOTH scripted baselines degrade in lockstep — it is taking placements from them, which is the signature of real learning rather than a metric artifact. It is still well behind both baselines at this stage. Mean game length 19.6 rounds, matching the ~19.75 expected post-baseline-fix.
+**Current state:** Run continues on contract 49567627, healthy, no intervention taken.
+**Open questions / next steps:**
+- Q4 shows a slight regression (5.389 -> 5.610) over ~26 updates. Probably noise at this sample size; if it persists past update ~200 it is worth a look.
+- **When quoting any `evaluate_policy` number in future, state the opponent AND the untrained baseline for that opponent.** "Beats chance" is meaningless for a 1-vs-7 eval.
+---
