@@ -252,14 +252,31 @@ assume "resumed run" means "all history arrays are the same length."
 
 ## 6. Monitoring
 
-Don't poll manually. Use a background quiet loop that only speaks up on state changes:
+Don't poll manually. Use a background quiet loop that only speaks up on state changes.
+
+**The chart is not enough — sync the checkpoint too.** Lost a run this way: a monitor loop synced
+`training_progress.png` and the history JSON every pass but never the `.pt`. The chart and metric
+history tell you what happened; only the checkpoint lets you *resume*. An instance can disappear at
+any time (host reclaim, or someone just shutting it down) — a chart-only sync silently turns
+"resume" into "restart from scratch." Pull the checkpoint on a slower cadence than the chart (it's
+~40MB here vs. a ~300KB PNG — don't rsync that every 20s), and write it to a `live_`-prefixed local
+filename so a sync that lands mid-write never clobbers a known-good archived checkpoint. If the pull
+fails with `read errors mapping ... No data available`, that's the same mid-`torch.save()` race
+covered in §4 — retry, don't treat it as a real failure.
 
 ```bash
 # One-shot "wait until X" -> use Bash run_in_background with an until-loop, single notification.
-# Recurring "sync chart back to local disk" -> Monitor with persistent:true, silent unless it fails:
+# Recurring "sync chart + checkpoint back to local disk" -> Monitor with persistent:true, silent
+# unless it fails. Checkpoint pulled every 6th pass (~2min) since it's ~130x the chart's size.
+i=0
 while true; do
   rsync -az -e ssh vast-bg-agent:/workspace/bg-agent/data/chart.png ./data/ || echo "sync failed"
+  if [ $((i % 6)) -eq 0 ]; then
+    rsync -az -e ssh vast-bg-agent:/workspace/bg-agent/checkpoint.pt ./data/live_checkpoint.pt \
+      || echo "checkpoint sync failed"
+  fi
   ssh -o ConnectTimeout=10 vast-bg-agent "tmux has-session -t train" 2>/dev/null || { echo "training session gone"; break; }
+  i=$((i+1))
   sleep 20
 done
 ```
@@ -277,6 +294,11 @@ inflates it. Wait for 2-3 steady-state samples before concluding an instance is 
 vastai show instances --raw   # list what's currently running/billing
 vastai destroy instance <ID> -y   # -y skips the interactive confirmation prompt
 ```
+
+**Before destroying an instance — or just letting one go — pull the checkpoint and verify it
+actually loads** (`python3 -c "import torch; torch.load('live_checkpoint.pt', map_location='cpu')"`).
+A checkpoint that's present but doesn't load is worth nothing; find that out while the instance
+still exists to re-pull from, not after.
 
 **When migrating to a new instance, stop the old training job (`tmux kill-session -t train` over
 SSH) as soon as you've pulled its checkpoint** — it's easy to forget and end up paying for two
@@ -305,4 +327,5 @@ fallback until then.
    ~70-80% regardless of worker count.
 8. Confirm 2-3 steady-state batches/updates before trusting the setup.
 9. Stop old instance's job, verify new one, then destroy old instance.
-10. Set up a quiet background sync/monitor loop; don't poll manually.
+10. Set up a quiet background sync/monitor loop; don't poll manually. Sync the checkpoint, not
+    just the chart — a chart-only loop loses the run if the instance disappears (see §6).
