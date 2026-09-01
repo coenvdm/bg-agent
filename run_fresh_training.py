@@ -53,8 +53,14 @@ if __name__ == "__main__":
     # Raised again 40000->150000 after benchmarking self-play at 8.64 games/sec
     # on this host (was 2.79 with the old 8-CUDA-worker config): 40000 games is
     # only ~1.3h of wall-clock here, far too short to judge whether the fixes
-    # worked. 150000 games ~= 4.8h of self-play plus ~12% eval overhead
-    # (~5.4h total, ~$0.64 at $0.118/hr).
+    # worked. [HISTORICAL, stale -- that host is gone and this predates the
+    # engine fixes: 150000 games ~= 4.8h of self-play plus ~12% eval overhead,
+    # ~5.4h total, ~$0.64 at $0.118/hr.]
+    # Current projection (2026-09-01, contract 49546957, Xeon Gold 5418Y /
+    # RTX 5000 Ada, 48 physical cores): measured 5.03 games/sec at
+    # N_WORKERS=90. 150000 games / 5.03 games/sec ~= 8.3h of self-play, plus
+    # ~2% eval overhead at the current EVAL_EVERY=100 / UPDATE_INTERVAL=90
+    # cadence ~= 8.5h total, ~$3.40 at $0.401/hr.
     N_GAMES = 150000
 
     # anneal_steps sizing: the prior run averaged ~2,345 transitions per PPO
@@ -227,17 +233,45 @@ if __name__ == "__main__":
 
     # N_GAMES defined earlier alongside ANNEAL_STEPS (both needed before
     # _make_ppo_trainer() is called above).
-    # N_WORKERS / WORKER_DEVICE retuned 2026-08-31 by direct benchmark on the
-    # CURRENT host (RTX 4060 Ti, contract 49396123). The previous value of 8
-    # was inherited from the fractional RTX 3090 host that was cgroup-capped at
-    # 8.64 real cores; this box has ~30.7 real cores (/sys/fs/cgroup/cpu.max =
-    # "3071999 100000"), so 8 workers left ~22 cores idle.
+    # N_WORKERS / WORKER_DEVICE retuned 2026-09-01 by direct benchmark on the
+    # CURRENT host: contract 49546957, Xeon Gold 5418Y, RTX 5000 Ada.
     #
-    # Measured (32 timed games after an 8-game warmup, ulimit -n 65536):
-    #     8 workers  on cuda -> 2.79 games/sec   <- the old config
-    #    12 workers  on cpu  -> 4.67 games/sec
-    #    20 workers  on cpu  -> 6.80 games/sec
-    #    26 workers  on cpu  -> 8.64 games/sec   <- 3.1x the old config
+    # THE KEY CORRECTION: vast.ai's `cpu_cores` counts HYPERTHREADS, not
+    # physical cores. This host reports 96 `cpu_cores` and a cgroup quota of
+    # 92.16, but `lscpu` shows 2 sockets x 24 cores = 48 PHYSICAL cores, 2
+    # threads/core. The previous host was advertised as 32 cores but was a
+    # Xeon E5-2697A v4 = only 16 physical cores -- which is why its
+    # throughput was flat no matter how N_WORKERS was raised, and why the
+    # old "8.64 games/sec" figure was never reproducible there. Always check
+    # `lscpu` (Core(s) per socket x Socket(s)), not just
+    # /sys/fs/cgroup/cpu.max.
+    #
+    # The old 8.64 games/sec figure is NOT a regression target: it was
+    # measured on a different host AND under the pre-fix engine, where the
+    # stat bug left boards at 2.3-3.0 minions and baselines stuck at tier 1.
+    # With correct minion stats, working combat damage and levelling
+    # baselines, boards now run 5.3-7.0 minions against tier-6 opponents, so
+    # each round costs far more even though games are shorter (~20 rounds vs
+    # 40). The simulation got heavier when it got correct.
+    #
+    # Measured (trained checkpoint, 2x n_workers timed games after an
+    # n_workers-game warmup, ulimit -n 65536):
+    #    24 workers -> 3.97 games/sec
+    #    48 workers -> 4.61   (one per physical core)
+    #    64 workers -> 4.79
+    #    80 workers -> 4.89
+    #    90 workers -> 5.03   <- chosen; 92.16-core cgroup quota caps it here
+    #
+    # Note the shape: scaling is sub-linear well below the 48 physical cores
+    # (24 -> 48 workers buys only +16%). Most likely all-core clock
+    # throttling (this part is 2.0 GHz base / 3.8 GHz boost) plus
+    # dual-socket NUMA effects, not a software bottleneck -- the main
+    # process was measured at just 0.11 cores against 28.3 cores of workers
+    # on the previous host, i.e. cleanly compute-bound with no serial
+    # ceiling.
+    #
+    # For comparison, the previous 16-physical-core host peaked at ~2.3
+    # games/sec, so this is ~2.2x.
     #
     # Workers run the policy on CPU while the PPO trainer stays on DEVICE
     # (cuda): _train_parallel's `device` argument is passed ONLY to
@@ -252,15 +286,26 @@ if __name__ == "__main__":
     # ulimit -n 1024 this dies with "OSError: [Errno 24] Too many open files"
     # during pool construction -- the launch command must set `ulimit -n 65536`
     # (see the vast-ai-training skill).
-    N_WORKERS       = 26
+    N_WORKERS       = 90
     WORKER_DEVICE   = 'cpu'
-    UPDATE_INTERVAL = 26     # == N_WORKERS: games are dispatched in batches of
+    UPDATE_INTERVAL = 90     # == N_WORKERS: games are dispatched in batches of
                               # N_WORKERS, so this fires exactly one PPO update
-                              # per dispatched batch -- predictable, and at
-                              # ~178 transitions/game gives ~4.6k transitions
-                              # per update (~18 minibatches x 4 epochs ~= 72
-                              # optimizer steps/update, vs the 12 that starved
-                              # the previous run).
+                              # per dispatched batch -- predictable, and at the
+                              # ~250 transitions/game measured for a trained
+                              # policy under the real seat mix, 90 games/update
+                              # gives roughly 22.5k transitions per update (vs
+                              # ~6.5k before) -- a substantially larger PPO
+                              # batch, which means fewer total updates across
+                              # the run (150000/90 ~= 1,667 vs 5,769) but more
+                              # minibatches and a lower-variance gradient per
+                              # update. Keeping UPDATE_INTERVAL == N_WORKERS is
+                              # what keeps the collected batch maximally
+                              # on-policy under the rolling-dispatch scheme in
+                              # train._train_parallel: games dispatched after
+                              # an update use the new weights, whereas a
+                              # smaller UPDATE_INTERVAL would mean many
+                              # in-flight games were started under weights
+                              # several updates stale.
     BACKUP_EVERY    = 5
     # EVAL_EVERY / EVAL_N_GAMES / EVAL_WORKERS -- retuned 2026-08-31 after
     # measuring the single-process evaluate_policy() at 3.23s/game: at the old
@@ -300,26 +345,42 @@ if __name__ == "__main__":
     # mean_placement was byte-identical across all worker counts, confirming
     # the seed-by-game-index aggregation really is order-independent.
     #
-    # So 128 eval games now costs ~36s. At 8.64 training games/sec and
-    # UPDATE_INTERVAL=26, EVAL_EVERY=100 means 2600 training games (~301s)
-    # between evals -> ~12% wall-clock overhead, for a placement standard
-    # error of ~0.18 (n=128). EVAL_EVERY=50 would have cost ~24%, which is not
-    # worth it: the high-frequency progress signal comes for free from the
-    # fixed GreedyPlayAgent/HeuristicAgent seats present in EVERY training game
-    # (train_plc - greedy_plc), averaged over thousands of games. This eval is
-    # the low-frequency ABSOLUTE anchor that no shaping term can inflate.
+    # So 128 eval games now costs ~36s. Recomputed 2026-09-01 for the
+    # N_WORKERS=90 / UPDATE_INTERVAL=90 host: at 5.03 training games/sec,
+    # EVAL_EVERY=100 means 100 x 90 = 9,000 training games (~1,790s, ~30 min)
+    # between evals -> ~36/1790 ~= 2% wall-clock overhead, for a placement
+    # standard error of ~0.18 (n=128) -- a far smaller overhead fraction than
+    # the old host's ~12%, because the heavier (correct) combat sim makes
+    # each training game take longer relative to the fixed ~36s eval cost,
+    # not because eval got any cheaper.
+    # The tradeoff shows up in eval DENSITY instead: the run now has only
+    # ~1,667 total updates (150000/90), so EVAL_EVERY=100 yields just ~16-17
+    # eval points across the whole run, versus ~57 with the old
+    # UPDATE_INTERVAL=26 (150000/26/100 ~= 57.7). That's still acceptable for
+    # the same reason it always was: the high-frequency progress signal comes
+    # for free from the fixed GreedyPlayAgent/HeuristicAgent seats present in
+    # EVERY training game (train_plc - greedy_plc), averaged over thousands
+    # of games, so nothing is lost between eval points. This eval is the
+    # low-frequency ABSOLUTE anchor that no shaping term can inflate --
+    # ~16-17 well-spaced, low-noise (SE 0.18) anchor points across the run is
+    # enough to confirm that free signal is tracking something real, and
+    # tightening EVAL_EVERY to chase more points would just re-inflate
+    # overhead for anchor density this run doesn't need.
     EVAL_EVERY      = 100
     EVAL_N_GAMES    = 128
-    EVAL_WORKERS    = 20     # CPU workers for evaluate_policy's pool -- eval
+    EVAL_WORKERS    = 48     # CPU workers for evaluate_policy's pool -- eval
                               # workers always run the policy on CPU regardless
-                              # of DEVICE (see train.py), so this is independent
-                              # of N_WORKERS/training GPU memory. Measured
-                              # locally, n_workers=8 was ~6% faster than 12 at
-                              # n_games=128 (an 8-core dev box oversubscribes
-                              # at 12) -- the target box's ~8.64 real cores
-                              # (see N_WORKERS comment above) suggest 8-10
-                              # may edge out 12 there too; kept at 12 as
-                              # specified, worth an A/B on the target host.
+                              # of DEVICE (see train.py), so this is
+                              # independent of N_WORKERS/training GPU memory;
+                              # raised to 48 to match this host's physical
+                              # core count (see N_WORKERS comment above --
+                              # lscpu shows 2 sockets x 24 cores, not the
+                              # 96-thread cpu_cores figure vast.ai reports).
+                              # mean_placement was verified byte-identical
+                              # across worker counts (the seed-by-game-index
+                              # aggregation is order-independent), so raising
+                              # this changes eval speed only, never eval
+                              # results.
 
     _seed_offset = ppo_trainer.total_steps
     random.seed(_seed_offset); np.random.seed(_seed_offset); torch.manual_seed(_seed_offset)

@@ -39,7 +39,7 @@ from agent.policy import (BGPolicyNetwork, N_ACTION_TYPES, POINTER_DIM,
 from agent.ppo import PPOConfig, PPOTrainer
 from env.game_loop import BattlegroundsGame, GameResult, expected_tier_for_round
 from env.matchmaker import Matchmaker
-from env.player_state import PlayerState
+from env.player_state import PlayerState, minion_stats
 from env.tavern_pool import TavernPool
 from symbolic.board_computer import SymbolicBoardComputer
 from symbolic.firestone_client import FirestoneClient
@@ -384,6 +384,27 @@ class StaticAgent:
 SCRIPTED_MIN_BOARD_TO_LEVEL = 3
 
 
+def _effective_power(m) -> int:
+    """Attack + health for one minion, INCLUDING accumulated buffs.
+
+    Base stats alone are actively misleading when comparing minions: a minion
+    sitting on +30/+30 of permanent buffs still reads as its base 1/1, so a
+    base-stats ranking happily nominates the most valuable minion on the board
+    as the "weakest" one to sell.
+
+    Mirrors the effective-stat sum used by symbolic.board_computer._board_power
+    (base + perm_* + game_*), and goes through env.player_state.minion_stats so
+    it tolerates both minion-dict shapes rather than re-inlining a .get() --
+    reading "attack"/"health" off a raw card-def dict silently returns 0 (see
+    CONTEXT.md 2026-09-01).
+    """
+    d = m if isinstance(m, dict) else getattr(m, "__dict__", {})
+    atk, hp = minion_stats(d)
+    atk += d.get("perm_atk_bonus", 0) + d.get("game_atk_bonus", 0)
+    hp += d.get("perm_hp_bonus", 0) + d.get("game_hp_bonus", 0)
+    return atk + hp
+
+
 def _scripted_should_level(ps) -> bool:
     """Shared LEVEL_UP guard for the scripted baselines.
 
@@ -460,7 +481,50 @@ class HeuristicAgent:
         if valid(5) and _scripted_should_level(ps):
             return 5, 0
 
-        # 2. Buy highest-tier shop minion (type 0)
+        # 2. Place any card from hand onto the board (type 2).
+        #    Placing comes BEFORE buying: this agent used to buy first, which
+        #    meant that once the board filled it kept buying cards it could
+        #    never play, clogging its hand (measured: BUY 38% of actions vs
+        #    PLACE 16%) and paying the per-card hand penalty every turn.
+        if valid(2):
+            for i, m in enumerate(ps.hand):
+                if m is not None and getattr(m, "card_id", ""):
+                    return 2, PTR_HAND_OFF + i
+
+        # 3. Sell the weakest board minion (type 1) -- but ONLY when the shop
+        #    actually offers something stronger.
+        #
+        #    This branch used to sit AFTER the buy branch while itself
+        #    requiring valid(0), so the buy above always returned first and
+        #    this was unreachable dead code: measured 0 sell events across 10
+        #    games. The agent therefore never made room for an upgrade once
+        #    full. GreedyPlayAgent checks sell before buy, which is one reason
+        #    it beat this agent by ~0.9 placement head-to-head despite the same
+        #    tavern tier. Ordering it before the buy is what makes the rule
+        #    real.
+        #
+        #    The comparison also ranks minions by EFFECTIVE power, not base
+        #    attack+health: a minion sitting on +30/+30 of accumulated buffs
+        #    still reads as its base 1/1, so a base-stats ranking would
+        #    nominate the best minion on the board as the "weakest" to sell.
+        if valid(1) and len(ps.board) >= 7 and valid(0):
+            worst_idx, worst_power = -1, float("inf")
+            for i, m in enumerate(ps.board):
+                if m is not None and getattr(m, "card_id", ""):
+                    power = _effective_power(m)
+                    if power < worst_power:
+                        worst_power, worst_idx = power, i
+            best_shop = max(
+                (_effective_power(m) for m in ps.shop
+                 if m is not None and getattr(m, "card_id", "")),
+                default=-1,
+            )
+            # Strictly better only: swapping for an equal minion is a pure
+            # loss once the gold cost is counted.
+            if worst_idx >= 0 and best_shop > worst_power:
+                return 1, PTR_BOARD_OFF + worst_idx
+
+        # 4. Buy the highest-tier shop minion (type 0)
         if valid(0):
             best_idx, best_tier = -1, -1
             for i, m in enumerate(ps.shop):
@@ -470,23 +534,6 @@ class HeuristicAgent:
                         best_tier, best_idx = t, i
             if best_idx >= 0:
                 return 0, PTR_SHOP_OFF + best_idx
-
-        # 3. Place any card from hand onto the board (type 2)
-        if valid(2):
-            for i, m in enumerate(ps.hand):
-                if m is not None and getattr(m, "card_id", ""):
-                    return 2, PTR_HAND_OFF + i
-
-        # 4. Sell weakest board minion if board is full and a buy is possible (type 1)
-        if valid(1) and len(ps.board) >= 7 and valid(0):
-            worst_idx, worst_power = -1, float("inf")
-            for i, m in enumerate(ps.board):
-                if m is not None and getattr(m, "card_id", ""):
-                    power = getattr(m, "attack", 0) + getattr(m, "health", 0)
-                    if power < worst_power:
-                        worst_power, worst_idx = power, i
-            if worst_idx >= 0:
-                return 1, PTR_BOARD_OFF + worst_idx
 
         # 5. End turn
         return 7, 0
@@ -1117,9 +1164,13 @@ def _train_parallel(
 ) -> None:
     """Run self-play games in parallel using ProcessPoolExecutor.
 
-    Games are dispatched in batches of *n_workers*.  Each worker receives a
-    frozen copy of the current policy weights, runs one game, and returns its
-    collected transitions.  The main process merges all transitions into
+    Games are dispatched with a ROLLING / SLIDING WINDOW: up to *n_workers*
+    games are kept in flight at all times, and the instant one finishes the
+    next queued game is submitted immediately (see the comment block at the
+    top of the dispatch loop below for why this replaced the old
+    pool.map()-per-cohort approach). Each worker receives a frozen copy of
+    the current policy weights, runs one game, and returns its collected
+    transitions. The main process merges all transitions into
     ppo_trainer.buffer and runs PPO updates at the normal interval.
 
     Parameters
@@ -1128,22 +1179,36 @@ def _train_parallel(
     policy             : the policy network being trained
     ppo_trainer        : PPOTrainer instance
     card_defs          : card definitions dict
-    n_workers          : number of parallel worker processes
+    n_workers          : number of parallel worker processes (max games in
+                         flight at once)
     update_interval    : trigger a PPO update every this many games
     checkpoint_interval: save a checkpoint every this many games
     checkpoint_path    : path for automatic checkpoint saves (None = skip)
     seed               : base RNG seed (None = non-deterministic)
     device             : torch device string for the main process
     on_batch(game_idx, summaries, transitions, elapsed)
-                       : optional callback fired after every batch of games.
+                       : optional callback fired every time n_workers games
+                         have completed, plus once more at the end for any
+                         final partial group. Because dispatch is now a
+                         rolling window rather than a lock-step cohort, games
+                         are grouped in COMPLETION order, not dispatch order
+                         -- a fast game dispatched later can finish before a
+                         slow game dispatched earlier, so group membership no
+                         longer lines up with dispatch batches the way it did
+                         under pool.map.
                          *game_idx* is the total games completed so far.
                          *summaries* is a list of per-game summary dicts.
                          *transitions* is a list of per-game Transition lists
                          (already added to the PPO buffer).
-                         *elapsed* is the batch wall-clock time in seconds.
+                         *elapsed* is the wall-clock time in seconds since the
+                         previous on_batch call (i.e. how long this group of
+                         completions took).
     on_update(metrics, update_count)
                        : optional callback fired after every PPO update.
-    batch_timeout      : per-batch timeout in seconds (default 300)
+    batch_timeout      : per-game in-flight timeout in seconds (default 300)
+                         -- a game still running this long after being
+                         dispatched is treated as hung; see the stall
+                         detection comment below.
     stats_path         : JSONL file appended with per-player agent-identity /
                          placement rows for every finished game (used to track
                          which agent types — training policy, heuristic, greedy,
@@ -1151,12 +1216,13 @@ def _train_parallel(
                          Pass None to disable.
     """
     import multiprocessing
-    from concurrent.futures import ProcessPoolExecutor
+    from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 
     mp_context = multiprocessing.get_context("spawn")
 
     update_count = 0
-    game_idx     = 0
+    game_idx     = 0   # games RESOLVED so far: completed OR lost to error/timeout
+    dispatched   = 0   # games SUBMITTED so far
 
     snapshot_pool  = SnapshotPool(capacity=20)
     stats_file     = Path(stats_path) if stats_path else None
@@ -1168,75 +1234,133 @@ def _train_parallel(
     N_OPP_SLOTS    = N_PLAYERS - N_TRAIN_PLAYERS                        # 6
     n_policy_slots = N_OPP_SLOTS - N_HEURISTIC_SLOTS - N_GREEDY_SLOTS   # 2
 
-    pool = ProcessPoolExecutor(
-        max_workers=n_workers,
-        mp_context=mp_context,
-        initializer=_worker_init,
-        initargs=(card_defs, device),
-    )
+    def _make_pool() -> ProcessPoolExecutor:
+        return ProcessPoolExecutor(
+            max_workers=n_workers,
+            mp_context=mp_context,
+            initializer=_worker_init,
+            initargs=(card_defs, device),
+        )
+
+    pool = _make_pool()
+
+    # Snapshot weights once; only re-clone after each PPO update. Under the
+    # old pool.map cohort loop this reclone was checked once per batch; with
+    # rolling dispatch there is no "start of batch" moment, so it's checked
+    # at each TASK-CREATION time instead (inside _make_task below) -- a
+    # dispatched game simply uses whatever snapshot was current at the
+    # instant it was submitted, which is the natural per-task analogue of
+    # the old per-cohort check and is fine and intended.
+    sd = {k: v.detach().cpu().clone() for k, v in policy.state_dict().items()}
+    sd_stale = False
+
+    dispatch_counter = 0  # per-dispatch seed offset, monotonic across the whole run
+    in_flight: Dict[Any, float] = {}   # Future -> submit timestamp (for stall detection)
+
+    def _make_task() -> tuple:
+        nonlocal sd, sd_stale, dispatch_counter
+        if sd_stale:
+            sd = {k: v.detach().cpu().clone() for k, v in policy.state_dict().items()}
+            sd_stale = False
+        policy_sds = snapshot_pool.sample_n(n_policy_slots)
+        opp_sds    = (policy_sds
+                      + ["heuristic"] * N_HEURISTIC_SLOTS
+                      + ["greedy"] * N_GREEDY_SLOTS)
+        seed_value = (seed + ppo_trainer.total_steps + dispatch_counter) if seed is not None else None
+        dispatch_counter += 1
+        return (sd, opp_sds, seed_value, BOARD_SHAPE_STATS_WEIGHT)
+
+    def _dispatch_one() -> None:
+        nonlocal dispatched
+        fut = pool.submit(_worker_run_game, _make_task())
+        in_flight[fut] = time.time()
+        dispatched += 1
+
     try:
-        # Snapshot weights once; only re-clone after each PPO update
-        sd = {k: v.detach().cpu().clone() for k, v in policy.state_dict().items()}
-        sd_stale = False
+        # -----------------------------------------------------------------
+        # WHY rolling dispatch instead of pool.map:
+        #
+        # pool.map(..., timeout=...) dispatches exactly n_workers games as a
+        # single cohort and blocks until ALL of them return -- every worker
+        # that finishes early just sits idle until the slowest game in the
+        # cohort (the straggler) completes. Game length varies a lot round
+        # to round (15-25 rounds, std ~3.4), so a cohort's wall-clock is set
+        # by its straggler, not its average. Measured on the training host
+        # (32 dedicated cores) this produced self-play throughput that was
+        # essentially FLAT as worker count rose -- the signature of a
+        # synchronization barrier eating the parallelism gains:
+        #
+        #     N_WORKERS=16 -> 1.94 games/sec
+        #     N_WORKERS=20 -> 1.96 games/sec
+        #     N_WORKERS=26 -> 2.01 games/sec
+        #     N_WORKERS=30 -> 2.19 games/sec
+        #
+        # with only ~72-80% CPU utilization during self-play (vmstat) --
+        # i.e. 20-28% of the box sat idle waiting on stragglers every single
+        # cohort. The fix: keep up to n_workers games in flight AT ALL TIMES
+        # and, the instant any one finishes, immediately submit the next
+        # queued game into that freed slot -- no worker ever waits on
+        # another worker.
+        # -----------------------------------------------------------------
+        for _ in range(min(n_workers, n_games)):
+            _dispatch_one()
 
-        while game_idx < n_games:
-            batch_n = min(n_workers, n_games - game_idx)
+        last_batch_t       = time.time()
+        group_summaries:    List[dict] = []
+        group_transitions:  List[list] = []
 
-            if sd_stale:
-                sd = {k: v.detach().cpu().clone() for k, v in policy.state_dict().items()}
-                sd_stale = False
+        while game_idx < n_games or in_flight:
+            if not in_flight:
+                # Nothing in flight and nothing left to resolve/dispatch --
+                # only reachable if n_games == 0 (loop condition below would
+                # otherwise keep it alive). Defensive break to avoid spinning.
+                break
 
-            # Build per-slot opponent list: 2 independent policy snapshots +
-            # 2 heuristic (leveling) + 2 greedy (naive buy/play).
-            policy_sds = snapshot_pool.sample_n(n_policy_slots)
-            opp_sds    = (policy_sds
-                          + ["heuristic"] * N_HEURISTIC_SLOTS
-                          + ["greedy"] * N_GREEDY_SLOTS)
+            done, _ = wait(list(in_flight.keys()), timeout=1.0,
+                            return_when=FIRST_COMPLETED)
 
-            # Use total_steps as seed offset so each re-run gets fresh seeds
-            seed_base = ppo_trainer.total_steps
-            stats_weight = BOARD_SHAPE_STATS_WEIGHT
-            tasks = [
-                (
-                    sd,
-                    opp_sds,
-                    (seed + seed_base + i) if seed is not None else None,
-                    stats_weight,
-                )
-                for i in range(batch_n)
-            ]
+            broken = False
+            for fut in done:
+                in_flight.pop(fut, None)
+                try:
+                    transitions, summary = fut.result()
+                except Exception as exc:
+                    # A crashed/killed worker generally takes the whole pool
+                    # down with it (BrokenProcessPool) -- every OTHER future
+                    # still tracked as in-flight (whether still running or
+                    # merely not yet iterated to in this `done` loop) is
+                    # collateral damage from the same broken pool, so treat
+                    # all of it as lost rather than trying to salvage
+                    # individual results out of a pool we're about to
+                    # discard. Mirrors the old code's behavior of discarding
+                    # its whole cohort on any worker error.
+                    logger.warning("Worker error (%s: %s) — rebuilding pool", type(exc).__name__, exc)
+                    lost = 1 + len(in_flight)
+                    in_flight.clear()
+                    pool.shutdown(wait=False)
+                    pool = _make_pool()
+                    game_idx += lost
+                    for _ in range(min(lost, n_games - dispatched)):
+                        _dispatch_one()
+                    broken = True
+                    break
 
-            t0 = time.time()
-            try:
-                worker_results = list(pool.map(_worker_run_game, tasks,
-                                               timeout=batch_timeout))
-            except TimeoutError:
-                logger.warning("Batch timed out after %ds — skipping", batch_timeout)
-                game_idx += batch_n
-                continue
-            except Exception as exc:
-                logger.warning("Worker error (%s: %s) — rebuilding pool", type(exc).__name__, exc)
-                pool.shutdown(wait=False)
-                pool = ProcessPoolExecutor(
-                    max_workers=n_workers,
-                    mp_context=mp_context,
-                    initializer=_worker_init,
-                    initargs=(card_defs, device),
-                )
-                game_idx += batch_n
-                continue
-            batch_elapsed = time.time() - t0
+                # A slot just freed up -- dispatch its replacement before
+                # doing any of the bookkeeping below (buffer merge, stats
+                # file I/O, possible PPO update/checkpoint), so a worker
+                # never sits idle waiting on the main process.
+                if dispatched < n_games:
+                    _dispatch_one()
 
-            # Merge transitions into buffer; collect per-game data for callbacks
-            batch_summaries:    List[dict] = []
-            batch_transitions:  List[list] = []
-            for i, (transitions, summary) in enumerate(worker_results):
-                g = game_idx + i + 1
+                prev_game_idx = game_idx
+                game_idx += 1
+                g = game_idx
+
                 for t in transitions:
                     ppo_trainer.buffer.add(t)
                     ppo_trainer.total_steps += 1
-                batch_summaries.append(summary)
-                batch_transitions.append(transitions)
+                group_summaries.append(summary)
+                group_transitions.append(transitions)
 
                 if stats_file is not None:
                     _append_agent_stats(stats_file, g, ppo_trainer.total_steps, summary)
@@ -1244,51 +1368,99 @@ def _train_parallel(
                 winner_id   = min(summary["placements"], key=summary["placements"].get)
                 mean_reward = float(np.mean(list(summary["final_rewards"].values())))
                 logger.info(
-                    "Game %4d | rounds=%2d | winner=P%d | mean_reward=%+.3f | (batch %.1fs)",
-                    g, summary["n_rounds"], winner_id, mean_reward, batch_elapsed,
+                    "Game %4d | rounds=%2d | winner=P%d | mean_reward=%+.3f",
+                    g, summary["n_rounds"], winner_id, mean_reward,
                 )
 
-            prev_game_idx = game_idx
-            game_idx     += batch_n
+                # PPO update if we crossed an update_interval boundary.
+                # Evaluated once per completed game now (rather than once
+                # per cohort under the old pool.map loop) -- the boundary
+                # arithmetic is unchanged, just checked at finer grain.
+                if (game_idx // update_interval) > (prev_game_idx // update_interval):
+                    if len(ppo_trainer.buffer) > 0:
+                        metrics = ppo_trainer.update(last_value=0.0)
+                        update_count += 1
+                        sd_stale = True   # weights changed — reclone before next dispatch
+                        if update_count % SNAPSHOT_EVERY == 0:
+                            is_milestone = (update_count % MILESTONE_EVERY == 0)
+                            snapshot_pool.add(policy.state_dict(), is_milestone=is_milestone,
+                                              update_count=update_count)
+                            if is_milestone:
+                                logger.info(
+                                    "Milestone snapshot added (update=%d, milestones=%d)",
+                                    update_count, len(snapshot_pool._milestones),
+                                )
+                            else:
+                                logger.info("Rolling snapshot added (pool size=%d)", len(snapshot_pool))
+                        log_update_metrics(update_count, metrics)
 
-            if on_batch is not None:
-                on_batch(game_idx, batch_summaries, batch_transitions, batch_elapsed)
+                        nan_count = sum(
+                            int(torch.isnan(p).any().item())
+                            for p in policy.parameters()
+                        )
+                        logger.info("NaN params after update: %d", nan_count)
 
-            # PPO update if we crossed an update_interval boundary
-            if (game_idx // update_interval) > (prev_game_idx // update_interval):
-                if len(ppo_trainer.buffer) > 0:
-                    metrics = ppo_trainer.update(last_value=0.0)
-                    update_count += 1
-                    sd_stale = True   # weights changed — reclone before next batch
-                    if update_count % SNAPSHOT_EVERY == 0:
-                        is_milestone = (update_count % MILESTONE_EVERY == 0)
-                        snapshot_pool.add(policy.state_dict(), is_milestone=is_milestone,
-                                          update_count=update_count)
-                        if is_milestone:
-                            logger.info(
-                                "Milestone snapshot added (update=%d, milestones=%d)",
-                                update_count, len(snapshot_pool._milestones),
-                            )
-                        else:
-                            logger.info("Rolling snapshot added (pool size=%d)", len(snapshot_pool))
-                    log_update_metrics(update_count, metrics)
+                        if on_update is not None:
+                            on_update(metrics, update_count)
 
-                    nan_count = sum(
-                        int(torch.isnan(p).any().item())
-                        for p in policy.parameters()
-                    )
-                    logger.info("NaN params after update: %d", nan_count)
+                # Checkpoint if we crossed a checkpoint_interval boundary
+                if checkpoint_path:
+                    if (game_idx // checkpoint_interval) > (prev_game_idx // checkpoint_interval):
+                        ppo_trainer.save_checkpoint(
+                            checkpoint_path, extra={"game": game_idx}
+                        )
+                        logger.info("Checkpoint saved at game %d → %s", game_idx, checkpoint_path)
 
-                    if on_update is not None:
-                        on_update(metrics, update_count)
+                # Fire on_batch every n_workers completed games, in
+                # completion order (see docstring). The final partial group
+                # (if any) is flushed once the loop below exits.
+                if len(group_summaries) >= n_workers:
+                    flush_t = time.time()
+                    if on_batch is not None:
+                        on_batch(game_idx, group_summaries, group_transitions, flush_t - last_batch_t)
+                    last_batch_t = flush_t
+                    group_summaries   = []
+                    group_transitions = []
 
-            # Checkpoint if we crossed a checkpoint_interval boundary
-            if checkpoint_path:
-                if (game_idx // checkpoint_interval) > (prev_game_idx // checkpoint_interval):
-                    ppo_trainer.save_checkpoint(
-                        checkpoint_path, extra={"game": game_idx}
-                    )
-                    logger.info("Checkpoint saved at game %d → %s", game_idx, checkpoint_path)
+            if broken:
+                continue
+
+            # ---------------------------------------------------------
+            # Stall detection.
+            #
+            # The old pool.map(timeout=batch_timeout) failed its whole
+            # cohort the instant any single game in it hung. A naive
+            # `wait(..., return_when=FIRST_COMPLETED)` rolling loop has no
+            # equivalent: as long as SOME other worker keeps finishing, the
+            # loop keeps making progress and would never notice one stuck
+            # game -- that hung slot would silently leak out of the window
+            # forever, permanently shrinking effective parallelism by one
+            # worker per hang, with no warning ever logged. So we track a
+            # submit timestamp per future and explicitly age-check every
+            # future still in flight on every poll, independent of whether
+            # anything else completed this iteration.
+            # ---------------------------------------------------------
+            now = time.time()
+            stale = [f for f, t0 in in_flight.items() if now - t0 > batch_timeout]
+            if stale:
+                logger.warning(
+                    "%d game(s) timed out after %ds — rebuilding pool",
+                    len(stale), batch_timeout,
+                )
+                lost = len(in_flight)
+                in_flight.clear()
+                pool.shutdown(wait=False)
+                pool = _make_pool()
+                game_idx += lost
+                for _ in range(min(lost, n_games - dispatched)):
+                    _dispatch_one()
+
+        # Flush any leftover partial group -- reached whether the last
+        # group completed exactly on an n_workers boundary (nothing left to
+        # flush) or the run ended mid-group (successfully or via a lost
+        # game pushing game_idx to n_games).
+        if group_summaries and on_batch is not None:
+            on_batch(game_idx, group_summaries, group_transitions, time.time() - last_batch_t)
     finally:
         pool.shutdown(wait=True)
 

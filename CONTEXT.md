@@ -671,3 +671,52 @@ Board size did not collapse, confirming the guard works. Damage now escalates in
 - Pre-existing (NOT introduced by this change, verified): `GreedyPlayAgent` can oscillate sell->buy and hit the `max_actions=30` per-turn cap in ~0.4-0.5% of turns, because it sells its weakest minion expecting to buy the shop's higher-tier "upgrade" but its buy rule then picks the first AFFORDABLE card instead. Harmless today (the engine drops the unfinished turn gracefully) but worth fixing if greedy is ever used as a serious reference.
 - `evaluate_policy`'s default `opponent="greedy"` now measures against the stronger of the two baselines, which is the right default.
 ---
+
+---
+### 2026-09-01 — Throughput investigation: vast.ai "cores" are hyperthreads; rolling dispatch; migrate to a 48-physical-core host
+**Files changed:** `train.py`, `run_fresh_training.py`, `.claude/skills/vast-ai-training/SKILL.md`
+**What was done:** Started as "are we using the instance well?" and turned into three findings, two fixes and a migration.
+
+**1. The GPU is idle BY DESIGN — not a tunable.** `WORKER_DEVICE='cpu'`: all self-play workers run policy inference on CPU; the GPU is touched only for brief PPO updates. Self-play is >90% of wall-clock, so the project has been paying for a GPU that does almost nothing. This is correct for a d_model=256/4-layer net doing single-sample inference, but it means GPU choice is nearly irrelevant to throughput and CPU is everything.
+
+**2. THE BIG ONE — `cpu_cores` counts HYPERTHREADS, not physical cores.** The old host (contract 49528923) advertised 32 `cpu_cores`, reported `cpu_cores_effective=32` (ratio 1.0, genuinely dedicated) and a cgroup quota of 30.7 — but `lscpu` showed an `Intel Xeon E5-2697A v4` = **16 physical cores**, 2 threads/core. Nothing in the vast.ai listing or in `/sys/fs/cgroup/cpu.max` revealed this, and the skill file explicitly told us `cpu.max` was "the ONLY number to trust" (now corrected). Measured sweep on that box, which is textbook for the shape:
+
+| N_WORKERS | pre-refactor | post-refactor |
+|---|---|---|
+| 12 | — | 1.56 |
+| 16 | 1.94 | 1.96 |
+| 20 | 1.96 | 2.03 |
+| 26 (was live) | 2.01 | 2.16 |
+| 30 | 2.19 | 2.36 |
+| 36 / 44 | — | 2.27 / 2.36 (plateau, ~5% run-to-run noise) |
+
+Near-linear to one worker per PHYSICAL core, then a ~10-20% hyperthreading tail, then flat. `N_WORKERS=26` was not "tuned" so much as oversubscribing hyperthreads to mask barrier stalls.
+
+**This also retires the 8.64 games/sec figure as a target.** It was measured on a DIFFERENT host AND under the pre-fix engine (stat bug -> boards of 2.3-3.0 minions, baselines stuck at tier 1). With correct stats, working combat damage and levelling baselines, boards now run 5.3-7.0 minions vs tier-6 opponents, so each round costs far more even though games are shorter (~20 rounds vs 40). **The simulation got heavier when it got correct.** Do not cite 8.64 again.
+
+**3. Fixed a synchronization barrier in `_train_parallel`.** It dispatched games in cohorts of `n_workers` via `pool.map` and blocked until ALL returned — every worker that finished early idled until the cohort's straggler finished, and game length varies (15-25 rounds, std ~3.4). Replaced with rolling dispatch (`pool.submit` + `wait(FIRST_COMPLETED)`, keeping N in flight and refilling a slot the instant one frees). Effect: CPU utilization **72-80% -> 93-94%**, throughput **+8%** at 26-30 workers (gain grows with worker count, as a straggler penalty should). Preserved: the spawn `mp_context`, update/checkpoint boundary arithmetic, `on_batch` grouping (now completion-order), and the `sd`/`sd_stale` reclone. Non-obvious trap handled explicitly: converting `pool.map(timeout=)` to `wait(FIRST_COMPLETED)` silently loses hang detection (as long as some other worker finishes, a permanently-hung task is never noticed and leaks a slot forever), so each future carries a submit timestamp and is age-checked every poll.
+
+**Ruled out along the way, by measurement rather than argument:** torch thread oversubscription (`_worker_init` already sets `set_num_threads(1)`); state-dict pickling per task (13.89MB but only 16.5ms => ~3% of a core at 2 games/sec); and main-process serialization — measured **0.11 cores for the main process vs 28.3 cores aggregate for workers**, i.e. cleanly compute-bound with no serial ceiling, which is what justified scaling out. Note `ps aux` %CPU is a LIFETIME AVERAGE and read 78% for that same main process — it was inflated by earlier GPU-update and eval phases and nearly sent the investigation down the wrong path. Use `/proc/<pid>/stat` deltas for instantaneous load.
+
+**4. Found (and shipped) an unreachable-dead-code bug in `HeuristicAgent`.** Local `train.py` had UNCOMMITTED work that never got committed or deployed — the deployed tree matched HEAD `5229507` exactly. Verified statically why it matters: HEAD's sell branch is gated on `valid(1) and len(ps.board) >= 7 and valid(0)`, but the buy branch ABOVE it returns whenever `valid(0)` and the shop holds any minion — so **the sell branch was unreachable and the heuristic baseline never sold**, and it bought before placing, clogging its hand once the board filled. Same category as last session's tier-1 levelling bug: a baseline weaker than intended, which flatters the agent's numbers. The WIP reorders to Level -> Place -> Sell -> Buy, sells only when the shop is strictly better, and ranks by EFFECTIVE (buffed) power via `_effective_power` rather than base stats (a minion sitting on +30/+30 read as its base 1/1 and got nominated as "weakest").
+
+**5. Migrated hosts and restarted from scratch.** Old contract 49528923 destroyed. New: **contract 49546957, Xeon Gold 5418Y (2 sockets x 24 = 48 PHYSICAL cores), RTX 5000 Ada 32GB, 251GB RAM, $0.401/hr**, quota 92.16. Verified with `lscpu` BEFORE deploying. Measured sweep there (trained checkpoint, per the "measure with a representative-strength policy" lesson):
+
+| N_WORKERS | games/sec |
+|---|---|
+| 24 | 3.97 |
+| 48 | 4.61 |
+| 64 | 4.79 |
+| 80 | 4.89 |
+| 90 | **5.03** |
+
+**~2.2x the old host** (not the 3x that 3x-the-cores predicted). Per-worker throughput is ~35% better (newer core), but scaling is sub-linear well below 48 physical cores — 24->48 workers buys only +16%. Most likely all-core clock throttling (2.0GHz base / 3.8GHz boost) plus dual-socket NUMA, not a software bottleneck. Config now `N_WORKERS=90`, `UPDATE_INTERVAL=90` (invariant preserved; ~22.5k transitions/update vs ~6.5k, so ~1,667 updates over the run instead of 5,769), `EVAL_WORKERS=48`. `N_GAMES`, `ANNEAL_STEPS`, `EVAL_EVERY`, `EVAL_N_GAMES` deliberately unchanged.
+**Current state:** Fresh run launched on contract 49546957 in tmux `train`, logging to `training_48core.log`, N_GAMES=150000 from scratch (no checkpoint present at launch — confirmed). Both fixes verified ACTIVE in the running process via `inspect.getsource`. At update 12 / 1,080 games health is normal for a fresh init and improving: `explained_var` 0.000->0.164, `clip_frac` 0.572->0.342, `avg10` -3.97->-3.27, and steps/game ~86.6 (matches the documented ~84.3 for an untrained policy — throughput will FALL toward the benchmarked 5.03 as the policy strengthens and survives longer). Previous run archived and verified loadable as `checkpoint_backups/cleanrun_*` (2,237,567 steps / 482 updates; best 1,691,362 / 348). Only one instance billing.
+**Open questions / next steps:**
+- **Credit is tight: $5.14 with the run projected at ~8.5h / ~$3.40.** It fits, but with little margin — top up before relying on the full 150k games plus any re-runs.
+- Sub-linear scaling above ~24 workers on the new host is unexplained (all-core clock throttle vs. dual-socket NUMA). Worth one experiment with `numactl` pinning workers per socket before assuming 48-core boxes are inherently only ~2x.
+- `ACTIVATE` is 0-1% of actions in the fresh run vs 8-12% in the previous one. Most likely just a fresh policy with a near-empty board (few minions with `activate_cost>0` to act on), but confirm it rises as boards fill — if it stays ~0 there may be a masking regression hiding.
+- `clip_frac` opened very high (0.57) and is falling; normal for a random init, but if it doesn't settle under ~0.3 the 3.5x larger PPO batch from `UPDATE_INTERVAL=90` may want a smaller `clip_eps` or lr.
+- This run is the first trained AND evaluated against baselines that both level AND sell correctly, so its placement numbers are not comparable to ANY earlier entry in this log.
+- `.claude/check_context_log.sh` and `.claude/settings.json` carry uncommitted changes that predate this session and were left untouched.
+---

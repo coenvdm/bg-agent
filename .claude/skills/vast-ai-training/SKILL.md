@@ -41,6 +41,13 @@ for ratio, o in rows[:20]:
 "
 ```
 
+**One query isn't enough — the result set is capped (~50-64 rows/query), so a genuinely good offer
+can be crowded out and look "gone" when it's still available.** Measured today: an offer was found,
+then vanished from a narrower follow-up query, then reappeared once several queries at different
+`cpu_cores`/`dph` thresholds were run and their results merged by offer `id`. Run 3-4 queries at
+different thresholds and aggregate by id before concluding nothing suitable exists. Offers also
+genuinely do get taken within minutes — move promptly once you have a candidate.
+
 Picking rules, in priority order:
 1. **`cpu_cores_effective / cpu_cores` ratio close to 1.0** — this is the single strongest signal
    that a host is dedicated rather than fractionally shared. A listing showing `cpu_cores=80` with
@@ -107,17 +114,71 @@ done
 
 ```bash
 ssh vast-bg-agent "nproc; cat /sys/fs/cgroup/cpu.max; nvidia-smi --query-gpu=name,memory.total --format=csv,noheader"
+ssh vast-bg-agent "lscpu | grep -E '^Model name|^CPU\(s\)|Thread\(s\) per core|Core\(s\) per socket|Socket\(s\)'"
 ```
 
-`cpu.max` is `<quota_us> <period_us>`; real usable cores = quota/period. This is the ONLY number
-to trust — not the listing's `cpu_cores`, not even `cpu_cores_effective` from the search API (in
-practice these overstated the real quota: a listing showing `cpu_cores_effective=20` turned out to
-have a hard cgroup quota of 8.64 cores once actually rented). If this number is much lower than
-expected, no amount of raising `N_WORKERS`/parallelism will recover throughput — the constraint is
-structural. Destroy and pick a different (genuinely dedicated) offer instead of fighting it.
+`cpu.max` is `<quota_us> <period_us>`; real usable cores (the quota) = quota/period. Trust this
+number for *whether you're being throttled* — not the listing's `cpu_cores`, not even
+`cpu_cores_effective` from the search API (in practice these overstated the real quota: a listing
+showing `cpu_cores_effective=20` turned out to have a hard cgroup quota of 8.64 cores once actually
+rented). If this number is much lower than expected, no amount of raising `N_WORKERS`/parallelism
+will recover throughput — the constraint is structural. Destroy and pick a different (genuinely
+dedicated) offer instead of fighting it.
 
-Size your worker/parallelism count to this real number, not the advertised one. Rule of thumb from
-this project: `N_WORKERS ≈ real_cores / 3-4`, leaving headroom for the main process, tmux, and OS.
+**But quota is the wrong number for *sizing CPU-bound workers* — this cost real money today.**
+vast.ai's `cpu_cores`, its `cpu_cores_effective`, AND the cgroup `cpu.max` quota ALL count logical
+CPUs (hyperthreads), typically 2x the physical core count. For CPU-bound work (self-play,
+simulation) it's the PHYSICAL core count that sets throughput, and none of those three numbers
+reveal it — only the `lscpu` output above does: physical cores = `Core(s) per socket` ×
+`Socket(s)`. Trust that number for worker sizing. Worked example measured today: a host advertised
+as `cpu_cores=32` with `cpu_cores_effective=32` (ratio 1.0 — genuinely dedicated by the §1 test) and
+a cgroup quota of 30.7 was an `Intel Xeon E5-2697A v4` — 16 physical cores, 2 threads/core. Nothing
+in the vast.ai listing or the cgroup quota revealed this. Corroborating tell to watch for at
+search time: the listing's `cpu_name` field often states it directly, e.g. `cpu_cores=32` with
+`cpu_name="AMD Ryzen 9 9950X 16-Core"` is 16 physical / 32 threads — read the CPU model name.
+
+Size your worker/parallelism count to the **physical** core count — not `cpu.max`, not `cpu_cores`,
+not `cpu_cores_effective`. Start at `N_WORKERS ≈ physical_cores`. Oversubscribing onto the
+hyperthreads buys a further ~10-20% and then plateaus; going beyond that gains nothing and wastes
+RAM (each worker held ~500MB RSS). Measured sweep on 16 physical / 32 logical cores (after the
+rolling-dispatch fix in §5):
+
+```
+12 workers -> 1.56 games/sec
+16 workers -> 1.96   (one per physical core)
+20 workers -> 2.03
+26 workers -> 2.16
+30 workers -> 2.36
+36 workers -> 2.27   } plateau, within run-to-run noise (~5%)
+44 workers -> 2.36   }
+```
+
+Expect near-linear scaling up to one worker per **physical** core, then a ~10-20% hyperthreading
+tail, then flat. If throughput is flat well *below* one-worker-per-physical-core, the bottleneck is
+something else — go measure it (don't just add workers). The two things that turned out to be the
+bottleneck in this project are covered next: synchronous batch dispatch (§5), and a single-threaded
+main process.
+
+**Before concluding you need more cores at all, confirm the workers — not the main process — are
+the actual ceiling.** The main/parent process is a common hidden bottleneck (GIL-bound: merging
+results, pickling, checkpointing). Cheap check while a run is in steady state:
+
+```bash
+# main process CPU, in cores
+PID=<main pid>; A=$(awk '{print $14+$15}' /proc/$PID/stat); sleep 20; B=$(awk '{print $14+$15}' /proc/$PID/stat)
+python3 -c "print(f'main uses {($B-$A)/100.0/20.0:.2f} cores')"
+# workers aggregate
+ps -eo %cpu,args --no-headers | grep spawn_main | grep -v grep | awk '{s+=$1} END {print s/100, "cores"}'
+```
+
+Measured today: main 0.11 cores vs workers 28.3 cores -> cleanly compute-bound, so scaling out to
+more physical cores was justified. If instead the main process is near 1.00 core, adding workers
+will *not* help — fix the main-process bottleneck first.
+
+**`ps aux` `%CPU` is a lifetime average, not current load.** It read 78% for the same main process
+that was actually using 0.11 cores during self-play, inflated by an earlier GPU-update/eval phase
+that ran hot before the steady-state window. Use `/proc/<pid>/stat` deltas (as above) or `top` for
+instantaneous load — never `ps aux` — when deciding whether something is currently the bottleneck.
 
 ## 4. Deploying code
 
@@ -145,7 +206,7 @@ the default 1024 surprisingly fast, especially if anything triggers repeated wor
 ssh vast-bg-agent "cd /workspace/bg-agent && tmux new-session -d -s train 'ulimit -n 65536; python3 -u train_script.py 2>&1 | tee -a training.log'"
 ```
 
-## 5. Two specific bugs to check for if you touch multiprocessing + CUDA
+## 5. Three specific bugs to check for if you touch multiprocessing + CUDA
 
 These are not vast.ai-specific but *will* bite you the first time a training script that worked
 fine on CPU gets pointed at a GPU with a multi-worker self-play/rollout loop:
@@ -166,6 +227,22 @@ fine on CPU gets pointed at a GPU with a multi-worker self-play/rollout loop:
    `if __name__ == "__main__":` — an `if` block doesn't introduce a new scope, so this is a pure
    indentation change, not a refactor; module-level function *defs* can safely live inside the
    guard too if nothing outside the guard calls them.
+3. **Synchronous batch (cohort) dispatch wastes cores even with plenty of workers.** A pool that
+   dispatches work in fixed cohorts and waits for the whole cohort (`pool.map(...)`, or any "submit
+   N, wait for all N" loop) is a synchronization barrier: every worker that finishes early idles
+   until the cohort's slowest task finishes. With variable-length tasks (games ran 15-25 rounds, std
+   ~3.4) the cohort's wall-clock is set by its straggler. Symptom: CPU utilization stuck well below
+   saturation (measured 72-80%) and throughput that barely improves as workers are added — this is
+   what the §3 worker sweep hit before being fixed. Fix: rolling dispatch — keep N tasks in flight
+   at all times and immediately submit a replacement the instant any one finishes
+   (`pool.submit` + `concurrent.futures.wait(..., return_when=FIRST_COMPLETED)`). Measured effect:
+   CPU utilization 72-80% -> 93-94%, throughput +8% at 26-30 workers (the gain grows with worker
+   count, since a bigger cohort has a worse expected straggler). Non-obvious trap when making this
+   change: if you convert a `pool.map(timeout=...)` loop to `wait(FIRST_COMPLETED)`, you SILENTLY
+   LOSE hang detection — as long as some other worker keeps completing, the loop keeps making
+   progress and a permanently-hung task is never noticed, leaking one slot out of the window
+   forever. Keep a per-task submit timestamp and explicitly age-check every in-flight task against
+   the timeout on each poll.
 
 If a training script's history log/checkpoint may have been written by an older version of the
 code that tracked fewer fields (e.g. resuming into a run where a new metric's array is empty while
@@ -209,15 +286,23 @@ fallback until then.
 
 ## Summary checklist for "speed up training" / "set up a vast.ai instance" requests
 
-1. Check current GPU/CPU utilization first (`nvidia-smi`, `uptime`/`top`) — don't assume a bigger
-   GPU is the answer without evidence the current one is actually the bottleneck.
-2. Search offers, filter by `cpu_cores_effective/cpu_cores` ratio ≈ 1.0, sort by flops/reliability
-   within budget.
+1. Check current GPU/CPU utilization first (`nvidia-smi`, `/proc/<pid>/stat` deltas — not
+   `ps aux`, which is a lifetime average and can read 78% for a process actually using 0.11 cores)
+   — don't assume a bigger GPU or more cores is the answer without evidence the bottleneck is
+   actually the GPU/workers and not a single-threaded main process.
+2. Search offers at 3-4 different `cpu_cores`/`dph` thresholds and merge by offer `id` (a single
+   query caps at ~50-64 rows and can miss a good offer); filter by `cpu_cores_effective/cpu_cores`
+   ratio ≈ 1.0, sort by flops/reliability within budget.
 3. Rent, wait for `running` (destroy and retry if stuck loading >15-20 min).
-4. **Before installing anything**: check `/sys/fs/cgroup/cpu.max` for the real core count.
-5. Size worker/parallelism count to that real number, not the advertised one.
+4. **Before installing anything**: check `/sys/fs/cgroup/cpu.max` for the real quota, AND `lscpu`
+   for the real *physical* core count (`Core(s) per socket` × `Socket(s)`) — `cpu_cores`,
+   `cpu_cores_effective`, and `cpu.max` all count hyperthreads, typically 2x physical.
+5. Size worker/parallelism count to the physical core count, not to `cpu.max`/`cpu_cores`. Start at
+   1 worker per physical core; oversubscribing onto hyperthreads buys ~10-20% more, then plateaus.
 6. Deploy code (exclude weights/data/git), install deps, migrate checkpoint if resuming.
-7. Launch in tmux with a high `ulimit -n`.
+7. Launch in tmux with a high `ulimit -n`. If using a worker pool, confirm dispatch is rolling
+   (submit-on-completion), not cohort-based (`pool.map`) — cohort dispatch caps CPU utilization at
+   ~70-80% regardless of worker count.
 8. Confirm 2-3 steady-state batches/updates before trusting the setup.
 9. Stop old instance's job, verify new one, then destroy old instance.
 10. Set up a quiet background sync/monitor loop; don't poll manually.
