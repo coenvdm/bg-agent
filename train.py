@@ -845,13 +845,26 @@ def run_one_game(
 _W_CARD_DEFS: dict = {}
 _W_DEVICE: str = "cpu"
 
+# One-entry cache for the broadcast policy weights file (see _train_parallel's
+# weights_ref / sd_version / _write_weights). Deliberately just ONE entry, not
+# an LRU: with UPDATE_INTERVAL == N_WORKERS each worker handles ~1 game per
+# weight version, so the hit rate is near zero regardless of cache size — this
+# exists only to make an occasional same-version repeat free. The actual
+# throughput win is elsewhere: the MAIN process now writes the ~13.89MB
+# state_dict to disk ONCE per PPO update instead of pickling a copy into every
+# one of the N_WORKERS tasks it dispatches.
+_W_SD_VERSION: Optional[int] = None
+_W_SD_CACHE: Optional[dict] = None
+
 
 def _worker_init(card_defs: dict, device: str) -> None:
     """Pool initializer: runs once per worker process on Windows spawn."""
     import torch as _torch
-    global _W_CARD_DEFS, _W_DEVICE
-    _W_CARD_DEFS = card_defs
-    _W_DEVICE    = device
+    global _W_CARD_DEFS, _W_DEVICE, _W_SD_VERSION, _W_SD_CACHE
+    _W_CARD_DEFS  = card_defs
+    _W_DEVICE     = device
+    _W_SD_VERSION = None
+    _W_SD_CACHE   = None
     # Prevent PyTorch from spawning multiple internal threads per worker.
     # With N workers each using 1 thread, total = N threads = one per core.
     _torch.set_num_threads(1)
@@ -871,7 +884,16 @@ def _worker_run_game(task: tuple) -> tuple:
 
     Parameters (unpacked from *task*)
     ---------------------------------
-    current_sd   : dict                          — current policy.state_dict() snapshot
+    weights_ref  : (path: str, version: int)     — location of the current
+                                                    policy.state_dict(), broadcast to
+                                                    a shared file by the main process
+                                                    instead of being embedded in the
+                                                    task (see _train_parallel's
+                                                    weights-broadcast comment). Loaded
+                                                    via torch.load and cached
+                                                    per-process, one entry, keyed by
+                                                    version — see _W_SD_VERSION /
+                                                    _W_SD_CACHE above.
     opp_sds      : List[tuple | str | None]      — one entry per opponent slot
     seed         : int | None                    — per-game RNG seed
     stats_weight : float                         — BattlegroundsGame.shape_stats_weight
@@ -893,9 +915,34 @@ def _worker_run_game(task: tuple) -> tuple:
     import numpy as _np
     import torch as _torch
 
-    current_sd, opp_sds, seed, stats_weight = task
+    weights_ref, opp_sds, seed, stats_weight = task
+    weights_path, weights_version = weights_ref
     card_defs = _W_CARD_DEFS
     device    = _W_DEVICE
+
+    # Load the broadcast weights file, reusing the one-entry cache when this
+    # task's version matches what's already loaded (see _W_SD_VERSION /
+    # _W_SD_CACHE and the module-level comment above them).
+    global _W_SD_VERSION, _W_SD_CACHE
+    if _W_SD_VERSION != weights_version:
+        try:
+            _W_SD_CACHE = _torch.load(weights_path, map_location="cpu")
+        except (FileNotFoundError, OSError, RuntimeError, EOFError) as exc:
+            # A queued task (the queue_factor backlog in _train_parallel) can
+            # sit long enough that its weights_ref version falls off the
+            # main process's 3-version retention window before a worker gets
+            # to it. Silently training on whatever happens to be on disk
+            # would be far worse than crashing, so raise clearly -- the
+            # caller's existing worker-error path rebuilds the pool and
+            # re-dispatches the lost games.
+            raise RuntimeError(
+                f"Worker failed to load policy weights version {weights_version} "
+                f"from {weights_path!r} — likely reclaimed by the main process's "
+                f"weights-file retention window before this task was picked up. "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
+        _W_SD_VERSION = weights_version
+    current_sd = _W_SD_CACHE
 
     if seed is not None:
         _random.seed(seed)
@@ -1172,9 +1219,11 @@ def _train_parallel(
     immediately (see the comment block at the top of the dispatch loop below
     for why this replaced the old pool.map()-per-cohort approach, and the
     comment further down for why the window is now overshot beyond
-    n_workers rather than sized exactly to it). Each worker receives a
-    frozen copy of the current policy weights, runs one game, and returns
-    its collected transitions. The main process merges all transitions into
+    n_workers rather than sized exactly to it). Each worker reads the
+    current policy weights from a versioned file broadcast onto disk (see
+    the weights-broadcast comment further down) rather than receiving them
+    embedded in its task, runs one game, and returns its collected
+    transitions. The main process merges all transitions into
     ppo_trainer.buffer and runs PPO updates at the normal interval.
 
     Parameters
@@ -1237,6 +1286,7 @@ def _train_parallel(
     """
     import math
     import multiprocessing
+    import tempfile
     from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 
     mp_context = multiprocessing.get_context("spawn")
@@ -1275,23 +1325,106 @@ def _train_parallel(
 
     pool = _make_pool()
 
-    # Snapshot weights once; only re-clone after each PPO update. Under the
-    # old pool.map cohort loop this reclone was checked once per batch; with
-    # rolling dispatch there is no "start of batch" moment, so it's checked
-    # at each TASK-CREATION time instead (inside _make_task below) -- a
-    # dispatched game simply uses whatever snapshot was current at the
-    # instant it was submitted, which is the natural per-task analogue of
-    # the old per-cohort check and is fine and intended.
+    # -----------------------------------------------------------------
+    # WEIGHTS BROADCAST: write the policy snapshot to a shared file instead
+    # of embedding it in every task.
+    #
+    # Every task used to carry a full ~13.89MB policy state_dict. With
+    # ProcessPoolExecutor that means pickling it in the MAIN process's
+    # single feeder thread for EVERY dispatched game -- at
+    # UPDATE_INTERVAL == n_workers that's ~n_workers unicast copies (~1.26GB
+    # at n_workers=90) per PPO update, all serialized through one largely
+    # GIL-bound thread (and unpickled result-side the same way). A
+    # per-worker CACHE would not fix this: UPDATE_INTERVAL == N_WORKERS
+    # means each worker only handles ~1 game per weight version, so the hit
+    # rate is near zero regardless of cache size. The actual fix is to stop
+    # unicasting altogether -- write the weights ONCE to a file and let
+    # every worker read that file in parallel, each in its own process,
+    # entirely off the main process's serial thread.
+    #
+    # /dev/shm is preferred when available: it's a RAM-backed tmpfs, so
+    # writing/reading through it costs no real disk I/O, just a memcpy.
+    # -----------------------------------------------------------------
+    _shm_dir = Path("/dev/shm")
+    if _shm_dir.exists() and os.access(_shm_dir, os.W_OK):
+        weights_dir = _shm_dir
+    else:
+        weights_dir = Path(tempfile.gettempdir())
+    _weights_pid = os.getpid()   # so concurrent runs never collide on filenames
+
+    def _weights_path(version: int) -> Path:
+        return weights_dir / f"bg_weights_{_weights_pid}_v{version}.pt"
+
+    sd_version = 0                 # monotonic, incremented on every reclone
+    written_versions: set = set()  # versions with a live file on disk this run
+
+    def _write_weights(state_dict: dict) -> tuple:
+        """Save *state_dict* to a fresh versioned file, atomically, and
+        return the (path_str, version) weights_ref to embed in tasks.
+
+        Atomic write: save to a `.tmp` sibling then os.replace() onto the
+        real name -- os.replace is a single filesystem rename, so a worker
+        can never observe (and torch.load) a partially written file.
+        """
+        nonlocal sd_version
+        sd_version += 1
+        version = sd_version
+        path     = _weights_path(version)
+        tmp_path = path.with_name(path.name + ".tmp")
+        torch.save(state_dict, str(tmp_path))
+        os.replace(str(tmp_path), str(path))
+        written_versions.add(version)
+
+        # Retention: queued tasks (the queue_factor backlog described in the
+        # dispatch-loop comment below) may have been built against an OLDER
+        # version and are still waiting their turn inside the pool, so the
+        # previous file can't be deleted the instant a newer one lands --
+        # some in-flight task can legitimately still reference it. Keep the
+        # 3 most recent files and reclaim anything older; versions are
+        # sequential integers, so "older than the 3 most recent" is simply
+        # version - 3.
+        stale_version = version - 3
+        if stale_version in written_versions:
+            try:
+                _weights_path(stale_version).unlink()
+                written_versions.discard(stale_version)
+            except OSError:
+                pass  # leave it tracked; the run-end cleanup in finally: retries
+
+        return str(path), version
+
+    # Snapshot weights once; only re-clone (and rewrite the broadcast file)
+    # after each PPO update. Under the old pool.map cohort loop this reclone
+    # was checked once per batch; with rolling dispatch there is no "start
+    # of batch" moment, so it's checked at each TASK-CREATION time instead
+    # (inside _make_task below) -- a dispatched game simply uses whatever
+    # snapshot was current at the instant it was submitted, which is the
+    # natural per-task analogue of the old per-cohort check and is fine and
+    # intended.
     sd = {k: v.detach().cpu().clone() for k, v in policy.state_dict().items()}
+    weights_ref = _write_weights(sd)
     sd_stale = False
 
     dispatch_counter = 0  # per-dispatch seed offset, monotonic across the whole run
     in_flight: Dict[Any, float] = {}   # Future -> submit timestamp (for stall detection)
 
+    # Per-phase wall-clock accumulators (see the phase-report block inside
+    # the on_batch flush below). Aggregate CPU-idle numbers told us the box
+    # was running ~45% idle at 90 workers but not WHICH phase was
+    # serializing it; these buckets let a run ATTRIBUTE the idle time
+    # instead of inferring it. The single most useful signal from them is
+    # whether t_dispatch + t_merge (main-process serial work) is large
+    # relative to t_wait -- that's the shape a main-process bottleneck takes.
+    t_wait     = 0.0   # blocked inside concurrent.futures.wait(...)
+    t_dispatch = 0.0   # inside _dispatch_one (task construction + pool.submit)
+    t_merge    = 0.0   # per completed game: fut.result(), buffer merge, stats, log line
+    t_update   = 0.0   # inside ppo_trainer.update() and the snapshot/logging after it
+
     def _make_task() -> tuple:
-        nonlocal sd, sd_stale, dispatch_counter
+        nonlocal sd, sd_stale, weights_ref, dispatch_counter
         if sd_stale:
             sd = {k: v.detach().cpu().clone() for k, v in policy.state_dict().items()}
+            weights_ref = _write_weights(sd)
             sd_stale = False
         policy_sds = snapshot_pool.sample_n(n_policy_slots)
         opp_sds    = (policy_sds
@@ -1299,13 +1432,17 @@ def _train_parallel(
                       + ["greedy"] * N_GREEDY_SLOTS)
         seed_value = (seed + ppo_trainer.total_steps + dispatch_counter) if seed is not None else None
         dispatch_counter += 1
-        return (sd, opp_sds, seed_value, BOARD_SHAPE_STATS_WEIGHT)
+        # weights_ref replaces the raw state_dict here -- (path, version) is
+        # a couple hundred bytes to pickle instead of ~13.89MB.
+        return (weights_ref, opp_sds, seed_value, BOARD_SHAPE_STATS_WEIGHT)
 
     def _dispatch_one() -> None:
-        nonlocal dispatched
+        nonlocal dispatched, t_dispatch
+        _t0 = time.perf_counter()
         fut = pool.submit(_worker_run_game, _make_task())
         in_flight[fut] = time.time()
         dispatched += 1
+        t_dispatch += time.perf_counter() - _t0
 
     try:
         # -----------------------------------------------------------------
@@ -1360,11 +1497,16 @@ def _train_parallel(
         # window exactly.
         #
         # TRADEOFF -- weight staleness: each task is built by _make_task()
-        # with whatever policy snapshot `sd` is current AT SUBMIT time (see
-        # the sd/sd_stale comment above), not at run time. A game sitting in
-        # the backlog queue is therefore dispatched with weights that can go
-        # stale while it waits. With queue_factor=2.0 and UPDATE_INTERVAL ==
-        # n_workers (one PPO update per ~one window's worth of completions),
+        # with whatever policy snapshot `sd` (and its broadcast weights_ref)
+        # is current AT SUBMIT time (see the sd/sd_stale comment above), not
+        # at run time. A game sitting in the backlog queue is therefore
+        # dispatched with a weights_ref that can go stale while it waits --
+        # this is exactly why _write_weights above keeps the last 3 versions
+        # on disk instead of deleting the previous one immediately: a queued
+        # task's weights_ref can still point at a version that is no longer
+        # the newest by the time a worker actually reads it. With
+        # queue_factor=2.0 and UPDATE_INTERVAL == n_workers (one PPO update
+        # per ~one window's worth of completions),
         # the backlog is about one window deep, so a queued game is at most
         # roughly one PPO update stale by the time it actually runs. That's
         # an ordinary amount of off-policyness for PPO -- the importance
@@ -1382,6 +1524,10 @@ def _train_parallel(
         last_batch_t       = time.time()
         group_summaries:    List[dict] = []
         group_transitions:  List[list] = []
+        # Discard priming-loop dispatch cost from the first phase report --
+        # the report's job is to describe steady-state per-interval
+        # behavior, not the one-time startup dispatch above.
+        t_wait = t_dispatch = t_merge = t_update = 0.0
 
         while game_idx < n_games or in_flight:
             if not in_flight:
@@ -1390,15 +1536,19 @@ def _train_parallel(
                 # otherwise keep it alive). Defensive break to avoid spinning.
                 break
 
+            _t0 = time.perf_counter()
             done, _ = wait(list(in_flight.keys()), timeout=1.0,
                             return_when=FIRST_COMPLETED)
+            t_wait += time.perf_counter() - _t0
 
             broken = False
             for fut in done:
                 in_flight.pop(fut, None)
+                _t0 = time.perf_counter()
                 try:
                     transitions, summary = fut.result()
                 except Exception as exc:
+                    t_merge += time.perf_counter() - _t0
                     # A crashed/killed worker generally takes the whole pool
                     # down with it (BrokenProcessPool) -- every OTHER future
                     # still tracked as in-flight (whether still running or
@@ -1424,6 +1574,7 @@ def _train_parallel(
                         _dispatch_one()
                     broken = True
                     break
+                t_merge += time.perf_counter() - _t0
 
                 # A slot just freed up -- top the window back up to
                 # in_flight_target before doing any of the bookkeeping below
@@ -1443,6 +1594,7 @@ def _train_parallel(
                 game_idx += 1
                 g = game_idx
 
+                _t0 = time.perf_counter()
                 for t in transitions:
                     ppo_trainer.buffer.add(t)
                     ppo_trainer.total_steps += 1
@@ -1458,6 +1610,7 @@ def _train_parallel(
                     "Game %4d | rounds=%2d | winner=P%d | mean_reward=%+.3f",
                     g, summary["n_rounds"], winner_id, mean_reward,
                 )
+                t_merge += time.perf_counter() - _t0
 
                 # PPO update if we crossed an update_interval boundary.
                 # Evaluated once per completed game now (rather than once
@@ -1465,9 +1618,10 @@ def _train_parallel(
                 # arithmetic is unchanged, just checked at finer grain.
                 if (game_idx // update_interval) > (prev_game_idx // update_interval):
                     if len(ppo_trainer.buffer) > 0:
+                        _t0 = time.perf_counter()
                         metrics = ppo_trainer.update(last_value=0.0)
                         update_count += 1
-                        sd_stale = True   # weights changed — reclone before next dispatch
+                        sd_stale = True   # weights changed — reclone (and rewrite the broadcast file) before next dispatch
                         if update_count % SNAPSHOT_EVERY == 0:
                             is_milestone = (update_count % MILESTONE_EVERY == 0)
                             snapshot_pool.add(policy.state_dict(), is_milestone=is_milestone,
@@ -1489,6 +1643,7 @@ def _train_parallel(
 
                         if on_update is not None:
                             on_update(metrics, update_count)
+                        t_update += time.perf_counter() - _t0
 
                 # Checkpoint if we crossed a checkpoint_interval boundary
                 if checkpoint_path:
@@ -1503,11 +1658,26 @@ def _train_parallel(
                 # (if any) is flushed once the loop below exits.
                 if len(group_summaries) >= n_workers:
                     flush_t = time.time()
+                    wall = flush_t - last_batch_t
                     if on_batch is not None:
-                        on_batch(game_idx, group_summaries, group_transitions, flush_t - last_batch_t)
+                        on_batch(game_idx, group_summaries, group_transitions, wall)
+                    # Per-phase report: aggregate CPU-idle numbers say the
+                    # box is idle but not WHICH phase is serializing it, so
+                    # this line attributes the interval's wall-clock to the
+                    # four buckets above. Watch t_dispatch + t_merge
+                    # (main-process serial work) relative to t_wait -- large
+                    # dispatch/merge time relative to wait time is the
+                    # signature of a main-process bottleneck.
+                    if wall > 0:
+                        logger.info(
+                            "phase: wait=%.1f%% dispatch=%.1f%% merge=%.1f%% update=%.1f%% (%.1fs wall)",
+                            100.0 * t_wait / wall, 100.0 * t_dispatch / wall,
+                            100.0 * t_merge / wall, 100.0 * t_update / wall, wall,
+                        )
                     last_batch_t = flush_t
                     group_summaries   = []
                     group_transitions = []
+                    t_wait = t_dispatch = t_merge = t_update = 0.0
 
             if broken:
                 continue
@@ -1566,10 +1736,28 @@ def _train_parallel(
         # group completed exactly on an n_workers boundary (nothing left to
         # flush) or the run ended mid-group (successfully or via a lost
         # game pushing game_idx to n_games).
-        if group_summaries and on_batch is not None:
-            on_batch(game_idx, group_summaries, group_transitions, time.time() - last_batch_t)
+        if group_summaries:
+            wall = time.time() - last_batch_t
+            if on_batch is not None:
+                on_batch(game_idx, group_summaries, group_transitions, wall)
+            if wall > 0:
+                logger.info(
+                    "phase: wait=%.1f%% dispatch=%.1f%% merge=%.1f%% update=%.1f%% (%.1fs wall)",
+                    100.0 * t_wait / wall, 100.0 * t_dispatch / wall,
+                    100.0 * t_merge / wall, 100.0 * t_update / wall, wall,
+                )
     finally:
         pool.shutdown(wait=True)
+        # Unlink every weights file this run created. A leftover file in
+        # /dev/shm (or the tempdir fallback) must never crash a training
+        # run, so failures here are swallowed -- retention above already
+        # keeps this set small (at most ~3-4 entries at any time), this is
+        # just final teardown once no worker can possibly need them anymore.
+        for _v in list(written_versions):
+            try:
+                _weights_path(_v).unlink()
+            except OSError:
+                pass
 
 
 # -------------------------------------------------------------------------
