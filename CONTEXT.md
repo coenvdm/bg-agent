@@ -770,3 +770,33 @@ Near-linear to one worker per PHYSICAL core, then a ~10-20% hyperthreading tail,
 - Sub-linear scaling above ~24 workers is still unexplained; try `numactl` socket pinning before assuming 48-core boxes only deliver ~2x.
 - The next run restarts from either scratch or `checkpoint_backups/cleanrun_*` — but that checkpoint predates the HeuristicAgent fix, so resuming from it means the agent's early training saw a baseline that never sold. A from-scratch run is the cleaner lineage.
 ---
+
+---
+### 2026-09-01 (relaunch) — Weights broadcast kills main-process serialization; new run on an i9-14900KF
+**Files changed:** `train.py`, `run_fresh_training.py`
+**What was done:** Implemented the two things the previous entry flagged as next steps, then relaunched.
+
+**1. Per-phase instrumentation (measure before tuning).** `_train_parallel` now accumulates wall-clock into four buckets — `wait` (blocked in `concurrent.futures.wait`), `dispatch` (task construction + `pool.submit`), `merge` (result unpickle + buffer merge + stats + log), `update` (inside `ppo_trainer.update()`) — and logs one `phase:` line per `on_batch` boundary. This exists because aggregate CPU idle told us the box was half empty but never WHICH phase serialized.
+
+**2. Weights are broadcast, not unicast — and a correction to the previous entry's recommendation.** That entry proposed caching weights in workers by version for "a ~90x reduction in state-dict traffic". **That reasoning was wrong:** with `UPDATE_INTERVAL == N_WORKERS` each worker handles only ~1 game per weight version, so a version cache would have hit ~never. The real inefficiency was that the main process UNICAST a 13.89MB `state_dict` into all N tasks per update (~1.26GB per update at N=90), pickled in ProcessPoolExecutor's single GIL-bound queue-feeder thread. Fix: write the weights ONCE per version to `/dev/shm` (atomic `torch.save` to `.tmp` + `os.replace`), and have tasks carry only `(path, version)`. **Measured task payload: 13,887,728 -> 92 bytes.** Retention keeps the last 3 versions because the `queue_factor` backlog means an in-flight task can reference a superseded version; a worker that cannot load its version raises rather than silently training on wrong weights. A one-entry worker cache is kept only to make the occasional repeat free — it is explicitly NOT where the win comes from.
+
+**It worked, and the instrumentation proves it.** On the new host the `phase:` lines read `dispatch=0.0% merge=0.0-0.3%` — main-process serialization is no longer measurable. The remaining split is `wait` 68-90% (workers doing useful parallel work) and `update` 9-31%. Note this does NOT retroactively confirm the old 45%-idle diagnosis, since the host also changed; it does confirm that main-process serialization is no longer a candidate going forward.
+
+**3. New host — and the divide-by-two heuristic is ALSO wrong.** Contract **49567627: Intel Core i9-14900KF, $0.108/hr**. vast.ai reports `cpu_cores=32`, and the "physical = cpu_cores/2" rule from the earlier entry would say 16 — but this is a HYBRID chip (8 P-cores with HT + 16 E-cores without), and `lscpu` reports `Core(s) per socket: 24`. **Only `lscpu` (Core(s) per socket x Socket(s)) is reliable; neither `cpu_cores` nor halving it is.** Single socket (so no dual-socket NUMA penalty this time), 6.0GHz boost, 31GB RAM, RTX 4060 Ti 8GB.
+
+**Benchmark re-run WITH PPO UPDATES ENABLED** (`update_interval == n_workers`, production-equivalent) — the previous sweep used `update_interval=10**9` and was therefore not comparable to a real run:
+
+| N_WORKERS | games/sec (updates ON) |
+|---|---|
+| 16 | 3.13 |
+| 24 | **3.18** (one per physical core) |
+| 32 | 2.81 (past physical cores; also ~0.5GB/worker against 31GB RAM) |
+
+**Value comparison:** the 48-physical-core Xeon Gold host measured 5.03 games/sec but with updates OFF (realistically ~3.9 with them on) at $0.401/hr, versus 3.18 at $0.108/hr here — roughly **3x better throughput per dollar despite half the physical cores**, because these cores are far faster. Config set to `N_WORKERS=24`, `UPDATE_INTERVAL=24` (~6k transitions/update, back in the previously-validated PPO batch regime, 6,250 updates across the run), `EVAL_WORKERS=24`. `N_GAMES`, `ANNEAL_STEPS`, `EVAL_EVERY`, `EVAL_N_GAMES` unchanged.
+**Current state:** Fresh from-scratch run live on contract 49567627 in tmux `train`, logging to `training_i9.log`, no checkpoint present at launch (confirmed). Healthy through the first 6 updates: `best_avg10=-3.669` (normal random init), batches 1.8-2.4s for 24 games. Credit was $4.75 at launch; at $0.108/hr that is ~44h of runway, versus ~11h on the previous host. **The monitor now syncs the CHECKPOINT (to `checkpoint_backups/live_bg_agent_ppo.pt`, slower cadence, distinct filename, with the mid-`torch.save` retry) as well as the chart and history** — the gap that lost the previous run.
+**Open questions / next steps:**
+- The `update` phase is 9-31% of wall-clock and is now the largest non-`wait` term. Whether shrinking `UPDATE_INTERVAL` helps is unclear a priori: total gradient work is roughly invariant to batch size, so smaller/more-frequent updates may just redistribute the same cost. Measure with the `phase:` lines before changing it.
+- This is the first run with correct baselines (levelling AND selling), correct pointer masking, escalating damage, real minion stats, rolling dispatch and broadcast weights all at once. Its placement numbers are the first that should be treated as a real baseline; nothing earlier in this log is comparable.
+- Watch that `clip_frac` settles under ~0.3 and `explained_var` climbs, as in the previously-validated ~6k-transitions/update regime.
+- `benchmark_v2.py` (updates ON) supersedes `benchmark_workers.py` (updates OFF). Only the former exists on this host; do not resurrect the latter.
+---
