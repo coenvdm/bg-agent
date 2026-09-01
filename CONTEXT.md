@@ -608,3 +608,32 @@ Smoke-tested the real parallel training path end-to-end afterwards (spawn worker
 - `ANNEAL_STEPS` needs resizing again: at ~409 actions/game the old 178-steps/game assumption and the later 427 estimate are both wrong.
 - Throughput should recover substantially (2.5x fewer steps per game); re-benchmark `N_WORKERS`/`UPDATE_INTERVAL` on the next rented host rather than reusing the 26/26 tuned for the old regime.
 ---
+
+---
+### 2026-09-01 — Re-measure reward balance and ANNEAL_STEPS after the masking/damage fixes (no changes needed)
+**Files changed:** none (measurement only)
+**What was done:** The previous entry flagged that `SHAPE_ALPHA`, `DENSE_REWARD_SCALE` and `ANNEAL_STEPS` had all been sized against the OLD regime (40-round games, ~38% no-op actions) and needed re-checking after the pointer-mask and damage fixes roughly halved episode length. Measured rather than re-guessed. **Conclusion: leave all three as they are.**
+
+**Reward balance** (8 games, real seat mix, statfix checkpoint, per player-game):
+| term | mean abs |
+|---|---|
+| potential shaping | 0.314 |
+| end-of-turn dense | 1.674 |
+| final placement | 2.125 |
+
+`shaping/placement = 0.148` -- still inside the 0.1-0.3 "densify, don't swamp" band it was sized for (it was 0.139 in the old regime), so `SHAPE_ALPHA=1.5` remains correct. `dense/placement = 0.788` -- dense terms are meaningful but not dominating, so `DENSE_REWARD_SCALE=0.30` is fine too.
+
+**ANNEAL_STEPS -- the interesting one.** `progress = total_steps / anneal_steps` uses `PPOTrainer.total_steps`, which counts transitions from the **2 training seats only**, NOT shopping actions across all 8 seats. Earlier notes in this log quoted 178/427 steps-per-game figures that conflated the two. Measured properly via `_train_parallel` with the real seat composition:
+
+| policy | steps/game | rounds/game | implied ANNEAL_STEPS @150k games |
+|---|---|---|---|
+| fresh/untrained | 84.3 | 29.4 | 12.6M |
+| trained (statfix ckpt) | 247.8 | 21.7 | 37.2M |
+
+Steps/game is strongly **policy-dependent and rises as the agent improves**: a weak policy is eliminated early and stops collecting transitions, while a stronger one survives more rounds per game (note games get SHORTER, 29.4 -> 21.7 rounds, while transitions per game nearly TRIPLE). So the correct value for a 150k-game run lies somewhere in 12.6M-37M depending on how strong the policy becomes, and the current **26,000,000 sits squarely in that range** -- the anneal will complete somewhere between ~70% and ~140% of the run, which is acceptable. **Acting on the untrained measurement alone would have set it to 12.6M, which would have been wrong** -- the first number measured was from the least representative policy.
+**Current state:** No code changed; all three constants confirmed appropriate for the new regime. HEAD is `080c345`. No vast.ai instance running.
+**Open questions / next steps:**
+- Unchanged and still the most important: **the scripted baselines cannot level** (`GreedyPlayAgent` has no LEVEL_UP logic at all and stays at tavern tier 1; `HeuristicAgent` caps at `tavern_tier < 4`). This caps late-game damage at ~7 instead of 15-25, holds games at ~20-22 rounds instead of the real-BG 12-18, and -- most importantly -- means the `EVAL 3.25 vs 7 greedy` headline is measured against permanently tier-1 opponents. Fix the baselines before trusting any absolute placement claim.
+- When re-measuring steps/game in future, always use `PPOTrainer.total_steps` under the real seat mix, and measure with a policy of representative strength -- the quantity roughly triples between an untrained and a trained policy.
+- Re-benchmark `N_WORKERS`/`UPDATE_INTERVAL` on the next rented host; 26/26 was tuned for the old 427-step regime and throughput should now be substantially better (~2.5x fewer steps per game).
+---
