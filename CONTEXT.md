@@ -545,3 +545,34 @@ Behavioural degeneracies resolved WITHOUT further reward tuning, which is the cl
 - `_worker_run_game`/`_worker_run_eval_game` still hardcode `FirestoneClient(mock_mode=True)`, ignoring the `use_firestone` flag. The mock is a board-power ratio, not real combat. Now that stats are meaningful, decide explicitly whether training should use the real 200-trial sim.
 - Reward constants (`SHAPE_ALPHA=1.5`, `DENSE_REWARD_SCALE=0.30`) were deliberately left untouched across the stat fix for clean attribution. With Φ now spanning ~0.13-0.56 instead of a constant 0.032, re-check whether 1.5 is now too STRONG rather than too weak.
 ---
+
+---
+### 2026-09-01 — Investigation: why games always hit the 40-round cap, and why ACTIVATE is spammed
+**Files changed:** none (investigation only)
+**What was done:** Two diagnostics requested after the first stat-fixed run.
+
+**1. Games always run exactly 40 rounds.** Players DO die (`run_game` correctly breaks at `len(alive_players) <= 1`), just far too slowly: 4 of 8 dead by round 40, survivors sitting at 11-22 health. Root cause is the mock combat heuristic in `symbolic/firestone_client.py:_heuristic_estimate`:
+`expected_damage_dealt = win_prob * 5.0`, `expected_damage_taken = loss_prob * 5.0`.
+**Damage is capped at 5 and never scales with tavern tier or board strength.** Measured over 4 games: mean damage 1.12/combat, max 5, loss rate 46.1% (win 49.9%, tie 4.0%) -- about 1.1 health lost per round against 40 starting health, so natural elimination lands right at ~36 rounds. Total damage per game is 342 vs the 320 needed to wipe the field, which is why every game lands on the cap with zero variance. Real BG damage is `tavern_tier + sum of surviving enemy minion tiers` and ESCALATES (~2-5 early, 15-25 late); that escalation is what ends real games in 12-18 rounds. `step_combat` already has the right shape in its fallback (`max(1, ps.tavern_tier + len(opp.board))`) but it only fires when the rounded expected damage is 0.
+
+**2. ACTIVATE is 92.5% no-ops -- a masking bug in the BATCHED path only.** Measured over 2 full games driven by PPOAgents (the real training path):
+
+| action | attempts | valid pointer | no-op |
+|---|---|---|---|
+| BUY/SELL/PLACE/REROLL/FREEZE/LEVEL/HERO_PWR/END_TURN | 1379 | 1379 | 0.0% |
+| ACTIVATE | 957 | 72 | **92.5%** |
+
+**37.9% of ALL training actions are no-ops**, essentially all ACTIVATE. Root cause at `env/game_loop.py:1663-1667`: the batched path passes `build_pointer_mask(_s, -1)` -- the **type-agnostic full occupancy mask across all three zones** -- as the sampling mask to `get_action_batch`, then computes the CORRECT type-specific mask afterwards at line 1680 for storage. The sequential path (`game_loop.py:1559`, `ptr_mask = build_pointer_mask(ps, chosen_type)`) does it correctly, which is exactly why deterministic eval showed 5 activations across 3 games while training logs showed ACTIVATE at 29% of actions. ACTIVATE is uniquely affected because its valid set is tiny (minions with `activate_cost > 0`, unused this turn, affordable -- typically 0-1 of 7 slots) while occupancy marks every occupied slot in shop+board+hand; BUY/SELL/PLACE coincide with occupancy within their own zone so they measure 0% no-ops.
+
+Why the policy *seeks* no-ops: a no-op costs no gold, changes no state, and does not end the turn, but it does advance one step of `gamma=0.997`. Spamming ~100 of them discounts the pending `_end_of_turn_reward` penalties (hand + unspent gold) by `0.997^100 ~= 0.74`. The agent learned to **stall in order to discount its own penalties** -- a classic discounting exploit. It also inflates step count (427/game), compounding the throughput collapse.
+
+**Second, subtler consequence -- a PPO correctness bug.** The stored `log_prob` comes from `get_action_batch` under the OCCUPANCY mask, but the stored `pointer_mask` is the TYPE-SPECIFIC one. At update time `evaluate_actions` recomputes log-probs under the stored mask, so the importance ratio compares two different distributions even at zero policy change. For ACTIVATE that is roughly `log(1/1)` vs `log(1/15)`, a ratio near 15 that is hard-clipped every update. This biases PPO on every pointer-type action (BUY/SELL/PLACE/ACTIVATE ~= 60-70% of actions), not just ACTIVATE.
+
+Also noted while reading: `Suspicious Prisonguard` is a **tier-1** card with `activate_cost=1` whose effect is a permanent +3/+3 -- 1 gold per turn into permanent stats, available from round 1. Over a 40-round game that is up to +120/+120 for 40 gold. Legitimate for the agent to favour, but it is a balance outlier that the over-long games amplify; worth revisiting after the round-length fix rather than before.
+**Current state:** No code changed. Instance remains destroyed. Findings only.
+**Open questions / next steps:**
+- Fix the batched pointer mask first -- it is an unambiguous bug, it fixes a PPO correctness issue, and it removes 38% of wasted actions (which also speeds training). Requires either a two-pass sample (type first, then build the type-specific pointer mask, as the sequential path does) or extending `get_action_batch` to take per-type pointer masks. Whichever is chosen, the mask used for SAMPLING must be the same one STORED in the transition.
+- Then fix damage scaling so games end naturally in ~12-18 rounds, which also restores most of the lost throughput.
+- Re-check `SHAPE_ALPHA`/`DENSE_REWARD_SCALE` only AFTER both, since both change the action count and episode length that those constants were implicitly sized against.
+- Consider whether the flat `_end_of_turn_reward` penalties should be restructured so stalling is never attractive even if a free no-op reappears (e.g. charge them per-round rather than at END_TURN).
+---
