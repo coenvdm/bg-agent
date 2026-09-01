@@ -192,7 +192,7 @@ class PPOAgent:
         self._cached_type_mask = build_type_mask(ps).numpy()
 
         t_mask_t = torch.from_numpy(self._cached_type_mask).unsqueeze(0).to(dev)
-        p_mask_t = build_pointer_mask(ps, -1).unsqueeze(0).to(dev)  # full occupancy
+        p_mask_t = build_pointer_mask(ps, -1).unsqueeze(0).to(dev)  # full occupancy fallback
 
         board_t  = torch.tensor(obs["board_tokens"][None],   dtype=torch.float32, device=dev)
         shop_t   = torch.tensor(obs["shop_tokens"][None],    dtype=torch.float32, device=dev)
@@ -201,13 +201,23 @@ class PPOAgent:
         opp_np   = obs.get("opp_tokens")
         opp_t    = torch.tensor(opp_np[None], dtype=torch.float32, device=dev) if opp_np is not None else None
 
-        type_idx, ptr_idx, _log_prob, _value = self.policy.get_action(
+        # ptr_mask_fn closes over `ps` (captured pre-mutation, above) so
+        # get_action can build the exact type-specific mask itself, AFTER
+        # sampling the type, and hand back the mask it actually used -- see
+        # get_action's docstring and CONTEXT.md (2026-08-31/09-01) for why
+        # sampling under one mask and storing a separately-recomputed one is
+        # the bug this closure exists to make impossible.
+        type_idx, ptr_idx, _log_prob, _value, used_ptr_mask = self.policy.get_action(
             board_t, shop_t, hand_t, scalar_t,
             type_mask=t_mask_t, pointer_mask=p_mask_t,
             deterministic=self.deterministic, opp_tokens=opp_t,
+            ptr_mask_fn=lambda t_idx: build_pointer_mask(ps, t_idx),
         )
-        # Cache the pointer mask for the chosen type (also pre-mutation)
-        self._cached_ptr_mask = build_pointer_mask(ps, type_idx).numpy()
+        # Cache the mask get_action actually used (also pre-mutation) --
+        # stored mask == sampled mask by construction. Do NOT reintroduce a
+        # separate build_pointer_mask(ps, type_idx) recomputation here; that
+        # is precisely the bug described above.
+        self._cached_ptr_mask = used_ptr_mask.cpu().numpy()
         return type_idx, ptr_idx
 
     def record_transition(
@@ -319,7 +329,7 @@ class StaticAgent:
 
         self._cached_type_mask = build_type_mask(ps).numpy()
         t_mask_t = torch.from_numpy(self._cached_type_mask).unsqueeze(0).to(dev)
-        p_mask_t = build_pointer_mask(ps, -1).unsqueeze(0).to(dev)
+        p_mask_t = build_pointer_mask(ps, -1).unsqueeze(0).to(dev)  # full occupancy fallback
 
         board_t  = torch.tensor(obs["board_tokens"][None],   dtype=torch.float32, device=dev)
         shop_t   = torch.tensor(obs["shop_tokens"][None],    dtype=torch.float32, device=dev)
@@ -328,12 +338,17 @@ class StaticAgent:
         opp_np   = obs.get("opp_tokens")
         opp_t    = torch.tensor(opp_np[None], dtype=torch.float32, device=dev) if opp_np is not None else None
 
+        # ptr_mask_fn closes over `ps` (pre-mutation) -- see PPOAgent.get_action
+        # for why the mask used to sample must be the one that gets cached.
         with torch.no_grad():
-            type_idx, ptr_idx, _, _ = self.policy.get_action(
+            type_idx, ptr_idx, _, _, used_ptr_mask = self.policy.get_action(
                 board_t, shop_t, hand_t, scalar_t,
                 type_mask=t_mask_t, pointer_mask=p_mask_t, opp_tokens=opp_t,
+                ptr_mask_fn=lambda t_idx: build_pointer_mask(ps, t_idx),
             )
-        self._cached_ptr_mask = build_pointer_mask(ps, type_idx).numpy()
+        # Cache the mask get_action actually used -- do NOT reintroduce a
+        # separate build_pointer_mask(ps, type_idx) recomputation here.
+        self._cached_ptr_mask = used_ptr_mask.cpu().numpy()
         return type_idx, ptr_idx
 
     def record_transition(self, *_a, **_kw) -> None:  # no-op
@@ -538,7 +553,7 @@ class EvalAgent:
 
         t_mask   = build_type_mask(ps)
         t_mask_t = t_mask.unsqueeze(0).to(dev)
-        p_mask_t = build_pointer_mask(ps, -1).unsqueeze(0).to(dev)
+        p_mask_t = build_pointer_mask(ps, -1).unsqueeze(0).to(dev)  # full occupancy fallback
 
         board_t  = torch.tensor(obs["board_tokens"][None],   dtype=torch.float32, device=dev)
         shop_t   = torch.tensor(obs["shop_tokens"][None],    dtype=torch.float32, device=dev)
@@ -547,11 +562,15 @@ class EvalAgent:
         opp_np   = obs.get("opp_tokens")
         opp_t    = torch.tensor(opp_np[None], dtype=torch.float32, device=dev) if opp_np is not None else None
 
+        # ptr_mask_fn ensures the deterministic argmax pointer is chosen
+        # under the correct type-specific mask (not the type-agnostic
+        # occupancy fallback) -- same fix as PPOAgent/StaticAgent above.
         with torch.no_grad():
-            type_idx, ptr_idx, _, _ = self.policy.get_action(
+            type_idx, ptr_idx, _, _, _used_ptr_mask = self.policy.get_action(
                 board_t, shop_t, hand_t, scalar_t,
                 type_mask=t_mask_t, pointer_mask=p_mask_t,
                 deterministic=True, opp_tokens=opp_t,
+                ptr_mask_fn=lambda t_idx: build_pointer_mask(ps, t_idx),
             )
         return type_idx, ptr_idx
 

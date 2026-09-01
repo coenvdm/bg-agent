@@ -1611,7 +1611,7 @@ class BattlegroundsGame:
         """
         import torch as _torch
         import numpy as _np
-        from agent.policy import build_type_mask_batch, build_pointer_mask_batch, build_pointer_mask
+        from agent.policy import build_type_mask_batch, build_pointer_mask
 
         first_agent = round_agents[alive_players[0].player_id]
         dev = next(first_agent.policy.parameters()).device
@@ -1644,6 +1644,7 @@ class BattlegroundsGame:
             _ptr_buf  = [None] * _n
             _lp_buf   = [None] * _n
             _val_buf  = [None] * _n
+            _pmask_buf = [None] * _n
 
             for _pol, _g_idxs in _groups.values():
                 _g_obs    = [obs_list[i] for i in _g_idxs]
@@ -1660,24 +1661,46 @@ class BattlegroundsGame:
                     _np.stack([o.get("opp_tokens", _np.zeros((7, 44), dtype=_np.float32))
                                for o in _g_obs]), dtype=_torch.float32, device=dev)
                 _t_mask_g   = build_type_mask_batch(_g_states).to(dev)
-                _occ_mask_g = _torch.stack(
-                    [build_pointer_mask(_s, -1) for _s in _g_states]).to(dev)
-                _ta, _pa, _lp, _vl = _pol.get_action_batch(
+                # Bug fix (2026-09-01, see CONTEXT.md): the pointer mask used to
+                # SAMPLE must be the same, type-specific mask that gets STORED
+                # in the transition -- previously this passed a type-agnostic
+                # full-occupancy mask (build_pointer_mask(_s, -1)) here, then
+                # separately recomputed the correct type-specific mask below
+                # (via build_pointer_mask_batch) only for storage. That let the
+                # policy sample pointers get_action_batch's own zone-restriction
+                # would never allow through the real per-type rule (e.g.
+                # ACTIVATE requires cost>0/affordable/not-yet-activated, not
+                # just "board slot occupied"), producing ~92% no-op ACTIVATE
+                # actions, AND made evaluate_actions() at PPO-update time score
+                # the stored action under a different, narrower distribution
+                # than the one it was actually sampled from -- biasing the
+                # importance ratio on every pointer-type action even when the
+                # policy hadn't changed. ptr_mask_fn closes over this group's
+                # states so get_action_batch can build the exact type-specific
+                # mask itself, AFTER sampling the type, and hand back the mask
+                # it actually used -- see get_action_batch's docstring.
+                _ta, _pa, _lp, _vl, _pm = _pol.get_action_batch(
                     _board_g, _shop_g, _hand_g, _scalar_g,
-                    type_mask=_t_mask_g, pointer_mask=_occ_mask_g, opp_tokens=_opp_g,
+                    type_mask=_t_mask_g, opp_tokens=_opp_g,
+                    ptr_mask_fn=lambda _i, _t, _states=_g_states: build_pointer_mask(_states[_i], _t),
                 )
                 for _j, _i in enumerate(_g_idxs):
-                    _type_buf[_i] = _ta[_j]
-                    _ptr_buf[_i]  = _pa[_j]
-                    _lp_buf[_i]   = _lp[_j]
-                    _val_buf[_i]  = _vl[_j]
+                    _type_buf[_i]  = _ta[_j]
+                    _ptr_buf[_i]   = _pa[_j]
+                    _lp_buf[_i]    = _lp[_j]
+                    _val_buf[_i]   = _vl[_j]
+                    _pmask_buf[_i] = _pm[_j]
 
             type_acts = _torch.stack(_type_buf)
             ptr_acts  = _torch.stack(_ptr_buf)
             log_probs = _torch.stack(_lp_buf)
             values    = _torch.stack(_val_buf)
             t_mask    = build_type_mask_batch(player_states).to(dev)
-            ptr_masks = build_pointer_mask_batch(player_states, type_acts)
+            # Stored mask == sampled mask by construction: these are exactly
+            # the masks get_action_batch returned above, not a recomputation.
+            # (Do NOT reintroduce a separate build_pointer_mask_batch(...) call
+            # here -- that is precisely the bug described above.)
+            ptr_masks = _torch.stack(_pmask_buf)
 
             next_active = []
             for i, ps in enumerate(active):

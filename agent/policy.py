@@ -41,7 +41,7 @@ scalar_context layout (94 dims):
 from __future__ import annotations
 
 import logging
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -330,20 +330,35 @@ class BGPolicyNetwork(nn.Module):
         pointer_mask: Optional[torch.Tensor] = None,   # [B, 24] full occupancy
         deterministic: bool = False,
         opp_tokens:   Optional[torch.Tensor] = None,
-    ) -> Tuple[int, int, torch.Tensor, torch.Tensor]:
+        ptr_mask_fn: Optional[Callable[[int], torch.Tensor]] = None,
+    ) -> Tuple[int, int, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Two-step action sampling.
 
         Step 1: sample action type from type_logits.
-        Step 2: if the type requires a card pointer (buy/sell/place), restrict
-                pointer_logits to the type's zone intersected with pointer_mask,
-                then sample the pointer slot.
+        Step 2: if the type requires a card pointer (buy/sell/place/activate),
+                restrict pointer_logits to the type's zone intersected with
+                ptr_mask_fn's (or pointer_mask's) mask, then sample the
+                pointer slot.
 
         Parameters
         ----------
         pointer_mask:
-            Full [B, 24] occupancy mask marking all non-empty slots across all
-            zones.  get_action will further restrict this to the relevant zone
-            based on the sampled type.  If None, only zone restriction applies.
+            Full [24] (or [1, 24]) occupancy mask marking all non-empty slots
+            across all zones, used as a fallback when `ptr_mask_fn` is not
+            given. NOTE: this is typically the type-AGNOSTIC occupancy mask
+            (e.g. build_pointer_mask(ps, -1)), intersected here only with the
+            sampled type's zone bits -- it does NOT enforce a type's finer
+            validity rules (e.g. ACTIVATE's cost/afford/not-yet-activated
+            rule is stricter than "board slot is occupied"). Prefer
+            `ptr_mask_fn` whenever the caller can supply it.
+        ptr_mask_fn : optional callable (sampled_type_idx) -> [POINTER_DIM]
+            bool tensor. When given, this is called AFTER the type is
+            sampled and its result is used instead of `pointer_mask` for
+            the pointer sampling -- mirroring get_action_batch()'s
+            "sample type, then build the type-specific mask" order, without
+            this module needing to know anything about player-state
+            internals (the caller closes over its own state and calls e.g.
+            build_pointer_mask(state, sampled_type_idx)).
 
         Returns
         -------
@@ -351,6 +366,28 @@ class BGPolicyNetwork(nn.Module):
         ptr_idx   : int  (0-23) or -1 for non-pointer types
         log_prob  : scalar tensor  — log p(type) + log p(ptr | type)
         value     : scalar tensor  [1]
+        used_ptr_mask : [POINTER_DIM] bool tensor -- the pointer mask
+            actually used to sample (and compute log_prob for) the pointer,
+            i.e. zone-restricted and, for pointer types, further restricted
+            by ptr_mask_fn/pointer_mask exactly as applied below. Comes back
+            all-True for non-pointer types (mask is irrelevant there,
+            matching build_pointer_mask's own convention for non-pointer
+            types).
+
+            Callers MUST store this returned mask (not recompute a mask
+            separately) as the transition's `pointer_mask`. Recomputing a
+            mask after the fact -- even a "more correct" one -- can silently
+            diverge from the mask actually used to sample/score the action.
+            That divergence is exactly the bug this return value exists to
+            make structurally impossible: this sequential path used to
+            sample the pointer under a type-agnostic occupancy mask but
+            store a separately-recomputed type-specific mask, so PPO's
+            importance ratio at update time compared log-probs computed
+            under two different distributions even when the policy had not
+            changed -- see CONTEXT.md (2026-08-31/09-01) for the measured
+            impact (88.6% no-op rate on ACTIVATE, 22.2% of all actions, on
+            the real training seat mix). Mirrors get_action_batch's
+            `used_ptr_masks` return value.
         """
         self.eval()
         with torch.no_grad():
@@ -361,6 +398,7 @@ class BGPolicyNetwork(nn.Module):
             )
             t_logits_1d = type_logits.squeeze(0)   # [8]
             p_logits_1d = ptr_logits.squeeze(0)    # [24]
+            dev = t_logits_1d.device
 
             # _safe_categorical: defensive fallback in case an all -inf row
             # ever reaches here (see module note above forward()).
@@ -370,17 +408,24 @@ class BGPolicyNetwork(nn.Module):
             log_prob    = t_dist.log_prob(type_tensor)
 
             ptr_idx = -1
+            used_ptr_mask = torch.ones(POINTER_DIM, dtype=torch.bool, device=dev)
             if type_idx in TYPES_WITH_POINTER:
                 # Restrict pointer to this type's zone
                 start, size = _ZONE_SLICE[type_idx]
-                zone_bits   = torch.zeros(POINTER_DIM, dtype=torch.bool, device=t_logits_1d.device)
+                zone_bits   = torch.zeros(POINTER_DIM, dtype=torch.bool, device=dev)
                 zone_bits[start:start + size] = True
 
-                combined = zone_bits
-                if pointer_mask is not None:
+                if ptr_mask_fn is not None:
+                    row_mask = ptr_mask_fn(type_idx).to(dev)
+                    combined = zone_bits & row_mask
+                    if not combined.any():
+                        combined = zone_bits  # fallback: zone only (state inconsistency guard)
+                elif pointer_mask is not None:
                     combined = zone_bits & pointer_mask.squeeze(0)
                     if not combined.any():
                         combined = zone_bits  # fallback: zone only (state inconsistency guard)
+                else:
+                    combined = zone_bits
 
                 masked_ptr = p_logits_1d.masked_fill(~combined, float("-inf"))
                 # Same defensive fallback as above for the pointer distribution.
@@ -388,8 +433,9 @@ class BGPolicyNetwork(nn.Module):
                 ptr_tensor = masked_ptr.argmax() if deterministic else p_dist.sample()
                 ptr_idx    = int(ptr_tensor.item())
                 log_prob   = log_prob + p_dist.log_prob(ptr_tensor)
+                used_ptr_mask = combined
 
-        return type_idx, ptr_idx, log_prob, value.squeeze(0)
+        return type_idx, ptr_idx, log_prob, value.squeeze(0), used_ptr_mask
 
     def get_action_batch(
         self,
@@ -401,7 +447,8 @@ class BGPolicyNetwork(nn.Module):
         pointer_mask: Optional[torch.Tensor] = None,
         opp_tokens:   Optional[torch.Tensor] = None,
         deterministic: bool = False,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        ptr_mask_fn: Optional[Callable[[int, int], torch.Tensor]] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Batched action sampling for B players in a single forward pass.
 
         Compared to calling get_action() B times, this runs the Transformer
@@ -413,15 +460,49 @@ class BGPolicyNetwork(nn.Module):
         board_tokens, shop_tokens, hand_tokens, scalar_context:
             Batched inputs [B, *, card_dim / scalar_dim].
         type_mask : [B, 8] bool — valid action types per player.
-        pointer_mask : [B, 24] bool — full occupancy mask per player.
+        pointer_mask : [B, 24] bool — full occupancy mask per player, used as a
+            fallback when `ptr_mask_fn` is not given. NOTE: this is typically
+            the type-AGNOSTIC occupancy mask (e.g. build_pointer_mask(ps, -1)),
+            intersected here only with the sampled type's zone bits — it does
+            NOT enforce a type's finer validity rules (e.g. ACTIVATE's
+            cost/afford/not-yet-activated rule is stricter than "board slot is
+            occupied"). Prefer `ptr_mask_fn` whenever the caller can supply it.
         opp_tokens : [B, 7, card_dim] optional.
+        ptr_mask_fn : optional callable (batch_index, sampled_type_idx) -> [POINTER_DIM]
+            bool tensor. When given, this is called AFTER the type is sampled
+            for each row and its result is used instead of `pointer_mask` for
+            that row's pointer sampling — mirroring get_action()'s two-step
+            "sample type, then build the type-specific mask" order, but without
+            this module needing to know anything about player-state internals
+            (the caller closes over its own state and calls e.g.
+            build_pointer_mask(state, sampled_type_idx)).
 
         Returns
         -------
-        type_actions : [B] int64
-        ptr_actions  : [B] int64  (-1 for non-pointer types)
-        log_probs    : [B] float32
-        values       : [B] float32
+        type_actions     : [B] int64
+        ptr_actions      : [B] int64  (-1 for non-pointer types)
+        log_probs        : [B] float32
+        values           : [B] float32
+        used_ptr_masks   : [B, POINTER_DIM] bool — the pointer mask actually
+            used to sample (and compute log_prob for) each row's pointer, i.e.
+            zone-restricted and, for pointer types, further restricted by
+            ptr_mask_fn/pointer_mask exactly as applied above. Non-pointer-type
+            rows come back all-True (mask is irrelevant there, matching
+            build_pointer_mask's own convention for non-pointer types).
+
+            Callers MUST store this returned mask (not recompute a mask
+            separately) as the transition's `pointer_mask`. Recomputing a mask
+            after the fact — even a "more correct" one — can silently diverge
+            from the mask actually used to sample/score the action. That
+            divergence is exactly the bug this return value exists to make
+            structurally impossible: the batched shopping path used to sample
+            the pointer under a type-agnostic occupancy mask but store a
+            separately-recomputed type-specific mask, so PPO's importance
+            ratio at update time compared log-probs computed under two
+            different distributions even when the policy had not changed —
+            see CONTEXT.md (2026-08-31/09-01) for the measured impact (up to
+            ~92% no-op rate on ACTIVATE, ratio ≈ exp(log(1/1) - log(1/15))
+            hard-clipped every update for masked-out pointer types).
         """
         self.eval()
         with torch.no_grad():
@@ -438,7 +519,8 @@ class BGPolicyNetwork(nn.Module):
 
             B   = board_tokens.shape[0]
             dev = type_logits.device
-            ptr_actions = torch.full((B,), -1, dtype=torch.long, device=dev)
+            ptr_actions    = torch.full((B,), -1, dtype=torch.long, device=dev)
+            used_ptr_masks = torch.ones((B, POINTER_DIM), dtype=torch.bool, device=dev)
 
             for i in range(B):
                 t_idx = int(type_actions[i].item())
@@ -446,17 +528,26 @@ class BGPolicyNetwork(nn.Module):
                     start, size = _ZONE_SLICE[t_idx]
                     zone_bits = torch.zeros(POINTER_DIM, dtype=torch.bool, device=dev)
                     zone_bits[start:start + size] = True
-                    combined = zone_bits
-                    if pointer_mask is not None:
+
+                    if ptr_mask_fn is not None:
+                        row_mask = ptr_mask_fn(i, t_idx).to(dev)
+                        combined = zone_bits & row_mask
+                        if not combined.any():
+                            combined = zone_bits  # fallback: zone only (state inconsistency guard)
+                    elif pointer_mask is not None:
                         occ = zone_bits & pointer_mask[i]
                         combined = occ if occ.any() else zone_bits
+                    else:
+                        combined = zone_bits
+
                     masked_ptr = ptr_logits[i].masked_fill(~combined, float("-inf"))
                     # Defensive fallback, same reasoning as get_action() above.
                     p_dist     = _safe_categorical(masked_ptr)
                     ptr_actions[i] = masked_ptr.argmax() if deterministic else p_dist.sample()
                     log_probs[i]   = log_probs[i] + p_dist.log_prob(ptr_actions[i])
+                    used_ptr_masks[i] = combined
 
-        return type_actions, ptr_actions, log_probs, values.squeeze(-1)
+        return type_actions, ptr_actions, log_probs, values.squeeze(-1), used_ptr_masks
 
     # ── PPO evaluation ────────────────────────────────────────────────────────
 

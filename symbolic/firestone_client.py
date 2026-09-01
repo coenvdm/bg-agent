@@ -20,6 +20,45 @@ from symbolic.combat_sim import BGCombatSim, SimResult  # noqa: F401
 from env.player_state import minion_stats
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Heuristic-estimator damage constants
+#
+# Real Battlegrounds combat damage (see symbolic/combat_sim.py CombatSide.
+# win_damage, the ground truth this heuristic approximates) is:
+#     winner's tavern_tier + sum(tier for m in winner's SURVIVING minions)
+# The heuristic below cannot know which minions survive without actually
+# simulating combat (it must stay O(n) over the boards, not Monte Carlo), so
+# it approximates "surviving minion tier sum" as the pre-combat tier sum of
+# the winning board scaled by a "dominance" factor derived from how lopsided
+# the win_prob/loss_prob estimate is: a crushing win (win_prob near its
+# clamped ceiling) leaves most of the board alive; a narrow win leaves little.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Floor on the fraction of the winning board's pre-combat tier-sum that is
+# assumed to "survive" into the damage number, even for the narrowest possible
+# win. Real narrow wins in BG almost never wipe the winner's board down to
+# nothing — the last attacker(s) that sealed the win are usually still up —
+# so 0.0 would understate even a coin-flip win. Kept modest since a narrow
+# win legitimately does lose most of the board.
+MIN_SURVIVE_FRAC = 0.15
+
+# Ceiling on that same fraction: a maximally dominant win (win_prob/loss_prob
+# at the heuristic's own clamp bounds, see win_prob = clamp(0.05, 0.95, ...)
+# below) is treated as leaving the entire pre-combat board alive. 1.0 rather
+# than something higher keeps damage bounded by tavern_tier + board tier-sum,
+# matching the real formula's own ceiling (it can't exceed that either, since
+# the real formula only counts survivors, a subset of the pre-combat board).
+MAX_SURVIVE_FRAC = 1.0
+
+# win_prob/loss_prob are clamped to [0.05, 0.95] a few lines below (no signal
+# past those bounds). This is the corresponding clamp *radius* around the 0.5
+# (evenly-matched) midpoint, i.e. 0.95 - 0.5 == 0.5 - 0.05. Dividing by it
+# maps the full clamped win_prob/loss_prob range onto survive-fraction
+# [MIN_SURVIVE_FRAC, MAX_SURVIVE_FRAC] linearly, with no dead zone at either
+# end.
+DOMINANCE_RANGE = 0.45
+
+
 class FirestoneClient:
     """Wrapper around the Firestone combat simulator subprocess.
 
@@ -87,7 +126,10 @@ class FirestoneClient:
         """
         # Heuristic-only mode (testing / debugging)
         if self.mock_mode:
-            return self._heuristic_estimate(player_board, opponent_board)
+            return self._heuristic_estimate(
+                player_board, opponent_board,
+                player_tier=player_tier, opp_tier=opp_tier,
+            )
 
         # Subprocess Firestone (real simulator, if configured)
         if self._firestone_path is not None:
@@ -118,6 +160,8 @@ class FirestoneClient:
         self,
         player_board: List[dict],
         opponent_board: List[dict],
+        player_tier: int = 1,
+        opp_tier:    int = 1,
     ) -> SimResult:
         """Simple power-based heuristic: total effective (ATK+HP), golden
         counts double.
@@ -132,6 +176,21 @@ class FirestoneClient:
         This heuristic backend is what mock_mode=True (used by the actual
         parallel self-play training workers, see train.py._worker_run_game)
         resolves every combat with -- see CONTEXT.md 2026-09-01.
+
+        Damage: real Battlegrounds damage is
+            winner's tavern_tier + sum(tier for m in winner's SURVIVING minions)
+        (see symbolic/combat_sim.py CombatSide.win_damage, the ground truth
+        this approximates). This heuristic doesn't simulate combat so it
+        can't know exactly which minions survive; it approximates the
+        surviving-tier-sum as the winning board's full pre-combat tier sum
+        scaled by a "dominance" factor in [MIN_SURVIVE_FRAC, MAX_SURVIVE_FRAC]
+        derived from win_prob/loss_prob -- a crushing win leaves most of the
+        board standing, a narrow win leaves little. Previously this was a
+        flat ``win_prob * 5.0`` / ``loss_prob * 5.0`` that never exceeded 5
+        regardless of tavern tier or board size, which meant real-game damage
+        escalation (roughly 2-5 early, 15-25 late) never happened and every
+        training game ran out the clock at the 40-round cap instead of ending
+        by elimination -- see CONTEXT.md 2026-09-01.
         """
         def _power(board: List[dict]) -> float:
             total = 0.0
@@ -142,6 +201,9 @@ class FirestoneClient:
                 total += (atk + hp) * (2.0 if m.get("golden") else 1.0)
             return total
 
+        def _tier_sum(board: List[dict]) -> int:
+            return sum(int(m.get("tier", 1)) for m in board)
+
         pp = _power(player_board)
         op = _power(opponent_board)
         win_prob = max(0.05, min(0.95, pp / (pp + op + 1e-9)))
@@ -149,12 +211,37 @@ class FirestoneClient:
         # Heuristic has no tie signal — assume ties are rare (5%)
         tie_prob  = 0.05 * (1.0 - abs(win_prob - 0.5) * 2)  # peaks at 0.05 when evenly matched
         loss_prob = max(0.0, 1.0 - win_prob - tie_prob)
+
+        def _survive_frac(p: float) -> float:
+            """Map a clamped win/loss probability to a surviving-board fraction.
+
+            p == 0.5 (evenly matched) -> MIN_SURVIVE_FRAC (narrow win, most of
+            the board traded away). p at its clamp bound (0.05 or 0.95) ->
+            MAX_SURVIVE_FRAC (crushing win, board mostly intact).
+            """
+            dominance = max(0.0, min(1.0, (p - 0.5) / DOMINANCE_RANGE))
+            return MIN_SURVIVE_FRAC + (MAX_SURVIVE_FRAC - MIN_SURVIVE_FRAC) * dominance
+
+        # expected_damage_dealt: damage the OPPONENT takes when the PLAYER
+        # wins, so it is attributed to the PLAYER's own tavern_tier and the
+        # PLAYER's own board tier-sum (the winning side's stats), scaled by
+        # how dominant a win win_prob implies.
+        player_survive_frac = _survive_frac(win_prob)
+        expected_damage_dealt = player_tier + _tier_sum(player_board) * player_survive_frac
+
+        # expected_damage_taken: damage the PLAYER takes when the OPPONENT
+        # wins, so it is attributed to the OPPONENT's own tavern_tier and the
+        # OPPONENT's own board tier-sum, scaled by how dominant a win
+        # loss_prob implies for the opponent.
+        opp_survive_frac = _survive_frac(loss_prob)
+        expected_damage_taken = opp_tier + _tier_sum(opponent_board) * opp_survive_frac
+
         return SimResult(
             win_prob=win_prob,
             tie_prob=tie_prob,
             loss_prob=loss_prob,
-            expected_damage_dealt=win_prob * 5.0,
-            expected_damage_taken=loss_prob * 5.0,
+            expected_damage_dealt=expected_damage_dealt,
+            expected_damage_taken=expected_damage_taken,
             trials=0,
         )
 

@@ -576,3 +576,35 @@ Also noted while reading: `Suspicious Prisonguard` is a **tier-1** card with `ac
 - Re-check `SHAPE_ALPHA`/`DENSE_REWARD_SCALE` only AFTER both, since both change the action count and episode length that those constants were implicitly sized against.
 - Consider whether the flat `_end_of_turn_reward` penalties should be restructured so stalling is never attractive even if a free no-op reappears (e.g. charge them per-round rather than at END_TURN).
 ---
+
+---
+### 2026-09-01 — Fix both throughput/correctness bugs: pointer masking (both paths) and combat damage scaling
+**Files changed:** `agent/policy.py`, `env/game_loop.py`, `train.py`, `symbolic/firestone_client.py`
+
+**Fix 1 — pointer mask, made correct by construction.** Both action-selection paths sampled the pointer under the type-AGNOSTIC occupancy mask (`build_pointer_mask(ps, -1)`) and then separately recomputed the type-SPECIFIC mask for storage. Design applied to both `get_action_batch` and `get_action`: an optional `ptr_mask_fn` callable invoked AFTER the type is sampled, and — critically — the method now RETURNS the mask it actually used, which the caller stores. "Sampled mask == stored mask" is now structurally guaranteed rather than a convention two call sites must independently maintain (maintaining it by convention is exactly how this bug arose). `get_action` went from a 4-tuple to a 5-tuple; all three callers updated (`PPOAgent`, `StaticAgent`, `EvalAgent` in train.py).
+
+**Important process note: the first attempt fixed the wrong path.** The batched-path agent asserted real training uses the batched path because `_agents_support_batching` is True when every agent is a PPOAgent/StaticAgent. That is wrong: the real composition is 2 PPOAgent + 2 StaticAgent + `N_HEURISTIC_SLOTS=2` + `N_GREEDY_SLOTS=2`, and HeuristicAgent/GreedyPlayAgent both set `supports_batching = False` (train.py ~367, ~451), so real games run the SEQUENTIAL path until enough scripted seats are eliminated. Its verification looked clean only because it tested an all-PPOAgent game -- exercising the path it had just fixed rather than the one training uses. Caught by running an independent joint verification on the REAL seat mix, which still showed 88.6% ACTIVATE no-ops. **Lesson: verify on the real configuration, not a convenient one; a green check on the wrong population is worse than no check.**
+
+**PPO impact was real but with a different mechanism than first assumed.** In the sequential path `PPOTrainer.collect_transition` recomputes `log_prob` via `evaluate_actions` under the stored mask, so stored-log_prob/stored-mask are tautologically consistent -- meaning the naive consistency check passes vacuously. The actual damage is that the ACTION was drawn from a broader distribution than the one stored, so the taken action often had ~zero probability under its own stored mask. Measured by degenerate-log_prob rate (`stored log_prob < -15`) on pointer-type transitions: **66.0% -> 0.0%**. In the batched path the mechanism was the one originally described (stored log_prob computed under a different mask): `max |diff| = inf` with 10 mismatched rows -> 0 mismatches across 2089 transitions.
+
+**Fix 2 — combat damage scaling.** `_heuristic_estimate` returned a flat `win_prob * 5.0` / `loss_prob * 5.0`, capped at 5 and never scaling, so nobody died and every game ran out the 40-round clock. Replaced with the real BG formula -- winner's own tavern tier + tier-sum of the winner's surviving minions -- verified against `symbolic/combat_sim.py`'s own `CombatSide.win_damage`. Since the heuristic cannot simulate survivors it scales the winner's pre-combat tier-sum by a dominance fraction derived from win/loss prob (`MIN_SURVIVE_FRAC=0.15`, `MAX_SURVIVE_FRAC=1.0`, `DOMINANCE_RANGE=0.45`). `player_tier`/`opp_tier` are now threaded from `simulate()` (they were received but silently dropped). Attribution is commented explicitly at both sites: `expected_damage_dealt` uses the PLAYER's tier/board, `expected_damage_taken` the OPPONENT's.
+
+**Joint verification on the real training mix (4 PPOAgent + 2 Heuristic + 2 Greedy, 8 games, statfix checkpoint), run independently of the subagents:**
+
+| metric | before | after |
+|---|---|---|
+| ACTIVATE no-op rate | 88.6% | **0.0%** |
+| TOTAL no-op rate | 37.9% | **0.00%** |
+| game rounds | 40/40 every game | **15-25, mean 20.5, std 3.4** |
+| games ending before the cap | 0/8 | **8/8** |
+| actions/game | ~1035 | **409** |
+| placements span 1-8 | yes | yes |
+
+Smoke-tested the real parallel training path end-to-end afterwards (spawn workers, PPO updates firing, no NaN, `evaluate_policy` working at n_workers>1).
+**Current state:** All three fixes committed. No instance running.
+**Open questions / next steps:**
+- **The scripted baselines are structurally crippled, which inflates how good our results look.** `GreedyPlayAgent` contains NO LEVEL_UP logic at all -- it sits at tavern tier 1 for an entire game -- and `HeuristicAgent` caps at `tavern_tier < 4`. This is why damage plateaus ~7 instead of 15-25 and games land at ~20 rounds instead of the real-BG 12-18 (with an aggressively-levelling agent the same formula gives mean 18.5 rounds and clean 3.19 -> 9.92 -> 11.26 escalation). **It also means the headline `EVAL 3.25 vs 7 greedy` result is measured against opponents permanently stuck at tier 1** -- before the stat fix that handicap was invisible (all minions were 0/0 so tier was irrelevant), which is exactly why greedy scored 3.68 then and collapsed to 6.77 after. The 4.5 -> 3.25 improvement against a fixed opponent is genuine learning, but the absolute bar is low. Give GreedyPlayAgent/HeuristicAgent real levelling before trusting any absolute placement claim.
+- Reward constants (`SHAPE_ALPHA=1.5`, `DENSE_REWARD_SCALE=0.30`) were sized against the OLD regime of 427-step, 40-round games. Episode length has roughly halved and 38% of actions disappeared, so both should be re-measured (not re-guessed) before the next long run.
+- `ANNEAL_STEPS` needs resizing again: at ~409 actions/game the old 178-steps/game assumption and the later 427 estimate are both wrong.
+- Throughput should recover substantially (2.5x fewer steps per game); re-benchmark `N_WORKERS`/`UPDATE_INTERVAL` on the next rented host rather than reusing the 26/26 tuned for the old regime.
+---
