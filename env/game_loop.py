@@ -65,12 +65,36 @@ logger = logging.getLogger(__name__)
 # states -- expected and harmless, see the scratchpad telescoping test), while
 # a genuinely improving board/tier trajectory that is KEPT nets positive. This
 # is the structural guarantee against farming shaping instead of playing.
-SHAPE_ALPHA = 0.20   # shaping scale; matches the old BOARD_SHAPE_ALPHA
-                      # magnitude -- board-strength was always the dominant of
-                      # the two old potentials, and Φ is now normalised to
-                      # [0, 1] (see _potential), so this bounds the maximum
-                      # possible telescoped shaping magnitude for a whole
-                      # episode to +-SHAPE_ALPHA.
+# SHAPE_ALPHA raised 0.20 -> 1.5 on 2026-09-01 after the first run under the
+# telescoping potential went 500 updates (~13,000 games) with eval placement
+# flat at chance (4.46 / 4.41 / 4.87 / 4.32 / 4.50 vs greedy) while sell:place
+# sat at 0.875 and level_rate at 2%.
+#
+# The 0.20 was inherited from the OLD BOARD_SHAPE_ALPHA -- but that constant
+# was calibrated for a potential that RESET EVERY ROUND, i.e. it paid out once
+# per round (~12x per game). Making the potential telescope correctly across
+# the whole episode without rescaling alpha therefore shrank the aggregate
+# shaping signal by roughly the number of rounds: total telescoped magnitude
+# was bounded to +-0.20 against a FINAL_PLACEMENT_REWARD spanning +-4.0, i.e.
+# ~5% of the objective. That is far too weak to densify credit assignment,
+# which is the entire purpose of the term -- and with churn merely
+# reward-NEUTRAL under telescoping (nothing pays for it, but nothing charges
+# for it either), there was no gradient discouraging buy/sell cycling.
+#
+# Sizing: Φ moves ~0.07 per minion placed/sold in practice (measured), so
+# alpha=1.5 makes a single good placement worth ~0.10 immediately -- comparable
+# to the per-round combat reward (+0.15 win / -0.09 loss) and therefore
+# actually able to guide behaviour, while total episode shaping stays ~0.6
+# (~15% of the placement range) so it densifies rather than swamps the true
+# objective.
+#
+# Raising alpha is SAFE with respect to degeneracy, and that is the point of
+# having made this a true potential function: the invariance result (Ng et al.
+# 1999) holds for ANY alpha, so the optimal policy is unchanged no matter how
+# large this is. Alpha trades credit-assignment density against gradient
+# variance only -- it cannot reintroduce a farmable term, because every cyclic
+# sequence still telescopes to ~0 regardless of scale.
+SHAPE_ALPHA = 1.5
 SHAPE_GAMMA = 0.997   # MUST match PPOConfig.gamma (agent/ppo.py) -- this is
                       # not a free tuning knob. Using anything else (e.g. the
                       # old undiscounted 1.0) breaks the exact telescoping
