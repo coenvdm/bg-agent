@@ -161,59 +161,101 @@ Always mask invalid actions (no gold to buy, board full, etc.).
 spec. Update this section (not the other way around) whenever the constants
 below change.**
 
-Five components combine into the total reward:
+Four components combine into the total reward. **Note:** an earlier version
+of this section (pre-2026-09) described a *split* `phi_board`/`phi_tier`
+scheme with separate `_apply_board_shape`/`_apply_tier_shape` methods that
+reset each potential every round. That scheme was replaced 2026-08-31 by the
+unified telescoping potential described in (3) below — the split/reset
+design was a one-sided ratchet (paid for building board/tier strength within
+a turn, never charged for losing it) and broke the policy-invariance
+guarantee this shaping relies on. If you find references to
+`BOARD_SHAPE_ALPHA`/`TIER_SHAPE_ALPHA`/`ps.phi_board`/`ps.phi_tier`
+anywhere, they are stale — `env/game_loop.py` is the only source of truth.
 
-1. **`compute_round_reward`** — dense per-combat-round signal:
+1. **`compute_round_reward`** — dense per-combat-round signal (coefficients
+   shown already multiplied by `DENSE_REWARD_SCALE = 0.30`; the raw values in
+   the source are 0.5/-0.3/0.05/0.05/0.15 respectively — see the module
+   constants block for why everything in this component and (2) is scaled
+   down 0.30x, and quote the *scaled* number when reasoning about magnitude):
    ```python
-   r  =  0.5  if result == "win"  else 0.0
-   r += -0.3  if result == "loss" else 0.0
-   r += -0.05 * (damage_taken / max_health)
-   r +=  0.05 * (damage_dealt  / max_health)
-   r += (prev_rank - cur_rank) * 0.15
-   r +=  0.1   # flat survival bonus for being alive this round
+   r  =  0.15   if result == "win"  else 0.0     # WIN_REWARD
+   r += -0.09   if result == "loss" else 0.0     # LOSS_PENALTY
+   r += -0.015 * (damage_taken / max_health)     # DAMAGE_TAKEN_COEF
+   r +=  0.015 * (damage_dealt  / max_health)    # DAMAGE_DEALT_COEF
+   r += (prev_rank - cur_rank) * 0.045           # RANK_DELTA_COEF
    ```
-2. **`_end_of_turn_reward`** — fired on END_TURN: `-0.08` per card left in
-   hand, and `-GOLD_PENALTY_COEF * gold * gold_scale` for unspent gold.
-   All coefficients here are multiplied by `DENSE_REWARD_SCALE = 0.30`, so
-   `GOLD_PENALTY_COEF` is `0.05 * 0.30 = 0.015` — quote the *scaled* value
-   when reasoning about magnitudes, not the `0.05` written in the source.
+   There is no flat per-round survival bonus — one existed historically
+   (`+0.1` unconditionally) but was removed 2026-08-31: it was passive income
+   that fired merely for being alive and diluted the placement signal
+   without rewarding any actual decision (see `CONTEXT.md`).
+2. **`_end_of_turn_reward`** — fired on END_TURN/FREEZE: `-HAND_PENALTY_COEF`
+   (`0.024`) per card left in hand, and `-GOLD_PENALTY_COEF * gold *
+   gold_scale` for unspent gold, `GOLD_PENALTY_COEF = 0.015`.
    `gold_scale` is **V-shaped**, retuned 2026-09-02: it fades linearly 1.0 →
    `GOLD_SCALE_FLOOR = 0.2` by `GOLD_SCALE_FADE_ROUND = 13` (early/mid-game
    gold retention is sometimes correct — saving to level), then *ramps back
-   up* at `GOLD_SCALE_LATE_RAMP = 0.13`/round to `GOLD_SCALE_LATE_CEIL = 1.5`.
-   The old schedule was flat at 0.2 from round 13 to the end, which priced a
-   full 10-gold purse at `-0.03`/turn against a `WIN_REWARD` of `0.15` — and
-   a trained policy duly banked all 10 gold every round from round 8 onward
-   (see `CONTEXT.md` 2026-09-02). Late-game idle gold now costs ~`0.19`/turn
-   at round 21.
-3. **Potential-based board-strength shaping** (`_apply_board_shape`) — on
-   every PLACE/SELL, pays `α · (γ · Φ(s') − Φ(s))` where Φ is the
-   deterministic stats potential `value / (value + BOARD_SHAPE_STATS_SATURATION)`
-   (the Monte Carlo win-probability estimate it replaced is described below).
-   `BOARD_SHAPE_STATS_SATURATION` was raised **30.0 → 60.0** on 2026-09-02:
-   at 30 the potential was pinned near its ceiling from roughly round 8 (real
-   late-game boards measure ~110 effective stats), so every further purchase
-   paid ≈0 shaped reward and the policy simply stopped developing its board.
-   Historic constants below, kept for the fix history:
-   `BOARD_SHAPE_ALPHA = 0.20`, `BOARD_SHAPE_GAMMA = 1.0`, applied identically
-   (unclipped) to both PLACE and SELL — an earlier version clipped PLACE to
-   `max(0, shaped)` while leaving SELL unclipped, which broke the
-   policy-invariance guarantee this shaping relies on (Ng et al. 1999) and
-   biased the policy toward selling; fixed 2026-08-30, see `CONTEXT.md`.
-   `ps.phi_board` resets at the start of every round so shaping never leaks
-   value across turns. An empty board penalty (`-0.30`) fires on the SELL
-   action that empties the board.
-4. **Potential-based leveling shaping** (`_apply_tier_shape`) — on a
-   successful LEVEL_UP, pays `α_tier · (γ_tier · Φ_tier(s') − Φ_tier(s))` with
-   `TIER_SHAPE_ALPHA = 0.10`, `TIER_SHAPE_GAMMA = 1.0`, where
-   `Φ_tier(s) = min(1.0, tavern_tier / _expected_tier_for_round(round_num))`.
-   Added 2026-08-31 because LEVEL_UP previously had no reward term at all,
-   so PLACE (immediate board-shape payout for the same gold) strictly
-   dominated it — see `CONTEXT.md`. The `min(1.0, …)` cap means leveling past
-   the round's rough curve pays nothing extra, and `ps.phi_tier` resets at
-   round start like `ps.phi_board`, so it only ever rewards closing a real
-   gap, never repeat-farming or racing ahead of what's useful.
-5. **`FINAL_PLACEMENT_REWARD`** — fires immediately at the moment a player
+   up* at `GOLD_SCALE_LATE_RAMP = 0.13`/round to `GOLD_SCALE_LATE_CEIL = 1.5`
+   by round 23. The old schedule was flat at `0.2` from round 13 to the end
+   of the game however long it ran, which priced a full 10-gold purse at
+   `-0.03`/turn against `WIN_REWARD = 0.15` — and a live-run trace showed a
+   trained policy duly banking all 10 gold every round from round 8 onward
+   for the rest of an 18-round game while it stopped buying/leveling
+   entirely (see `CONTEXT.md` 2026-09-02). Late-game idle gold now costs up
+   to `-0.225`/turn (round 23+, gold=10) — more than a full `WIN_REWARD`.
+   Rounds 1-12 are numerically unchanged from the old schedule (see
+   `_gold_penalty_scale` in `env/game_loop.py`).
+3. **Unified potential-based shaping** (`_apply_potential_shaping`) — a
+   single potential Φ(s) ∈ [0, 1] (Ng, Harada & Russell 1999), paid out at
+   **every** shopping action (BUY/SELL/PLACE/REROLL/FREEZE/LEVEL_UP/
+   HERO_POWER/END_TURN/ACTIVATE/REORDER) plus once per round right after
+   combat resolves:
+   ```python
+   r_shaped = SHAPE_ALPHA * (SHAPE_GAMMA * Φ(s') − Φ(s))   # SHAPE_ALPHA=1.5, SHAPE_GAMMA=0.997
+   Φ(s) = 0.67 * board_potential(s) + 0.33 * tier_potential(s)   # BOARD_/TIER_POTENTIAL_WEIGHT
+   ```
+   `ps.phi` is initialised once in `reset()` and **never reset mid-episode**
+   — this is what makes the sum telescope exactly to `SHAPE_ALPHA *
+   (SHAPE_GAMMA**T * Φ(s_T) − Φ(s_0))` regardless of path, so any cyclic
+   action sequence (buy/sell churn, freeze/unfreeze, ...) nets ~0 shaped
+   reward. This replaced the old per-round-reset split scheme in 2026-08-31;
+   `SHAPE_ALPHA` was itself raised `0.20 → 1.5` on 2026-09-01 once telescoping
+   made the old value pay out ~5% of what it used to (see `CONTEXT.md`).
+   - `board_potential(s)`: deterministic, noise-free — `value / (value +
+     BOARD_SHAPE_STATS_SATURATION)`, where `value` = total effective
+     attack+health (`symbolic.board_computer._board_power`) plus a flat
+     `+3` per Divine Shield/Taunt/Reborn/Windfury instance
+     (`BOARD_STATS_KEYWORD_BONUS`) and a flat `+5` if any tribe reaches the
+     CLAUDE.md "synergistic" threshold of 4+ (`BOARD_STATS_SYNERGY_BONUS`).
+     `BOARD_SHAPE_STATS_SATURATION` was raised **30.0 → 60.0** on 2026-09-02:
+     a 30-game measurement on the real seat mix (2 PPOAgent + 2 StaticAgent +
+     2 HeuristicAgent + 2 GreedyPlayAgent) found the trained-policy
+     population's board `value` already at p50=71/p90=162 by the time boards
+     matured, and the degenerate live-run board that triggered this fix
+     (one Suspicious Prisonguard-pumped minion, 4/7 board, round 18) computed
+     to `value=137` — squarely mid-distribution, not an outlier. At the old
+     `30.0`, that distribution was already >50% saturated by its 25th
+     percentile, so essentially every purchase past round ~8 paid ≈0 shaped
+     reward. `60.0` lands potential=0.5 near both the trained-policy median
+     (71) and the round-8 median (57, genuinely "mid-game" given the ~21-round
+     median game length) — see the long comment above
+     `BOARD_SHAPE_STATS_SATURATION` in `env/game_loop.py` for the full
+     percentile table. An empty-board penalty (`-EMPTY_BOARD_PENALTY` =
+     `-0.09`) fires separately, on the SELL action that empties the board.
+   - `tier_potential(s) = min(1.0, tavern_tier / _expected_tier_for_round(round_num))`
+     — reaching/exceeding the round's on-curve tier fully saturates this
+     component, so there's no reward for leveling further than useful.
+   - Both components are already in [0, 1] and the weights sum to 1.0, so
+     Φ(s) ∈ [0, 1] for every reachable state **regardless of
+     `BOARD_SHAPE_STATS_SATURATION`** — retuning that constant changes how
+     quickly Φ climbs, never the [0,1] bound the telescoping proof depends
+     on, and therefore cannot by itself blow up the total per-episode
+     shaping magnitude (bounded ≈ ±`SHAPE_ALPHA * BOARD_POTENTIAL_WEIGHT`
+     ≈ ±1.0 either way).
+   - `REORDER_COST = 0.03` is charged as a separate, un-shaped action cost on
+     every REORDER that actually applies (not potential-based — it
+     deliberately breaks strict policy-invariance to kill a
+     `gamma`-discounting stalling exploit; see `env/game_loop.py`).
+4. **`FINAL_PLACEMENT_REWARD`** — fires immediately at the moment a player
    is eliminated (not at game end); survivors receive it at game end instead.
    ```python
    FINAL_PLACEMENT_REWARD = {1:+4.0, 2:+2.0, 3:+1.0, 4:0.0,
@@ -222,15 +264,22 @@ Five components combine into the total reward:
 
 PPO uses `gamma=0.997`, `gae_lambda=0.95` (raised from `gamma=0.99` so the
 final placement reward doesn't decay away before reaching early-round
-decisions).
+decisions); `SHAPE_GAMMA` in (3) must match this exactly for the telescoping
+identity to hold.
 
-The board-shaping constants (`BOARD_SHAPE_ALPHA/GAMMA`, the empty-board
-penalty's firing point) went through several exploit-driven fixes on
-2026-04-19 — see `CONTEXT.md` for the history before retuning them again.
-When retuning `TIER_SHAPE_ALPHA`, watch `level_rate` *and* `board_size`/
+Historically, the dense per-round/per-action terms in (1)/(2) summed to
+roughly **17x** `FINAL_PLACEMENT_REWARD`'s magnitude before
+`DENSE_REWARD_SCALE` was introduced (see `CONTEXT.md`, 2026-08-31) — drowning
+out the actual objective. Whenever retuning any dense coefficient (including
+the gold-penalty schedule above), re-measure the dense-sum-per-player-game
+vs. `FINAL_PLACEMENT_REWARD` balance on the real seat mix and confirm it
+hasn't drifted back toward dominating; the 2026-09-02 gold-schedule retune
+was checked this way (mean dense_sum stayed near 0, well inside the ±4
+placement span, on a 30-game/240-player-game sample — see `CONTEXT.md`).
+When retuning leveling incentives, watch `level_rate` *and* `board_size`/
 placement together (not `level_rate` alone) — a naive leveling incentive can
-reproduce the same kind of degenerate policy the old flat `board_size`
-reward caused (agent chases the proxy metric at the expense of what it
+reproduce the same kind of degenerate policy a flat `board_size` reward
+caused historically (agent chases the proxy metric at the expense of what it
 actually stands for).
 
 ---

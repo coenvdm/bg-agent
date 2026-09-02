@@ -992,3 +992,29 @@ Verified independently of the subagent: trigger logic passes 8/8 synthetic cases
 - The Prisonguard line may still be strong even after these fixes. If the agent re-converges on it, the next lever is the card itself or a baseline that punishes narrow boards -- not more reward tuning.
 - `_accumulated_rewards` is dead code and misleading; delete it.
 ---
+
+---
+### 2026-09-02 (addendum) — Measurements behind the economy retune, and a determinism nuance
+**Files changed:** `CLAUDE.md` (accurate rewrite of the Reward Shaping section), `tools/trace_game.py` (kept)
+**What was done:** The economy subagent's full report arrived after its `env/game_loop.py` work had already been committed in `eb80b35` (shared working directory; its edits were swept into that commit). Its independently-derived constants matched what was deployed EXACTLY -- same `BOARD_SHAPE_STATS_SATURATION = 60.0`, same V-shaped gold schedule -- which is a genuine independent corroboration rather than an agreement by construction.
+
+**The measurement behind SATURATION=60** (30 games, real seat mix, frozen update-449 checkpoint, 3,474+ per-player-round samples). Board `value` (effective atk+hp + keyword/synergy bonuses) for the trained population:
+| p25 | p50 | p75 | p90 | p99 |
+|---|---|---|---|---|
+| 26 | 71 | 121 | 162 | 249 |
+
+By round, median value: **57 (r8), 103 (r12), 131 (r16), 164 (r20)**. Median leftover gold hit **9/10 by round 10** and stayed there, confirming the hoarding was systemic and not a quirk of the one traced game. At the old `30.0` the distribution was already past half-saturated at its 25th percentile; `60.0` puts Φ=0.5 near both the round-8 median (57) and the population median (71), stretching the useful gradient from p25=0.30 to p90=0.73. The functional form `v/(v+S)` was kept -- the problem was the constant, not the shape.
+Notably the degenerate traced board (one pumped minion, 4/7 board, round 18) computes to **value=137 -- squarely mid-distribution, not an outlier.** Its problem was never low board value; it was that the potential could not SEE any difference up there.
+
+**Gold-penalty counterfactual, on identical recorded trajectories** (sidesteps the reproducibility caveat below): mean per-game gold penalty roughly doubles, 0.216 -> 0.447; the worst hoarders go 0.77 -> 2.96 (~4x). Still small against the ±4 placement span. My own independent balance check agreed: |dense|/|placement| = 0.62 mean / 0.48 median.
+
+**Determinism nuance -- two findings that look contradictory but are not.** The subagent reports the engine "isn't fully seed-reproducible even after seeding torch/random/numpy per-game". Earlier this session I verified the opposite: identical placements across 3 runs at a fixed seed, and `evaluate_policy` bit-identical across 4 repeats with sequential == parallel. Both are correct because they test different paths: my tests used **EvalAgent (deterministic argmax) + scripted bots**, whereas the subagent measured the **training mix containing PPOAgent/StaticAgent, which SAMPLE** from the policy distribution -- reproducible only if every worker's torch RNG state matches at every sampling point, which across a parallel pool it does not. **The property that matters for the honest metric -- `evaluate_policy` reproducibility -- is verified and holds.** Do not "fix" training-path nondeterminism on the strength of the subagent's note without re-reading this.
+
+**Rounds/game:** 21.2 before vs 21.5 after the change (range 14-30 / 14-32), with ~15% of games exceeding 25 rounds in BOTH -- unchanged, so not a regression from this work. Worth noting it is above the real-BG 12-18 band though, and higher than the 15.3-15.8 measured with an untrained policy: a stronger policy survives longer and the lobby takes longer to resolve.
+
+**CLAUDE.md** was rewritten to match the code. Verified every claim against source before accepting it: the flat `+0.1` survival bonus is genuinely removed; all quoted coefficients match the DENSE_REWARD_SCALE-multiplied values (WIN_REWARD 0.15, LOSS_PENALTY -0.09, damage coefs 0.015, rank 0.045, hand 0.024); and the split `_apply_board_shape`/`_apply_tier_shape`/`phi_board`/`phi_tier` scheme the old doc described no longer exists in code (`_apply_potential_shaping` does; `_apply_board_shape` does not -- the only surviving mentions are historical comments).
+**Current state:** Run live and healthy on contract 49669406. No further code changes.
+**Open questions / next steps:**
+- `~15%` of games exceeding 25 rounds is a pre-existing engine characteristic worth a look independently of this work.
+- `_accumulated_rewards` is still dead code (see the previous entry) -- delete it.
+---
