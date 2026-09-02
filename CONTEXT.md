@@ -945,3 +945,23 @@ The ratio has **flattened at ~0.65** while both rates climb together -- the agen
 - The direct redundancy diagnostic (`_reorder_waste.py`: reorders spent per turn vs the BFS-minimum needed for the order the turn ended on) is still slow and has not produced a number. The ratio analysis above supersedes it in practice, but the direct measurement would be strictly better evidence if this comes up again.
 - Reference eval still `n/a` until the snapshot freezes at update 500.
 ---
+
+---
+### 2026-09-02 (addendum 2) — Direct redundancy measurement completed: 0% redundant REORDERs
+**Files changed:** none (measurement only)
+**What was done:** Completed the direct diagnostic left unfinished in the previous two entries (`_reorder_waste.py`), run against the live policy at update 63. Per shopping turn it records the board order at the turn's first REORDER and at END_TURN, then BFS-computes the MINIMUM move-to-front ops needed to get between them; anything spent beyond that minimum was spent to advance gamma, not to position.
+
+```
+shopping turns with >=1 REORDER: 4
+  REORDERs SPENT : 6  (1.50/turn)
+  minimum NEEDED : 6  (1.50/turn)
+  REDUNDANT      : 0  (0.0%)
+```
+
+Every REORDER was necessary to reach the ordering the turn actually ended on -- no cycling. The 1.50/turn also matches the 1.72/turn read off the aggregate action rates.
+
+**Read this with its limitation.** n=4 turns / 6 reorders is a SMALL sample. The diagnostic can only score turns where board MEMBERSHIP is unchanged between the first reorder and END_TURN (otherwise "minimum moves to reach this permutation" is undefined), and that filter drops most turns, since the agent typically places or sells after reordering. So it is a clean measurement on a narrow slice, not an independent substitute for the reorder:place ratio. The two agree from different angles: the ratio shows reorders scaling WITH placements (~0.65, flat), this shows the ones that occur are not wasted.
+**Current state:** Unchanged -- run healthy, REORDER_COST=0.03 confirmed working by two independent lines of evidence.
+**Open questions / next steps:**
+- If this needs re-measuring at scale, relax the filter: score turns with membership changes by comparing only the SURVIVING minions' relative order, which would make most turns usable instead of ~1 in 10.
+---
