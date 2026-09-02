@@ -826,3 +826,25 @@ The agent improves 6.38 -> ~5.5 while BOTH scripted baselines degrade in lockste
 - Q4 shows a slight regression (5.389 -> 5.610) over ~26 updates. Probably noise at this sample size; if it persists past update ~200 it is worth a look.
 - **When quoting any `evaluate_policy` number in future, state the opponent AND the untrained baseline for that opponent.** "Beats chance" is meaningless for a 1-vs-7 eval.
 ---
+
+---
+### 2026-09-02 — Training run stopped as converged; instance destroyed; final policy saved
+**Files changed:** none (teardown only)
+**What was done:** Assessed the i9-14900KF run (contract 49567627) for convergence before stopping, per the user's request to stop it once converged. Checked the actual trend data rather than eyeballing the chart:
+- `eval_mean_placement` (vs fixed competent greedy, the honest un-gameable metric) has oscillated in a noisy 1.9-2.6 band for the last ~1,400 updates (updates 4300-5700+) with no directional trend.
+- Dense per-update reward trend over the last 500 updates was flat-to-slightly-declining (1.54 -> 1.32 in 100-update chunks), not still climbing.
+- `lr` (5.65e-05, floor 5e-05) and `entropy_coef` (0.0044, floor 0.004) were both essentially at their annealed floor.
+- `best_avg10` (3.844) had not improved across the last ~225 updates checked.
+
+All four signals agreed: converged, not still improving. Stopped training cleanly at update 5766 (138,360+ games of the planned 150,000, steps=25,157,367) by waiting for a fresh checkpoint-save log line before killing the tmux session, to avoid interrupting a `torch.save` mid-write. Pulled and verified all three checkpoints load correctly:
+- `bg_agent_ppo.pt` — final, steps=25,157,367, updates=5766
+- `bg_agent_ppo_best.pt` — steps=21,460,679, updates=4850 (best_avg10 stopped improving after this point, so this predates the final checkpoint by ~900 updates)
+- `bg_agent_ppo_backup.pt` — steps=25,153,507, updates=5765
+
+Destroyed the vast.ai instance (contract 49567627). $3.02 credit remaining.
+**Current state:** No vast.ai instances running, nothing billing. All checkpoints, `data/fresh_training_history.json`, and `data/training_progress.png` preserved locally. This run is the first one in the project trained AND evaluated under a fully correct engine (real minion stats, correct pointer masking, escalating combat damage, levelling+selling scripted baselines, fixed optimiser, telescoping reward invariance, honest fixed-opponent eval) — every earlier session's placement numbers are not comparable to this one.
+**Open questions / next steps:**
+- `bg_agent_ppo_best.pt` (update 4850) and the final `bg_agent_ppo.pt` (update 5766) are close but not identical -- since `eval_mean_placement` was noisy-flat rather than cleanly monotonic in that window, it's not obvious the "best" checkpoint by `best_avg10` is actually the strongest by the more trustworthy eval metric. Worth a direct head-to-head eval between the two before picking one to build on.
+- The run stopped at 138,360/150,000 games (92.2%) -- short of the originally planned N_GAMES, but the convergence evidence (flat eval, flat-to-declining reward, annealed-out lr/entropy) suggests the remaining ~11,600 games were unlikely to move it further.
+- No further work has been done on this checkpoint (no BC warm-start, no further reward tuning) -- it reflects exactly the fixes documented across the 2026-09-01 sessions and nothing else.
+---
