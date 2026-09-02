@@ -14,10 +14,12 @@ import argparse
 import json
 import logging
 import os
+import pickle
 import random
 import sys
 import time
 import uuid
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -56,6 +58,25 @@ N_GREEDY_SLOTS    = 2   # opponent slots permanently assigned to GreedyPlayAgent
 SNAPSHOT_EVERY    = 10  # rolling snapshot every N PPO updates
 MILESTONE_EVERY   = 50  # protected milestone snapshot every N PPO updates
 
+# SnapshotPool tuning (see class docstring for the full mechanism). Measured
+# on the run that ended at update 5,766: 115 milestones had accumulated
+# against a capacity-20 rolling buffer -- with the old UNIFORM sample over
+# _snapshots + _milestones, that's 115/135 = 85% of self-play opponent draws
+# coming from an ever-growing pile of ancient checkpoints, made worse every
+# single update as more milestones piled up and the rolling buffer's 20-slot
+# share of the mix kept shrinking. Eval placement (vs a FIXED greedy
+# baseline, so this isn't just "the pool got harder together") flatlined
+# from update ~1300 onward for the remaining 107k games -- a training
+# population that gets progressively weaker relative to the learner is one
+# of the mechanisms that can produce exactly that shape.
+# MILESTONE_CAPACITY caps the milestone list and THINS it (never FIFO-evicts)
+# so it keeps spanning the whole run instead of growing without bound.
+# P_RECENT biases sampling toward the small, always-fresh rolling buffer so
+# most self-play opponents track current skill, while a deliberate minority
+# still come from milestones for long-run behavioral diversity.
+MILESTONE_CAPACITY = 10
+P_RECENT           = 0.75
+
 # Board-shape potential weight (see BattlegroundsGame.shape_stats_weight /
 # _board_potential): fixed at 1.0 -- the deterministic, quality-weighted stats+
 # keyword+synergy potential is the board-shape signal, full stop, no MC
@@ -73,8 +94,25 @@ BOARD_SHAPE_STATS_WEIGHT = 1.0
 # Snapshot pool for historical self-play
 # -------------------------------------------------------------------------
 
+def _default_broadcast_dir() -> Path:
+    """Preferred location for files broadcast to worker subprocesses.
+
+    /dev/shm is a RAM-backed tmpfs when writable -- writing/reading through
+    it costs no real disk I/O, just a memcpy -- falling back to the platform
+    tempdir otherwise. Shared by the current-policy weights broadcast
+    (_train_parallel's _write_weights) and SnapshotPool's per-snapshot files
+    below, distinguished only by filename prefix, so both mechanisms use the
+    identical "write once, let every worker read it in parallel" pattern.
+    """
+    import tempfile
+    shm_dir = Path("/dev/shm")
+    if shm_dir.exists() and os.access(shm_dir, os.W_OK):
+        return shm_dir
+    return Path(tempfile.gettempdir())
+
+
 class SnapshotPool:
-    """Rolling buffer of past policy state_dicts for historical self-play.
+    """Rolling buffer of past policy snapshots for historical self-play.
 
     Each game pairs N_TRAIN_PLAYERS current-policy agents against
     (N_PLAYERS - N_TRAIN_PLAYERS) agents frozen at a past checkpoint.
@@ -82,27 +120,108 @@ class SnapshotPool:
     evolving policy.
 
     Two snapshot tiers:
-      - Rolling  : recent snapshots, evicted when capacity is exceeded.
-      - Milestone: protected snapshots that are never evicted; preserve
-                   long-term behavioral diversity (e.g. early-training styles).
+      - Rolling  : recent snapshots, FIFO-evicted once `capacity` is exceeded.
+      - Milestone: long-lived snapshots added every MILESTONE_EVERY updates,
+                   preserved for long-term behavioral diversity (e.g.
+                   early-training styles) but THINNED (never simply
+                   FIFO-evicted) once `milestone_capacity` is exceeded -- see
+                   _thin_milestones. FIFO-evicting milestones would defeat
+                   their purpose (losing early-run diversity first, keeping
+                   only whatever's most recent -- exactly what the rolling
+                   buffer already provides); thinning instead drops roughly
+                   every other OLDER entry so the survivors still span the
+                   full run, always keeping the very oldest one.
+
+    Sampling is RECENCY-WEIGHTED, not uniform (see MILESTONE_CAPACITY /
+    P_RECENT module comment for the 115-milestones-vs-20-rolling measurement
+    that motivated this): with probability `p_recent` a sample is drawn from
+    the rolling buffer, weighted linearly toward its newest entries, and
+    with probability `1 - p_recent` from the milestone list (uniformly --
+    milestones are already a curated, run-spanning set, so there's no
+    "recent" bias to apply within it). Falls back gracefully to whichever
+    list is non-empty if the other is empty.
+
+    Content-addressed file store: `add()` writes the state_dict to disk
+    EXACTLY ONCE (atomically -- see _write_snapshot_file), and both the
+    rolling and milestone entries for a milestone update reference that same
+    file via a refcount, so a snapshot's file is only unlinked once nothing
+    references it any more (evicted from the rolling buffer AND thinned out
+    of / never added to the milestone list). `sample()` / `sample_n()`
+    return `(path_str, snapshot_id, tag)` references instead of raw
+    state_dicts -- workers `torch.load` the file themselves (see
+    _load_snapshot_policy) -- so this pool never pickles a ~13.89MB
+    state_dict into a task; only a path string and a small int cross the
+    process boundary.
 
     Usage::
 
         pool = SnapshotPool(capacity=20)
         pool.add(policy.state_dict(), update_count=10)                    # rolling
         pool.add(policy.state_dict(), update_count=50, is_milestone=True) # protected
-        opp_sds = pool.sample_n(5)   # five independent (state_dict, tag) draws
+        opp_refs = pool.sample_n(5)   # five independent (path, snap_id, tag) draws
+        pool.cleanup()                # at run end: unlink every live snapshot file
 
-    Each entry is a ``(state_dict, tag)`` pair where *tag* is a short label
-    like ``"snapshot_u10"`` or ``"milestone_u50"`` identifying which PPO
-    update the snapshot was frozen at — used to attribute wins/losses back
-    to a specific point in training (see ``_append_agent_stats``).
+    *tag* is a short label like ``"snapshot_u10"`` or ``"milestone_u50"``
+    identifying which PPO update the snapshot was frozen at — used to
+    attribute wins/losses back to a specific point in training (see
+    ``_append_agent_stats``). This format is unchanged from the previous
+    (raw state_dict) implementation.
     """
 
-    def __init__(self, capacity: int = 20) -> None:
-        self.capacity    = capacity
-        self._snapshots:  List[tuple] = []   # rolling, evictable: (state_dict, tag)
-        self._milestones: List[tuple] = []   # protected, never evicted
+    def __init__(
+        self,
+        capacity: int = 20,
+        milestone_capacity: int = MILESTONE_CAPACITY,
+        p_recent: float = P_RECENT,
+        weights_dir: Optional[Path] = None,
+        file_prefix: str = "bg_snapshot",
+    ) -> None:
+        self.capacity           = capacity
+        self.milestone_capacity = milestone_capacity
+        self.p_recent           = p_recent
+        self._weights_dir = Path(weights_dir) if weights_dir is not None else _default_broadcast_dir()
+        self._file_prefix = file_prefix
+        self._snapshots:  List[tuple] = []   # rolling,   evictable: (snap_id, path_str, tag)
+        self._milestones: List[tuple] = []   # protected, thinned:   (snap_id, path_str, tag)
+        self._next_id   = 0
+        self._refcount: Dict[int, int] = {}   # snap_id -> # of lists referencing its file
+        self._paths:    Dict[int, str] = {}   # snap_id -> path_str, for referenced (live) files
+
+    def _snapshot_path(self, snap_id: int) -> Path:
+        return self._weights_dir / f"{self._file_prefix}_s{snap_id}.pt"
+
+    def _write_snapshot_file(self, state_dict: dict) -> tuple:
+        """Write *state_dict* to a fresh, immutable, versioned file and
+        return (snap_id, path_str).
+
+        Atomic write: save to a `.tmp` sibling then os.replace() onto the
+        real name -- same pattern as _train_parallel's _write_weights, so a
+        worker can never torch.load a partially written file.
+        """
+        snap_id  = self._next_id
+        self._next_id += 1
+        path     = self._snapshot_path(snap_id)
+        tmp_path = path.with_name(path.name + ".tmp")
+        cpu_sd   = {k: v.detach().cpu().clone() for k, v in state_dict.items()}
+        torch.save(cpu_sd, str(tmp_path))
+        os.replace(str(tmp_path), str(path))
+        path_str = str(path)
+        self._paths[snap_id] = path_str
+        return snap_id, path_str
+
+    def _release(self, entry: tuple) -> None:
+        """Decrement the refcount backing *entry*'s file; unlink it once
+        nothing (rolling or milestone) references it any more."""
+        snap_id = entry[0]
+        self._refcount[snap_id] = self._refcount.get(snap_id, 1) - 1
+        if self._refcount[snap_id] <= 0:
+            path_str = self._paths.pop(snap_id, None)
+            self._refcount.pop(snap_id, None)
+            if path_str is not None:
+                try:
+                    Path(path_str).unlink()
+                except OSError:
+                    pass  # already gone / never existed -- nothing to reclaim
 
     def add(
         self,
@@ -111,31 +230,108 @@ class SnapshotPool:
         is_milestone: bool = False,
         update_count: Optional[int] = None,
     ) -> None:
-        """Append a CPU clone of *state_dict* to the rolling buffer.
+        """Write *state_dict* to a new snapshot file (once) and append it to
+        the rolling buffer.
 
-        If *is_milestone* is True, also add to the protected milestone list.
+        If *is_milestone* is True, also append the SAME file reference to the
+        protected milestone list (refcounted -- see class docstring), then
+        thin the milestone list if it has grown past `milestone_capacity`.
         """
-        tag  = f"{'milestone' if is_milestone else 'snapshot'}_u{update_count}"
-        snap = {k: v.detach().cpu().clone() for k, v in state_dict.items()}
-        self._snapshots.append((snap, tag))
+        tag = f"{'milestone' if is_milestone else 'snapshot'}_u{update_count}"
+        snap_id, path_str = self._write_snapshot_file(state_dict)
+        entry = (snap_id, path_str, tag, update_count if update_count is not None else self._next_id)
+
+        refs = 1
+        self._snapshots.append(entry)
         if len(self._snapshots) > self.capacity:
-            self._snapshots.pop(0)
+            self._release(self._snapshots.pop(0))
         if is_milestone:
-            self._milestones.append(
-                ({k: v.detach().cpu().clone() for k, v in state_dict.items()}, tag)
-            )
+            self._milestones.append(entry)
+            refs += 1
+            self._thin_milestones()
+        self._refcount[snap_id] = self._refcount.get(snap_id, 0) + refs
+
+    def _thin_milestones(self) -> None:
+        """Cap the milestone list by THINNING, never FIFO-eviction.
+
+        The goal is a retained set that stays evenly spread across the WHOLE
+        run, because that is the only thing the milestone tier provides that
+        the rolling buffer does not (the rolling buffer already covers
+        "recent" far better). FIFO-eviction would drop the oldest first,
+        which is exactly backwards.
+
+        Removes one entry at a time, always the most REDUNDANT interior one:
+        the entry whose neighbours are closest together in update-count, i.e.
+        whose removal widens the largest gap least. The first and last
+        entries are never candidates, so the run's full span is preserved.
+
+        An earlier version halved the "older" slice (`older[0::2]`) on each
+        overflow. That looks like even thinning but is not: repeated halving
+        collapses toward the front and the tail, and measured over a
+        6,000-update replay it retained `u50, u5200, u5450, ... u6000` --
+        the oldest, then a cluster at the very end, with a 5,150-update hole
+        in the middle. Spacing has to be computed, not approximated by
+        slicing.
+        """
+        while len(self._milestones) > self.milestone_capacity and len(self._milestones) > 2:
+            # Candidate i (interior only) scored by the gap its removal
+            # creates: update[i+1] - update[i-1]. Smallest score = most
+            # redundant = safest to drop.
+            best_i, best_gap = None, None
+            for i in range(1, len(self._milestones) - 1):
+                gap = self._milestones[i + 1][3] - self._milestones[i - 1][3]
+                if best_gap is None or gap < best_gap:
+                    best_i, best_gap = i, gap
+            if best_i is None:
+                break
+            self._release(self._milestones.pop(best_i))
+
+    def _weighted_recent_choice(self, pool: List[tuple]) -> tuple:
+        """Pick one entry from *pool*, weighting linearly toward the end
+        (newest) of the list -- e.g. for n=4 the weights are [1, 2, 3, 4],
+        so the newest entry is 4x as likely as the oldest."""
+        n = len(pool)
+        if n == 1:
+            return pool[0]
+        return random.choices(pool, weights=range(1, n + 1), k=1)[0]
 
     def sample(self) -> Optional[tuple]:
-        """Return a uniformly sampled (state_dict, tag) pair, or None if empty."""
-        pool = self._snapshots + self._milestones
-        return random.choice(pool) if pool else None
+        """Return one recency-weighted (path_str, snapshot_id, tag) reference,
+        or None if the pool is empty (see class docstring for the sampling
+        rule)."""
+        has_rolling   = bool(self._snapshots)
+        has_milestone = bool(self._milestones)
+        if not has_rolling and not has_milestone:
+            return None
+        if has_rolling and has_milestone:
+            use_rolling = random.random() < self.p_recent
+        else:
+            use_rolling = has_rolling
+        if use_rolling:
+            snap_id, path_str, tag = self._weighted_recent_choice(self._snapshots)[:3]
+        else:
+            snap_id, path_str, tag = random.choice(self._milestones)[:3]
+        return path_str, snap_id, tag
 
     def sample_n(self, n: int) -> List[Optional[tuple]]:
-        """Return *n* independently sampled (state_dict, tag) pairs (with replacement)."""
-        pool = self._snapshots + self._milestones
-        if not pool:
-            return [None] * n
-        return [random.choice(pool) for _ in range(n)]
+        """Return *n* independently sampled (path_str, snapshot_id, tag)
+        references (with replacement), or a list of Nones if the pool is
+        empty."""
+        return [self.sample() for _ in range(n)]
+
+    def cleanup(self) -> None:
+        """Unlink every snapshot file this pool still holds a live reference
+        to. Call once at run end (mirrors _train_parallel's weights-file
+        `finally:` cleanup) -- failures are swallowed, same rationale as
+        that cleanup: a leftover file in /dev/shm must never crash a
+        training run on its way out, but must not be left behind either."""
+        for path_str in list(self._paths.values()):
+            try:
+                Path(path_str).unlink()
+            except OSError:
+                pass
+        self._paths.clear()
+        self._refcount.clear()
 
     def __len__(self) -> int:
         return len(self._snapshots) + len(self._milestones)
@@ -424,6 +620,57 @@ def _scripted_should_level(ps) -> bool:
     if ps.tavern_tier >= expected_tier_for_round(ps.round_num):
         return False
     return len(ps.board) >= SCRIPTED_MIN_BOARD_TO_LEVEL
+
+
+class EvalStaticAgent(StaticAgent):
+    """Frozen-reference opponent for evaluate_policy: deterministic, and it
+    opts out of batching.
+
+    Two properties matter here, and both were learned the hard way:
+
+    1. `supports_batching = False`. EvalAgent's deterministic argmax is only
+       honoured on game_loop's sequential per-player path, and that path is
+       chosen only when EVERY seat opts out of batching (see EvalAgent's
+       docstring). Plain StaticAgent does not set it, so seating one opposite
+       an EvalAgent would silently switch the game to the batched path and
+       destroy the determinism the eval depends on.
+
+    2. Deterministic action selection. StaticAgent SAMPLES from the policy
+       distribution, which is right for self-play (diverse opposition) and
+       wrong for a measurement: measured over 4 repeats of a 16-game
+       reference eval at a fixed seed, sampling opponents produced mean
+       placements of 5.75 / 6.13 / 6.25 / 6.31 -- a ~0.6 spread of pure noise
+       on the metric that is supposed to be the un-gameable progress signal.
+       The whole point of pinning per-game seeds is that a change in this
+       number means the POLICY changed; a sampling opponent breaks that.
+    """
+
+    supports_batching = False
+
+    def get_action(self, obs: dict) -> tuple:
+        ps  = obs["player_state"]
+        dev = torch.device(self.device)
+        self._cached_type_mask = build_type_mask(ps).numpy()
+        t_mask_t = torch.from_numpy(self._cached_type_mask).unsqueeze(0).to(dev)
+        p_mask_t = build_pointer_mask(ps, -1).unsqueeze(0).to(dev)
+
+        board_t  = torch.tensor(obs["board_tokens"][None],  dtype=torch.float32, device=dev)
+        shop_t   = torch.tensor(obs["shop_tokens"][None],   dtype=torch.float32, device=dev)
+        hand_t   = torch.tensor(obs["hand_tokens"][None],   dtype=torch.float32, device=dev)
+        scalar_t = torch.tensor(obs["scalar_context"][None], dtype=torch.float32, device=dev)
+        opp_np   = obs.get("opponent_tokens")
+        opp_t    = (torch.tensor(opp_np[None], dtype=torch.float32, device=dev)
+                    if opp_np is not None else None)
+
+        with torch.no_grad():
+            type_idx, ptr_idx, _, _, used_ptr_mask = self.policy.get_action(
+                board_t, shop_t, hand_t, scalar_t,
+                type_mask=t_mask_t, pointer_mask=p_mask_t, opp_tokens=opp_t,
+                ptr_mask_fn=lambda t_idx: build_pointer_mask(ps, t_idx),
+                deterministic=True,          # <-- the difference from StaticAgent
+            )
+        self._cached_ptr_mask = used_ptr_mask.cpu().numpy()
+        return type_idx, ptr_idx
 
 
 class HeuristicAgent:
@@ -856,15 +1103,101 @@ _W_DEVICE: str = "cpu"
 _W_SD_VERSION: Optional[int] = None
 _W_SD_CACHE: Optional[dict] = None
 
+# Bounded per-worker LRU of loaded SNAPSHOT opponent networks, keyed by the
+# pool's stable snapshot_id. Unlike the one-entry current-policy cache above,
+# this one genuinely pays off: SnapshotPool holds a small set of ids (capacity
+# 20 rolling + MILESTONE_CAPACITY milestones) and recency-weighted sampling
+# draws the same handful of ids over and over, so a worker sees repeats
+# constantly. Bounded at 8 because each BGPolicyNetwork is ~3.47M params and a
+# worker already carries ~500MB RSS; keyed by snapshot_id rather than the old
+# `id(sd)` because a memory address is only stable within one task, whereas the
+# whole point here is reuse ACROSS tasks.
+_W_SNAP_CACHE_MAX = 8
+_W_SNAP_CACHE: "OrderedDict[int, Any]" = OrderedDict()
+
+
+def _load_snapshot_policy(path_str: str, snapshot_id: int, device: str):
+    """Return the snapshot network for *snapshot_id*, loading it from
+    *path_str* on a cache miss.
+
+    Raises on a failed load. A snapshot file can legitimately disappear (its
+    entry was evicted from the rolling buffer or thinned out of the milestone
+    list while a queue_factor-backlogged task still referenced it), and the
+    only safe response is to fail loudly: silently substituting different
+    weights would mean training against an opponent that is not the one the
+    run believes it faced, and nothing downstream could ever detect it. This
+    mirrors the current-policy weights path, which raises for the same reason.
+    """
+    import torch as _torch
+    global _W_SNAP_CACHE
+    cached = _W_SNAP_CACHE.get(snapshot_id)
+    if cached is not None:
+        _W_SNAP_CACHE.move_to_end(snapshot_id)
+        return cached
+    try:
+        sd = _torch.load(path_str, map_location="cpu")
+    except (FileNotFoundError, OSError, RuntimeError, EOFError) as exc:
+        raise RuntimeError(
+            f"worker could not load snapshot {snapshot_id} from {path_str}: {exc}"
+        ) from exc
+    pol = BGPolicyNetwork(
+        card_dim=44, d_model=256, nhead=8, num_layers=4,
+        scalar_dim=100, dropout=0.1,
+    ).to(device)
+    pol.load_state_dict(sd)
+    pol.eval()
+    _W_SNAP_CACHE[snapshot_id] = pol
+    _W_SNAP_CACHE.move_to_end(snapshot_id)
+    while len(_W_SNAP_CACHE) > _W_SNAP_CACHE_MAX:
+        _W_SNAP_CACHE.popitem(last=False)
+    return pol
+
+
+_W_EVAL_CACHE: "OrderedDict[str, Any]" = OrderedDict()
+_W_EVAL_CACHE_MAX = 4
+
+
+def _load_eval_policy(path_str: str, device: str):
+    """Load (and cache) an eval-side network from a weights file.
+
+    Keyed on the path, which is safe because every file evaluate_policy writes
+    is immutable for the life of the call that wrote it. Bounded at 4 because
+    one eval needs at most two distinct networks (the policy under test and the
+    frozen reference); the slack just absorbs back-to-back eval calls.
+    """
+    import torch as _torch
+    global _W_EVAL_CACHE
+    cached = _W_EVAL_CACHE.get(path_str)
+    if cached is not None:
+        _W_EVAL_CACHE.move_to_end(path_str)
+        return cached
+    try:
+        sd = _torch.load(path_str, map_location="cpu")
+    except (FileNotFoundError, OSError, RuntimeError, EOFError) as exc:
+        raise RuntimeError(f"eval worker could not load weights {path_str}: {exc}") from exc
+    pol = BGPolicyNetwork(
+        card_dim=44, d_model=256, nhead=8, num_layers=4,
+        scalar_dim=100, dropout=0.1,
+    ).to(device)
+    pol.load_state_dict(sd)
+    pol.eval()
+    _W_EVAL_CACHE[path_str] = pol
+    _W_EVAL_CACHE.move_to_end(path_str)
+    while len(_W_EVAL_CACHE) > _W_EVAL_CACHE_MAX:
+        _W_EVAL_CACHE.popitem(last=False)
+    return pol
+
 
 def _worker_init(card_defs: dict, device: str) -> None:
     """Pool initializer: runs once per worker process on Windows spawn."""
     import torch as _torch
-    global _W_CARD_DEFS, _W_DEVICE, _W_SD_VERSION, _W_SD_CACHE
+    global _W_CARD_DEFS, _W_DEVICE, _W_SD_VERSION, _W_SD_CACHE, _W_SNAP_CACHE
     _W_CARD_DEFS  = card_defs
     _W_DEVICE     = device
     _W_SD_VERSION = None
     _W_SD_CACHE   = None
+    _W_SNAP_CACHE = OrderedDict()
+    _W_EVAL_CACHE.clear()
     # Prevent PyTorch from spawning multiple internal threads per worker.
     # With N workers each using 1 thread, total = N threads = one per core.
     _torch.set_num_threads(1)
@@ -915,6 +1248,12 @@ def _worker_run_game(task: tuple) -> tuple:
     import numpy as _np
     import torch as _torch
 
+    # `task` arrives pre-pickled: the main process serializes it explicitly so
+    # the cost is attributable to a phase instead of hiding inside the pool's
+    # feeder thread (see _dispatch_one). Tolerate a raw tuple too, so any
+    # caller that still passes an object keeps working.
+    if isinstance(task, (bytes, bytearray)):
+        task = pickle.loads(task)
     weights_ref, opp_sds, seed, stats_weight = task
     weights_path, weights_version = weights_ref
     card_defs = _W_CARD_DEFS
@@ -981,9 +1320,12 @@ def _worker_run_game(task: tuple) -> tuple:
         agents[pid] = PPOAgent(current_policy, ppo_trainer, player_id=pid, device=device, game_uid=seed)
         agent_labels[pid] = "train_current"
 
-    # Build opponent agents; deduplicate policy networks by state_dict identity
-    # to avoid loading the same weights into multiple BGPolicyNetwork instances.
-    _policy_cache: Dict[int, Any] = {}
+    # Build opponent agents. Snapshot entries are now (path, snapshot_id, tag)
+    # REFERENCES rather than raw state_dicts (see SnapshotPool): the weights
+    # live in one file the worker reads itself, so a task carries a path string
+    # instead of ~13.89MB per snapshot slot. Deduplication is handled by the
+    # process-wide _W_SNAP_CACHE keyed on snapshot_id, which also means two
+    # slots drawing the SAME snapshot in one game share one loaded network.
     for slot_i, pid in enumerate(opp_pids):
         entry = opp_sds[slot_i]
         if entry == "heuristic":
@@ -997,17 +1339,9 @@ def _worker_run_game(task: tuple) -> tuple:
             agents[pid] = PPOAgent(current_policy, ppo_trainer, player_id=pid, device=device, game_uid=seed)
             agent_labels[pid] = "train_current"
         else:
-            sd, tag = entry
-            sd_id = id(sd)
-            if sd_id not in _policy_cache:
-                pol = BGPolicyNetwork(
-                    card_dim=44, d_model=256, nhead=8, num_layers=4,
-                    scalar_dim=100, dropout=0.1,
-                ).to(device)
-                pol.load_state_dict(sd)
-                pol.eval()
-                _policy_cache[sd_id] = pol
-            agents[pid] = StaticAgent(_policy_cache[sd_id], player_id=pid, device=device)
+            snap_path, snap_id, tag = entry
+            pol = _load_snapshot_policy(snap_path, snap_id, device)
+            agents[pid] = StaticAgent(pol, player_id=pid, device=device)
             agent_labels[pid] = tag
 
     game = BattlegroundsGame(
@@ -1076,18 +1410,19 @@ def _worker_run_eval_game(task: tuple) -> tuple:
     card_defs = _W_CARD_DEFS
     device    = _W_DEVICE
 
-    game_idx, policy_sd, opponent, game_seed = task
+    game_idx, policy_ref, opponent, game_seed, ref_path = task
     eval_pid = game_idx % N_PLAYERS
 
     board_comp = SymbolicBoardComputer(card_defs)
     firestone  = FirestoneClient(firestone_path=None, mock_mode=True)
 
-    policy = BGPolicyNetwork(
-        card_dim=44, d_model=256, nhead=8, num_layers=4,
-        scalar_dim=100, dropout=0.1,
-    ).to(device)
-    policy.load_state_dict(policy_sd)
-    policy.eval()
+    # policy_ref is a PATH, not a state_dict. evaluate_policy used to pickle a
+    # full ~13.89MB state_dict into every one of its n_games tasks (~1.8GB per
+    # eval at n_games=128), all through the pool's single feeder thread; it now
+    # writes the weights once and passes the filename. Cached per worker
+    # process keyed on the path, since a worker handles several eval games and
+    # the file is immutable for the life of one evaluate_policy call.
+    policy = _load_eval_policy(policy_ref, device)
 
     tavern_pool = TavernPool(card_defs, seed=game_seed)
     matchmaker  = Matchmaker(n_players=N_PLAYERS, seed=game_seed)
@@ -1103,6 +1438,14 @@ def _worker_run_eval_game(task: tuple) -> tuple:
             agents[pid] = EvalAgent(policy, player_id=pid, device=device)
         elif opponent == "greedy":
             agents[pid] = GreedyPlayAgent(player_id=pid)
+        elif opponent == "reference":
+            # Seven copies of a FROZEN earlier self. Unlike greedy/heuristic
+            # this opponent does not saturate: it stays a fixed target while
+            # the policy keeps improving past the point where the scripted
+            # baselines stop discriminating.
+            agents[pid] = EvalStaticAgent(
+                _load_eval_policy(ref_path, device), player_id=pid, device=device
+            )
         else:
             agents[pid] = HeuristicAgent(player_id=pid)
 
@@ -1419,6 +1762,9 @@ def _train_parallel(
     t_dispatch = 0.0   # inside _dispatch_one (task construction + pool.submit)
     t_merge    = 0.0   # per completed game: fut.result(), buffer merge, stats, log line
     t_update   = 0.0   # inside ppo_trainer.update() and the snapshot/logging after it
+    t_serialize = 0.0  # inside pickle.dumps(task) -- a SUBSET of t_dispatch
+    ser_bytes   = 0    # total task-payload bytes pickled
+    ser_count   = 0    # tasks pickled (so mean bytes/task is reportable)
 
     def _make_task() -> tuple:
         nonlocal sd, sd_stale, weights_ref, dispatch_counter
@@ -1433,13 +1779,32 @@ def _train_parallel(
         seed_value = (seed + ppo_trainer.total_steps + dispatch_counter) if seed is not None else None
         dispatch_counter += 1
         # weights_ref replaces the raw state_dict here -- (path, version) is
-        # a couple hundred bytes to pickle instead of ~13.89MB.
+        # a couple hundred bytes to pickle instead of ~13.89MB. opp_sds is
+        # likewise references now, not raw snapshot state_dicts.
         return (weights_ref, opp_sds, seed_value, BOARD_SHAPE_STATS_WEIGHT)
 
     def _dispatch_one() -> None:
-        nonlocal dispatched, t_dispatch
+        nonlocal dispatched, t_dispatch, t_serialize, ser_bytes, ser_count
         _t0 = time.perf_counter()
-        fut = pool.submit(_worker_run_game, _make_task())
+        task = _make_task()
+        # WHY the task is pickled HERE instead of being handed to submit() as
+        # an object: t_dispatch used to wrap only pool.submit(), which returns
+        # the instant the work item is appended to the pending-work queue. The
+        # actual pickling happens LATER, in ProcessPoolExecutor's single
+        # GIL-bound queue-feeder thread, so its cost showed up as workers
+        # idling inside t_wait and was invisible to t_dispatch BY
+        # CONSTRUCTION. A previous session read `dispatch=0.0% merge=0.0-0.3%`
+        # off that instrumentation and concluded main-process serialization
+        # was "no longer measurable" -- a false negative, not a finding, and
+        # at the time each task still carried ~27.8MB of snapshot state_dicts.
+        # Pickling explicitly moves the cost into a phase that can be
+        # attributed, and yields bytes/task for free.
+        _t1 = time.perf_counter()
+        payload = pickle.dumps(task, protocol=pickle.HIGHEST_PROTOCOL)
+        t_serialize += time.perf_counter() - _t1
+        ser_bytes += len(payload)
+        ser_count += 1
+        fut = pool.submit(_worker_run_game, payload)
         in_flight[fut] = time.time()
         dispatched += 1
         t_dispatch += time.perf_counter() - _t0
@@ -1670,9 +2035,13 @@ def _train_parallel(
                     # signature of a main-process bottleneck.
                     if wall > 0:
                         logger.info(
-                            "phase: wait=%.1f%% dispatch=%.1f%% merge=%.1f%% update=%.1f%% (%.1fs wall)",
+                            "phase: wait=%.1f%% dispatch=%.1f%% (serialize=%.1f%%) merge=%.1f%% "
+                            "update=%.1f%% (%.1fs wall) | %.0f B/task, %.1f MB total",
                             100.0 * t_wait / wall, 100.0 * t_dispatch / wall,
+                            100.0 * t_serialize / wall,
                             100.0 * t_merge / wall, 100.0 * t_update / wall, wall,
+                            (ser_bytes / ser_count) if ser_count else 0.0,
+                            ser_bytes / 1e6,
                         )
                     last_batch_t = flush_t
                     group_summaries   = []
@@ -1742,9 +2111,13 @@ def _train_parallel(
                 on_batch(game_idx, group_summaries, group_transitions, wall)
             if wall > 0:
                 logger.info(
-                    "phase: wait=%.1f%% dispatch=%.1f%% merge=%.1f%% update=%.1f%% (%.1fs wall)",
+                    "phase: wait=%.1f%% dispatch=%.1f%% (serialize=%.1f%%) merge=%.1f%% "
+                    "update=%.1f%% (%.1fs wall) | %.0f B/task, %.1f MB total",
                     100.0 * t_wait / wall, 100.0 * t_dispatch / wall,
+                    100.0 * t_serialize / wall,
                     100.0 * t_merge / wall, 100.0 * t_update / wall, wall,
+                    (ser_bytes / ser_count) if ser_count else 0.0,
+                    ser_bytes / 1e6,
                 )
     finally:
         pool.shutdown(wait=True)
@@ -1758,6 +2131,12 @@ def _train_parallel(
                 _weights_path(_v).unlink()
             except OSError:
                 pass
+        # Same teardown for the snapshot pool's own files, which live in the
+        # same directory under a different prefix. Refcounted eviction already
+        # reclaims most of them during the run; this catches whatever is still
+        # referenced at exit. Without it a run leaks up to
+        # (capacity + MILESTONE_CAPACITY) x ~13.89MB of RAM-backed tmpfs.
+        snapshot_pool.cleanup()
 
 
 # -------------------------------------------------------------------------
@@ -1771,6 +2150,7 @@ def _evaluate_policy_sequential(
     opponent: str,
     device: str,
     seed: Optional[int],
+    ref_path: Optional[str] = None,
 ) -> List[int]:
     """Single-process implementation of the evaluate_policy game loop.
 
@@ -1807,6 +2187,13 @@ def _evaluate_policy_sequential(
                 agents[pid] = EvalAgent(policy, player_id=pid, device=device)
             elif opponent == "greedy":
                 agents[pid] = GreedyPlayAgent(player_id=pid)
+            elif opponent == "reference":
+                # Must match the parallel path's seating exactly -- this is
+                # the fallback when the pool fails, and a fallback that
+                # measures something different is worse than no fallback.
+                agents[pid] = EvalStaticAgent(
+                    _load_eval_policy(ref_path, device), player_id=pid, device=device
+                )
             else:
                 agents[pid] = HeuristicAgent(player_id=pid)
 
@@ -1838,6 +2225,7 @@ def _evaluate_policy_parallel(
     opponent: str,
     seed: Optional[int],
     n_workers: int,
+    ref_path: Optional[str] = None,
 ) -> List[int]:
     """Parallel implementation of the evaluate_policy game loop.
 
@@ -1876,12 +2264,25 @@ def _evaluate_policy_parallel(
     # boundary (see _train_parallel's identical `sd` snapshot pattern).
     policy_sd = {k: v.detach().cpu().clone() for k, v in policy.state_dict().items()}
 
+    # Broadcast the weights through a file rather than pickling them into each
+    # task: at n_games=128 the old form pushed ~1.8GB (128 x ~13.89MB) through
+    # the pool's single feeder thread per eval. Same atomic .tmp + os.replace
+    # pattern as _train_parallel._write_weights, so no worker can observe a
+    # half-written file.
+    _bdir = _default_broadcast_dir()
+    _tag  = f"{os.getpid()}_{uuid.uuid4().hex[:8]}"
+    eval_weights_path = _bdir / f"bg_eval_{_tag}.pt"
+    _tmp = eval_weights_path.with_name(eval_weights_path.name + ".tmp")
+    torch.save(policy_sd, str(_tmp))
+    os.replace(str(_tmp), str(eval_weights_path))
+
     tasks = [
         (
             g,
-            policy_sd,
+            str(eval_weights_path),
             opponent,
             (seed + g) if seed is not None else None,
+            ref_path,
         )
         for g in range(n_games)
     ]
@@ -1896,6 +2297,10 @@ def _evaluate_policy_parallel(
         results = list(pool.map(_worker_run_eval_game, tasks))
     finally:
         pool.shutdown(wait=True)
+        try:
+            eval_weights_path.unlink()
+        except OSError:
+            pass
 
     # Aggregate by game index, not completion/arrival order (see docstring).
     results.sort(key=lambda r: r[0])
@@ -1910,6 +2315,7 @@ def evaluate_policy(
     device: str = "cpu",
     seed: Optional[int] = None,
     n_workers: int = 1,
+    ref_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Measure the current policy's raw skill against a FIXED scripted opponent.
 
@@ -1998,10 +2404,13 @@ def evaluate_policy(
     run. Callers should treat NaN metrics as "eval unavailable this round"
     rather than a real measurement.
     """
-    if opponent not in ("greedy", "heuristic"):
+    if opponent not in ("greedy", "heuristic", "reference"):
         raise ValueError(
-            f"evaluate_policy: unknown opponent {opponent!r}, expected 'greedy' or 'heuristic'"
+            f"evaluate_policy: unknown opponent {opponent!r}, expected "
+            "'greedy', 'heuristic' or 'reference'"
         )
+    if opponent == "reference" and not ref_path:
+        raise ValueError("evaluate_policy: opponent='reference' requires ref_path")
 
     was_training  = policy.training
     _random_state = random.getstate()
@@ -2013,6 +2422,7 @@ def evaluate_policy(
                 try:
                     placements = _evaluate_policy_parallel(
                         policy, card_defs, n_games, opponent, seed, n_workers,
+                        ref_path=ref_path,
                     )
                 except Exception as exc:
                     logger.warning(
@@ -2022,10 +2432,12 @@ def evaluate_policy(
                     )
                     placements = _evaluate_policy_sequential(
                         policy, card_defs, n_games, opponent, device, seed,
+                        ref_path=ref_path,
                     )
             else:
                 placements = _evaluate_policy_sequential(
                     policy, card_defs, n_games, opponent, device, seed,
+                    ref_path=ref_path,
                 )
 
             placements_arr = np.asarray(placements, dtype=np.float64)

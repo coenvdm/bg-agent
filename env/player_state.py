@@ -135,6 +135,8 @@ class PlayerState:
     health: int = 40
     armor: int = 0
     # ── Hero power state ─────────────────────────────────────────────────────
+    reorders_left:       int   = 6       # REORDER budget this buy phase; see
+                                         # agent.policy.REORDER_BUDGET_PER_TURN
     hero_power_used:     bool  = False   # reset to False at start of each buy phase
     hero_power_charges:  int   = -1      # remaining uses this game; -1 = unlimited
     hero_power_cost:     int   = 0       # current gold cost

@@ -11,7 +11,7 @@ Architecture:
                   Transformer outputs for board/shop/hand tokens → 24 card-pointer logits
   - value_head:   CLS + scalar_context → scalar value
 
-Action types (9; 0-7 match the original BGPolicyV2 BC model, 8 added later):
+Action types (10; 0-7 match the original BGPolicyV2 BC model, 8-9 added later):
   0 buy        → pointer: shop  slot  [PTR_SHOP_OFF  + i,  i in 0-6]
   1 sell       → pointer: board slot  [PTR_BOARD_OFF + i,  i in 0-6]
   2 place      → pointer: hand  slot  [PTR_HAND_OFF  + i,  i in 0-9]
@@ -23,6 +23,15 @@ Action types (9; 0-7 match the original BGPolicyV2 BC model, 8 added later):
   8 activate   → pointer: board slot  [PTR_BOARD_OFF + i,  i in 0-6] (minion's
                  own "Activate (N)" ability; reuses the board zone since the
                  target is always the activating minion itself)
+  9 reorder    → pointer: board slot  [PTR_BOARD_OFF + i,  i in 1-6] (move that
+                 minion to the FRONT of the board). Slot 0 is never valid, so
+                 every REORDER is a real state change and can never be used as
+                 a free no-op to stall the discount (the exact exploit ACTIVATE
+                 enabled before its mask was fixed -- see CONTEXT.md
+                 2026-09-01). Move-to-front composes: any permutation of n
+                 minions is reachable in at most n-1 of these, so a single
+                 board-slot pointer is fully expressive and no second
+                 ("to where?") pointer head is needed.
 
 Pointer layout (24, matching BGPolicyV2 BC model):
   [0-6]   shop  slots
@@ -53,13 +62,19 @@ logger = logging.getLogger(__name__)
 CARD_DIM   = 44
 SCALAR_DIM = 100  # 24 own-board + 64 all-opponents (8×8, own slot zeroed) + 6 lobby + 6 economy
 
-# ── Action type space (0-7 match BGPolicyV2; 8=activate added for Activate (N) minions) ──
-N_ACTION_TYPES    = 9
+# ── Action type space (0-7 match BGPolicyV2; 8=activate, 9=reorder added later) ──
+N_ACTION_TYPES    = 10
 ACTION_TYPE_NAMES = ["buy", "sell", "place", "reroll", "freeze",
-                     "level_up", "hero_power", "end_turn", "activate"]
+                     "level_up", "hero_power", "end_turn", "activate", "reorder"]
 
 # Types that require a card pointer; all others use ptr_idx = -1
-TYPES_WITH_POINTER = frozenset({0, 1, 2, 8})  # buy, sell, place, activate
+TYPES_WITH_POINTER = frozenset({0, 1, 2, 8, 9})  # buy, sell, place, activate, reorder
+
+# Max REORDER actions per shopping turn. 6 is exactly what a full 7-minion
+# board needs to reach ANY permutation via move-to-front (n-1), so the budget
+# never blocks a reachable arrangement -- it only stops unbounded no-cost
+# stalling (see build_type_mask's reorder branch).
+REORDER_BUDGET_PER_TURN = 6
 
 # ── Pointer space (matches BGPolicyV2) ────────────────────────────────────────
 SHOP_ZONE_SIZE  = 7
@@ -77,6 +92,7 @@ _ZONE_SLICE = {
     1: (PTR_BOARD_OFF, BOARD_ZONE_SIZE),
     2: (PTR_HAND_OFF,  HAND_ZONE_SIZE),
     8: (PTR_BOARD_OFF, BOARD_ZONE_SIZE),  # activate → board zone (same slot as sell)
+    9: (PTR_BOARD_OFF, BOARD_ZONE_SIZE),  # reorder  → board zone (minion to move)
 }
 
 
@@ -703,7 +719,7 @@ def _activatable_board_slots(board, gold: int) -> List[bool]:
 
 
 def build_type_mask(player_state) -> torch.Tensor:
-    """Build a [9] boolean mask of valid action types from a player state.
+    """Build a [10] boolean mask of valid action types from a player state.
 
     Accepts either a dataclass/object with attribute access or a plain dict.
 
@@ -718,6 +734,7 @@ def build_type_mask(player_state) -> torch.Tensor:
     6 hero_power : not used this turn AND charges > 0 AND gold >= cost AND hero active
     7 end_turn   : always valid
     8 activate   : any board minion has an unused, affordable Activate (N) ability
+    9 reorder    : >= 2 minions on board AND this turn's reorder budget not spent
     """
     if isinstance(player_state, dict):
         gold        = player_state.get("gold", 0)
@@ -782,6 +799,13 @@ def build_type_mask(player_state) -> torch.Tensor:
     )  # hero_power
     mask[7] = True                                                  # end_turn
     mask[8] = any(_activatable_board_slots(board, gold))            # activate
+    # reorder: needs something to reorder (>=2 minions, since slot 0 is never a
+    # valid target) and budget left this turn. The budget exists because a
+    # state-changing-but-costless action is otherwise a stalling device: each
+    # one advances a gamma=0.997 step, so spamming them discounts the pending
+    # END_TURN penalties. ACTIVATE demonstrated exactly this failure mode.
+    _reorders_left = getattr(player_state, "reorders_left", REORDER_BUDGET_PER_TURN)
+    mask[9] = bool(n_board >= 2 and _reorders_left > 0)              # reorder
     return mask
 
 
@@ -846,6 +870,17 @@ def build_pointer_mask(player_state, type_idx: int) -> torch.Tensor:
                 mask[PTR_BOARD_OFF + i] = True
         if not mask.any():
             mask[PTR_BOARD_OFF:PTR_BOARD_OFF + BOARD_ZONE_SIZE] = True
+    elif type_idx == 9:        # reorder → board zone, EXCLUDING slot 0
+        # Slot 0 is excluded on purpose: moving the front minion to the front
+        # is a no-op, and a costless no-op is a discount-stalling exploit.
+        for i, slot in enumerate(board[:BOARD_ZONE_SIZE]):
+            if i > 0 and _slot_occupied(slot):
+                mask[PTR_BOARD_OFF + i] = True
+        if not mask.any():
+            # No legal target (0 or 1 minions). build_type_mask already
+            # forbids type 9 here; this only guards against an all-False row,
+            # which would make softmax NaN and poison the whole batch.
+            mask[PTR_BOARD_OFF + 1:PTR_BOARD_OFF + BOARD_ZONE_SIZE] = True
     elif type_idx == -1:       # full occupancy mask, all zones
         # Shop portion must respect trinket/discover restriction the same way
         # the type_idx==0 branch above does -- this mask is what get_action()
@@ -878,7 +913,7 @@ def build_pointer_mask(player_state, type_idx: int) -> torch.Tensor:
 
 
 def build_type_mask_batch(player_states) -> torch.Tensor:
-    """Stack build_type_mask() for each player state → [B, 8] bool tensor."""
+    """Stack build_type_mask() for each player state → [B, N_ACTION_TYPES] bool tensor."""
     return torch.stack([build_type_mask(ps) for ps in player_states])
 
 

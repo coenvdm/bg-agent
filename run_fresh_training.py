@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from agent.policy import BGPolicyNetwork
+from agent.policy import BGPolicyNetwork, N_ACTION_TYPES, ACTION_TYPE_NAMES
 from agent.ppo import PPOConfig, PPOTrainer
 from train import _train_parallel, N_PLAYERS, evaluate_policy
 
@@ -61,7 +61,14 @@ if __name__ == "__main__":
     # N_WORKERS=90. 150000 games / 5.03 games/sec ~= 8.3h of self-play, plus
     # ~2% eval overhead at the current EVAL_EVERY=100 / UPDATE_INTERVAL=90
     # cadence ~= 8.5h total, ~$3.40 at $0.401/hr.
-    N_GAMES = 150000
+    # Resized 2026-09-02 for the real-combat + REORDER engine. Measured on
+    # THIS host (i9-14900KF, 24 physical cores, contract 49669406) with PPO
+    # updates ON: 3.79 games/s at 16 workers, 5.77 at 24. Real combat makes
+    # games END sooner (15.8 rounds vs 20.5 under the mock), which more than
+    # pays for the simulator's cost -- throughput went UP, not down.
+    # 200,000 games at ~4.5 games/s ~= 12.3h of self-play plus eval overhead,
+    # inside the ~28h of runway $3.02 buys at $0.1081/hr.
+    N_GAMES = 200000
 
     # anneal_steps sizing: the prior run averaged ~2,345 transitions per PPO
     # update at UPDATE_INTERVAL=16 games/update, i.e.
@@ -78,7 +85,17 @@ if __name__ == "__main__":
     # 731,858 transitions / 4,128 games ~= 178 transitions/game (2 training
     # seats per game), so:
     #     150000 games * ~178 steps/game ~= 26,700,000 steps
-    ANNEAL_STEPS = 26_000_000
+    # Resized for the new engine. steps/game MEASURED across six
+    # configurations on this host: 172.6, 156, 115, 113, 86.4, 63.8 -- a wide
+    # spread, because transitions/game depends on how long the training seats
+    # SURVIVE, which is high-variance (it is not drift: transitions/game was
+    # flat within each run, e.g. 148 -> 146 -> 187 -> 144 by quarter).
+    # Taking ~110 steps/game as a central estimate: 200,000 x 110 = 22M.
+    # Deliberately set slightly BELOW that: if the true total overshoots,
+    # lr/entropy simply sit at their floors for the tail (fine), whereas
+    # setting it too HIGH means the anneal never completes and the run ends
+    # with lr still elevated (not fine).
+    ANNEAL_STEPS = 20_000_000
 
 
     def _make_fresh_policy():
@@ -127,7 +144,7 @@ if __name__ == "__main__":
     total_action_counts    = []   # all actions this game (for rate denominators)
     sell_place_ratios      = []   # SELL/PLACE this game (nan if no PLACE actions)
     level_rates            = []   # LEVEL_UP / total actions this game
-    action_type_game_rates = {k: [] for k in range(9)}  # per-game % of actions of each type
+    action_type_game_rates = {k: [] for k in range(N_ACTION_TYPES)}  # per-game % of actions of each type
     train_placements       = []   # avg placement (1=best..8=worst) of train_current seats
     heuristic_placements   = []   # avg placement of heuristic seats
     greedy_placements      = []   # avg placement of greedy seats
@@ -149,9 +166,11 @@ if __name__ == "__main__":
     # honest, un-gameable progress signal: one point every EVAL_EVERY updates,
     # so these are indexed by their own eval_updates list, not by update index.
     eval_updates          = []
-    eval_mean_placement   = []
+    eval_mean_placement   = []      # vs greedy   -- KEEP: the historical series
     eval_top1_rate        = []
     eval_top4_rate        = []
+    eval_heur_mean_placement = []   # vs heuristic
+    eval_ref_mean_placement  = []   # vs 7 frozen copies of an early self
     # Per-update mean/std pairs (mean+std over exactly the games that fed each
     # update, so charts show one aggregated point per update instead of one raw
     # point per game -- game-to-game noise was dominating the picture).
@@ -160,7 +179,7 @@ if __name__ == "__main__":
     update_board_avg,      update_board_std      = [], []
     update_sellplace_avg,  update_sellplace_std  = [], []
     update_levelrate_avg,  update_levelrate_std  = [], []
-    update_action_rate_avg = {k: [] for k in range(9)}   # per-update, % of actions of each type
+    update_action_rate_avg = {k: [] for k in range(N_ACTION_TYPES)}   # per-update, % of actions of each type
     update_train_plc_avg,      update_train_plc_std      = [], []
     update_heuristic_plc_avg,  update_heuristic_plc_std  = [], []
     update_greedy_plc_avg,     update_greedy_plc_std     = [], []
@@ -181,7 +200,7 @@ if __name__ == "__main__":
             sell_place_ratios       = hist.get('sell_place_ratios', [])
             level_rates              = hist.get('level_rates', [])
             _loaded_atgr = hist.get('action_type_game_rates', {})
-            action_type_game_rates = {k: _loaded_atgr.get(str(k), []) for k in range(9)}
+            action_type_game_rates = {k: _loaded_atgr.get(str(k), []) for k in range(N_ACTION_TYPES)}
             train_placements       = hist.get('train_placements', [])
             heuristic_placements   = hist.get('heuristic_placements', [])
             greedy_placements       = hist.get('greedy_placements', [])
@@ -199,6 +218,8 @@ if __name__ == "__main__":
             n_minibatches_hist      = hist.get('n_minibatches_hist', [])
             eval_updates            = hist.get('eval_updates', [])
             eval_mean_placement     = hist.get('eval_mean_placement', [])
+            eval_heur_mean_placement = hist.get('eval_heur_mean_placement', [])
+            eval_ref_mean_placement  = hist.get('eval_ref_mean_placement', [])
             eval_top1_rate          = hist.get('eval_top1_rate', [])
             eval_top4_rate          = hist.get('eval_top4_rate', [])
             update_reward_avg       = hist.get('update_reward_avg', [])
@@ -212,7 +233,7 @@ if __name__ == "__main__":
             update_levelrate_avg    = hist.get('update_levelrate_avg', [])
             update_levelrate_std    = hist.get('update_levelrate_std', [])
             _loaded_uara = hist.get('update_action_rate_avg', {})
-            update_action_rate_avg = {k: _loaded_uara.get(str(k), []) for k in range(9)}
+            update_action_rate_avg = {k: _loaded_uara.get(str(k), []) for k in range(N_ACTION_TYPES)}
             update_train_plc_avg      = hist.get('update_train_plc_avg', [])
             update_train_plc_std      = hist.get('update_train_plc_std', [])
             update_heuristic_plc_avg  = hist.get('update_heuristic_plc_avg', [])
@@ -229,7 +250,9 @@ if __name__ == "__main__":
         max_w = max(p.abs().max().item() for p in policy_train.parameters())
         print(f'Fresh start: step 0, max_w={max_w:.4f}', flush=True)
 
-    ACTION_NAMES = ['BUY', 'SELL', 'PLACE', 'REROLL', 'FREEZE', 'LEVEL', 'HERO_PWR', 'END_TURN', 'ACTIVATE']
+    # Derived from the policy's own action space so adding an action type
+    # (REORDER was added 2026-09-02) can never leave this list stale.
+    ACTION_NAMES = [n.upper() for n in ACTION_TYPE_NAMES]
 
     # N_GAMES defined earlier alongside ANNEAL_STEPS (both needed before
     # _make_ppo_trainer() is called above).
@@ -291,7 +314,18 @@ if __name__ == "__main__":
     # 68-90% (workers doing useful parallel work) and `update` 9-31%.
     N_WORKERS       = 24
     WORKER_DEVICE   = 'cpu'
-    UPDATE_INTERVAL = 24     # == N_WORKERS: games are dispatched in batches of
+    # UPDATE_INTERVAL is deliberately NOT tied to N_WORKERS any more. It was
+    # 24 == N_WORKERS, which at the old ~182 steps/game gave ~4,400
+    # transitions/update. Real combat cut steps/game to ~86-120, so keeping
+    # 24 would have quietly SHRUNK the PPO batch to ~2,100 -- a different
+    # (noisier) optimisation regime than the one whose diagnostics were
+    # validated (clip_frac 0.12, approx_kl 0.026, explained_var 0.63).
+    # 48 restores ~4,100-5,760 transitions/update, i.e. the SAME batch size
+    # the previous run actually ran at. Cost: games are collected under up to
+    # 2 weight versions instead of 1 -- mild off-policy-ness that PPO's
+    # importance clipping exists to handle, and the queue_factor backlog
+    # already introduced it anyway.
+    UPDATE_INTERVAL = 48     # games per PPO update; see note above
                               # N_WORKERS, so this fires exactly one PPO update
                               # per dispatched batch -- predictable, and at the
                               # ~250 transitions/game measured for a trained
@@ -370,7 +404,21 @@ if __name__ == "__main__":
     # ABSOLUTE anchor that no shaping term can inflate -- ~62 well-spaced,
     # low-noise (SE 0.18) anchor points across the run is plenty to confirm
     # that free signal is tracking something real.
-    EVAL_EVERY      = 100
+    # Eval budget split across three opponents, TOTAL held at the old
+    # EVAL_N_GAMES so eval wall-clock does not grow. greedy keeps the largest
+    # share because it is the historical series; the smaller n is more than
+    # offset by the fixed EVAL_SEED below, which removes the between-point
+    # game-draw variance that used to dominate this metric.
+    EVAL_GREEDY_GAMES = 64
+    EVAL_HEUR_GAMES   = 32
+    EVAL_REF_GAMES    = 32
+    EVAL_SEED         = 12345      # FIXED for the whole run -- see the eval block
+    # Update at which the frozen reference opponent is snapshotted. Early
+    # enough that the policy is already past random flailing, late enough that
+    # it is a meaningful bar to measure against for the rest of the run.
+    REF_SNAPSHOT_UPDATE = 500
+    REF_SNAPSHOT_PATH   = Path('bg_agent_ppo_reference.pt')
+    EVAL_EVERY      = 50
     EVAL_N_GAMES    = 128
     EVAL_WORKERS    = 24     # CPU workers for evaluate_policy's pool -- eval
                               # workers always run the policy on CPU regardless
@@ -434,6 +482,8 @@ if __name__ == "__main__":
             'n_minibatches_hist': n_minibatches_hist,
             'eval_updates': eval_updates,
             'eval_mean_placement': eval_mean_placement,
+            'eval_heur_mean_placement': eval_heur_mean_placement,
+            'eval_ref_mean_placement': eval_ref_mean_placement,
             'eval_top1_rate': eval_top1_rate,
             'eval_top4_rate': eval_top4_rate,
             'update_reward_avg': update_reward_avg,
@@ -598,12 +648,13 @@ if __name__ == "__main__":
         # LEVEL_UP-only panel with the full BUY/SELL/PLACE/.../ACTIVATE breakdown
         # in one view, since it's a composition (sums to ~100%) not independent rates.
         _action_colors = ['steelblue', 'crimson', 'seagreen', 'darkorange', 'mediumpurple',
-                           'goldenrod', 'teal', 'slategray', 'deeppink']
-        _lens = [len(update_action_rate_avg[k]) for k in range(9)]
+                           'goldenrod', 'teal', 'slategray', 'deeppink', 'saddlebrown']
+        _action_colors = _action_colors[:N_ACTION_TYPES]
+        _lens = [len(update_action_rate_avg[k]) for k in range(N_ACTION_TYPES)]
         if all(_lens):
             n = min(_lens)
             xs = list(range(n))
-            series = [[100 * v for v in update_action_rate_avg[k][:n]] for k in range(9)]
+            series = [[100 * v for v in update_action_rate_avg[k][:n]] for k in range(N_ACTION_TYPES)]
             ax.stackplot(xs, *series, labels=ACTION_NAMES, colors=_action_colors, alpha=0.85)
             ax.set_ylim(0, 100)
             ax.set_xlabel('PPO update'); ax.set_ylabel(f'% of actions ({UPDATE_INTERVAL} games/update)')
@@ -636,11 +687,23 @@ if __name__ == "__main__":
         # so a drop below 4.5 here can only mean the policy itself got better.
         # Same inverted-y convention as the placement panel: up = better.
         if eval_mean_placement:
-            ax.plot(eval_updates, eval_mean_placement, color='darkorchid', marker='o', ms=3)
+            ax.plot(eval_updates, eval_mean_placement, color='darkorchid',
+                    marker='o', ms=3, label=f'vs greedy ({EVAL_GREEDY_GAMES}g)')
+            if eval_heur_mean_placement:
+                n = min(len(eval_updates), len(eval_heur_mean_placement))
+                ax.plot(eval_updates[:n], eval_heur_mean_placement[:n], color='darkorange',
+                        marker='s', ms=3, label=f'vs heuristic ({EVAL_HEUR_GAMES}g)')
+            # The reference series is None until the snapshot exists; plot only
+            # the points that are real rather than substituting a number.
+            _ref_xy = [(u, v) for u, v in zip(eval_updates, eval_ref_mean_placement) if v is not None]
+            if _ref_xy:
+                ax.plot([u for u, _ in _ref_xy], [v for _, v in _ref_xy], color='seagreen',
+                        marker='^', ms=3, label=f'vs frozen self ({EVAL_REF_GAMES}g)')
             ax.axhline(4.5, color='gray', lw=0.8, ls='--')  # random-play expectation, 8 players
             ax.invert_yaxis()
-            ax.set_xlabel('PPO update'); ax.set_ylabel(f'Mean placement ({EVAL_N_GAMES} games, inverted, up=better)')
-            ax.set_title(f'Eval vs Fixed Greedy (last={eval_mean_placement[-1]:.2f})')
+            ax.legend(fontsize=7, loc='best')
+            ax.set_xlabel('PPO update'); ax.set_ylabel('Mean placement (inverted, up=better)')
+            ax.set_title(f'Eval vs Fixed Opponents (greedy last={eval_mean_placement[-1]:.2f})')
 
         plt.tight_layout()
         fig.savefig(CHART_PATH, dpi=100)
@@ -674,7 +737,7 @@ if __name__ == "__main__":
                 board_sizes.append(float(np.mean(endturn_sizes)))
 
             # Per-game action tallies for the sell:place, level-up, and action-mix panels.
-            type_counts_this_game = [0] * 9
+            type_counts_this_game = [0] * N_ACTION_TYPES
             for t in game_trans:
                 type_counts_this_game[t.type_action] += 1
             n_sell, n_place, n_level = type_counts_this_game[1], type_counts_this_game[2], type_counts_this_game[5]
@@ -684,7 +747,7 @@ if __name__ == "__main__":
             total_action_counts.append(len(game_trans))
             sell_place_ratios.append(n_sell / n_place if n_place > 0 else float('nan'))
             level_rates.append(n_level / len(game_trans) if game_trans else float('nan'))
-            for k in range(9):
+            for k in range(N_ACTION_TYPES):
                 action_type_game_rates[k].append(
                     type_counts_this_game[k] / len(game_trans) if game_trans else float('nan')
                 )
@@ -747,7 +810,7 @@ if __name__ == "__main__":
         _append_update_stat(board_sizes, update_board_avg, update_board_std)
         _append_update_stat(sell_place_ratios, update_sellplace_avg, update_sellplace_std)
         _append_update_stat(level_rates, update_levelrate_avg, update_levelrate_std)
-        for k in range(9):
+        for k in range(N_ACTION_TYPES):
             _append_update_avg(action_type_game_rates[k], update_action_rate_avg[k])
         _append_update_stat(train_placements, update_train_plc_avg, update_train_plc_std)
         _append_update_stat(heuristic_placements, update_heuristic_plc_avg, update_heuristic_plc_std)
@@ -766,21 +829,65 @@ if __name__ == "__main__":
         # transitions and never touches ppo_trainer, so it's safe to run
         # mid-training. Uses ppo_trainer.total_steps as the seed so each
         # eval call sees a fresh, still-reproducible set of games.
+        # Freeze the reference opponent exactly once, at REF_SNAPSHOT_UPDATE.
+        # Written before the eval block below so the eval at that same update
+        # already has it available.
+        if update_count >= REF_SNAPSHOT_UPDATE and not REF_SNAPSHOT_PATH.exists():
+            torch.save({k: v.detach().cpu().clone()
+                        for k, v in policy_train.state_dict().items()},
+                       str(REF_SNAPSHOT_PATH))
+            print(f'  Reference opponent frozen at update {update_count} '
+                  f'-> {REF_SNAPSHOT_PATH}', flush=True)
+
         if update_count % EVAL_EVERY == 0:
+            # FIXED eval seed, not ppo_trainer.total_steps. A seed that moves
+            # every eval makes each point sample a DIFFERENT set of games, so
+            # consecutive points differ by game-draw noise on top of any real
+            # policy change -- which is most of why the previous run's eval
+            # oscillated in a 1.9-2.6 band with no trend. The policy never
+            # trains on eval games, so a fixed seed cannot be overfitted to;
+            # it just removes the between-point variance and lets a change in
+            # the number mean "the policy changed".
             eval_result = evaluate_policy(
                 policy_train, card_defs_train,
-                n_games=EVAL_N_GAMES, opponent='greedy',
-                device=DEVICE, seed=ppo_trainer.total_steps,
+                n_games=EVAL_GREEDY_GAMES, opponent='greedy',
+                device=DEVICE, seed=EVAL_SEED,
                 n_workers=EVAL_WORKERS,
             )
+            eval_heur = evaluate_policy(
+                policy_train, card_defs_train,
+                n_games=EVAL_HEUR_GAMES, opponent='heuristic',
+                device=DEVICE, seed=EVAL_SEED,
+                n_workers=EVAL_WORKERS,
+            )
+            # Reference eval: vs 7 frozen copies of an early self. greedy and
+            # heuristic are FIXED bars that a good policy eventually clears and
+            # then stops discriminating (the last run pinned ~2.1 vs greedy from
+            # update 1300 to 5766 -- 78% of the run with no readable signal).
+            # A frozen former self keeps discriminating past that point.
+            ref_mean = None
+            if REF_SNAPSHOT_PATH.exists():
+                ref_res = evaluate_policy(
+                    policy_train, card_defs_train,
+                    n_games=EVAL_REF_GAMES, opponent='reference',
+                    device=DEVICE, seed=EVAL_SEED,
+                    n_workers=EVAL_WORKERS, ref_path=str(REF_SNAPSHOT_PATH),
+                )
+                ref_mean = ref_res['mean_placement']
+
             eval_updates.append(update_count)
             eval_mean_placement.append(eval_result['mean_placement'])
             eval_top1_rate.append(eval_result['top1_rate'])
             eval_top4_rate.append(eval_result['top4_rate'])
+            eval_heur_mean_placement.append(eval_heur['mean_placement'])
+            # None (not 0.0) before the reference snapshot exists -- 0.0 would
+            # plot as a spectacular result rather than as missing data.
+            eval_ref_mean_placement.append(ref_mean)
             print(f'  EVAL @ update {update_count}: '
-                  f'mean_placement={eval_result["mean_placement"]:.2f} '
-                  f'top1={eval_result["top1_rate"]:.2f} top4={eval_result["top4_rate"]:.2f} '
-                  f'(vs greedy, {EVAL_N_GAMES} games)', flush=True)
+                  f'greedy={eval_result["mean_placement"]:.2f} '
+                  f'(top1={eval_result["top1_rate"]:.2f} top4={eval_result["top4_rate"]:.2f}) | '
+                  f'heuristic={eval_heur["mean_placement"]:.2f} | '
+                  f'reference={"n/a" if ref_mean is None else f"{ref_mean:.2f}"}', flush=True)
 
         _save_history()
         _save_chart()

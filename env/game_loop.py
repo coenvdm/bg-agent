@@ -21,6 +21,7 @@ import numpy as np
 from env.player_state import MinionState, OpponentSnapshot, PlayerState, minion_stats
 from env.tavern_pool import TavernPool
 from env.matchmaker import Matchmaker
+from agent.policy import REORDER_BUDGET_PER_TURN
 from symbolic.board_computer import SymbolicBoardComputer, _board_power
 from symbolic.firestone_client import FirestoneClient
 from symbolic.combat_sim import BGCombatSim
@@ -127,6 +128,17 @@ SHAPE_GAMMA = 0.997   # MUST match PPOConfig.gamma (agent/ppo.py) -- this is
                       # identity above, which is what makes the invariance
                       # guarantee hold with PPO's own GAE discounting.
 BOARD_SHAPE_TRIALS = 30    # sim trials per _board_win_prob call (~0.5 ms each)
+
+# Trials for the REAL combat resolution used by step_combat (not the board-
+# shape potential above -- see BattlegroundsGame._combat_sim). Separate
+# constant and separate BGCombatSim instance from BOARD_SHAPE_TRIALS /
+# _shape_sim on purpose: _shape_sim.simulate() is called on every single
+# shopping action (see _board_win_prob), so sharing one instance's RNG stream
+# between shaping and real combat resolution would make shaping calls
+# perturb the sequence of outcomes real combat draws from, and vice versa.
+# 8 trials (vs. 200 default) keeps the per-combat cost low since this runs
+# once per player per round rather than once per action.
+COMBAT_SIM_TRIALS = 8
 
 # Deterministic, noise-free board-strength potential -- see BattlegroundsGame.
 # shape_stats_weight, which train.py now fixes at 1.0 (see BOARD_SHAPE_STATS_WEIGHT):
@@ -395,6 +407,14 @@ class BattlegroundsGame:
         estimate (weight 1 - shape_stats_weight). 0 = pure win-probability
         (default, unchanged behaviour). Callers doing training-progress
         annealing (see train.py) pass a decaying value per game.
+    use_real_combat:
+        When True (default), step_combat resolves combats via the full
+        turn-by-turn BGCombatSim (self._combat_sim) instead of
+        firestone_client.simulate(). Set False to route real combat back
+        through firestone_client (whatever backend it is configured with --
+        e.g. the mock_mode heuristic) for A/B comparison against the old
+        behaviour. Does not affect board-shape potential, which always uses
+        self._shape_sim / _board_stats_potential regardless of this flag.
     """
 
     def __init__(
@@ -410,6 +430,7 @@ class BattlegroundsGame:
         seed: Optional[int] = None,
         batched: bool = True,
         shape_stats_weight: float = 0.0,
+        use_real_combat: bool = True,
     ) -> None:
         self.card_defs       = card_defs
         self.agents          = agents or [None] * n_players
@@ -420,13 +441,40 @@ class BattlegroundsGame:
         self.n_players       = n_players
         self.max_rounds      = max_rounds
         self.shape_stats_weight = shape_stats_weight
+        self.use_real_combat = use_real_combat
         self.batched         = batched
         self._rng            = random.Random(seed)
         self.encoder         = CardEncoder(card_defs)
         self.effect_handler  = EffectHandler(card_defs, tavern_pool=self.tavern_pool)
         self.hero_handler    = HeroPowerHandler(card_defs, HERO_DEF_MAP)
         self.trinket_handler = TrinketHandler(card_defs, rng=self._rng if hasattr(self, "_rng") else None)
-        self._shape_sim      = BGCombatSim(n_trials=BOARD_SHAPE_TRIALS)
+        # Both sims get their OWN RNG stream, but both are DERIVED from the
+        # game seed rather than left unseeded. Two separate requirements:
+        #
+        #   - Separate streams, because _shape_sim.simulate() is called on
+        #     every shopping action while _combat_sim.simulate() is called
+        #     once per player per round; sharing one instance would let the
+        #     number of shaping calls (i.e. the policy's action count) shift
+        #     the outcomes real combat draws.
+        #   - Derived from `seed`, because leaving them unseeded takes RNG
+        #     from OS entropy and makes a seeded game NON-reproducible. That
+        #     matters concretely: evaluate_policy() pins a fixed per-game seed
+        #     precisely so eval points are comparable across updates, and
+        #     before real combat was wired in this held (the old mock backend
+        #     returned deterministic probabilities and only self._rng sampled
+        #     the outcome). Unseeded sims would have silently reintroduced
+        #     eval noise that no one could attribute.
+        #
+        # The offsets just decorrelate the two streams from each other and
+        # from self._rng; any distinct constants would do.
+        self._shape_sim      = BGCombatSim(
+            n_trials=BOARD_SHAPE_TRIALS,
+            seed=None if seed is None else seed + 0x51A9E,
+        )
+        self._combat_sim     = BGCombatSim(
+            n_trials=COMBAT_SIM_TRIALS,
+            seed=None if seed is None else seed + 0xC0B7A,
+        )
 
         # Populated by reset()
         self.players: List[PlayerState] = []
@@ -1024,8 +1072,26 @@ class BattlegroundsGame:
                     minion.activated_this_turn = True
                     self.effect_handler.on_activate(ps, minion)
 
+        elif type_action == 9:
+            # reorder: ptr_action is a board slot (ptr 7-13 -> slot 0-6); the
+            # minion there is moved to the FRONT of the board. Position is a
+            # first-class Battlegrounds decision -- measured over non-blowout
+            # matchups in symbolic/combat_sim.py, reordering the same minions
+            # swings (win_prob - loss_prob) by a mean of ~0.55 -- and until
+            # this action existed the policy had no way to express it, since
+            # minions are otherwise appended in play order.
+            #
+            # Move-to-front rather than an explicit (from, to) pair because it
+            # needs only ONE pointer and still reaches every permutation in at
+            # most n-1 moves, so no second pointer head is required.
+            i = ptr_action - PTR_BOARD_OFF
+            if 1 <= i < len(ps.board) and ps.board[i] is not None and ps.reorders_left > 0:
+                ps.board.insert(0, ps.board.pop(i))
+                ps.reorders_left -= 1
+
         # Potential shaping fires for every dispatched action type above (BUY,
-        # SELL, PLACE, REROLL, FREEZE, LEVEL_UP, HERO_POWER, END_TURN, ACTIVATE)
+        # SELL, PLACE, REROLL, FREEZE, LEVEL_UP, HERO_POWER, END_TURN, ACTIVATE,
+        # REORDER)
         # via this single call site, whether or not the action's own
         # preconditions were met -- a no-op/failed action leaves Φ(s) unchanged
         # so this correctly contributes ~0 (modulo the tiny (SHAPE_GAMMA - 1)
@@ -1162,11 +1228,26 @@ class BattlegroundsGame:
 
         opp_board = [_minion_to_dict(m) for m in opp.board]
 
-        sim = self.firestone.simulate(
-            player_board, opp_board,
-            player_tier=ps.tavern_tier,
-            opp_tier=opp.tavern_tier,
-        )
+        # Real combat resolution: full turn-by-turn BGCombatSim (taunt, divine
+        # shield, venomous, reborn, windfury, deathrattles, positioning,
+        # tribes, multiplier cards -- see symbolic/combat_sim.py) via its own
+        # instance/RNG stream (self._combat_sim), independent of the board-
+        # shape potential's self._shape_sim. use_real_combat=False falls back
+        # to the old firestone_client path (whatever backend it is configured
+        # with) for A/B comparison. Same SimResult shape either way, so
+        # nothing downstream (the outcome-sampling code right below) changes.
+        if self.use_real_combat:
+            sim = self._combat_sim.simulate(
+                player_board, opp_board,
+                player_tier=ps.tavern_tier,
+                opp_tier=opp.tavern_tier,
+            )
+        else:
+            sim = self.firestone.simulate(
+                player_board, opp_board,
+                player_tier=ps.tavern_tier,
+                opp_tier=opp.tavern_tier,
+            )
 
         # Determine concrete outcome by sampling from the full probability distribution
         roll = self._rng.random()
@@ -1334,6 +1415,7 @@ class BattlegroundsGame:
                 ps.gold      = self._gold_for_round(round_num)
                 ps.level_cost = max(0, ps.level_cost - 1)
                 ps.hero_power_used = False
+                ps.reorders_left = REORDER_BUDGET_PER_TURN
                 ps._rerolls_this_turn = 0  # type: ignore[attr-defined]
                 for m in ps.board:
                     m.activated_this_turn = False
