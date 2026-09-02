@@ -917,3 +917,31 @@ Verified mechanically: consecutive REORDERs now return **-0.0316** each (= -0.03
 - If a cost of 0.03 turns out to suppress genuine positioning (watch whether REORDER collapses to ~0 AND board-order quality stays poor), the better fix is the principled one: treat REORDER as taking zero time (per-transition `gamma=1.0` in GAE), which removes the stalling incentive at its source without taxing useful repositioning. That needs a per-transition gamma in `RolloutBuffer.compute_advantages`.
 - ACTIVATE is at 0% in the new run (was climbing to 4.1%); it has a real gold cost so it should not stall, but worth a glance later.
 ---
+
+---
+### 2026-09-02 (addendum) — REORDER_COST verified working; the rising trend is positioning, not stalling
+**Files changed:** none (measurement only)
+**What was done:** Resolved the "NOT yet confirmed" item from the previous entry. At update 57 -- the same window where the uncosted run reached 24.9% REORDER -- the costed run reads:
+
+| metric | old (no cost) | new (REORDER_COST=0.03) |
+|---|---|---|
+| REORDER share of actions | 24.9% | **13.0%** |
+| reorders / shopping turn | 4.82 | **1.72** |
+| % of the 6/turn budget cap | 80% | **29%** |
+| actions / shopping turn | 20.0 | **13.2** |
+
+REORDER was still trending UP (0.16 -> 0.51 -> 0.91 -> 1.07 -> 1.72 per turn), which on its own is ambiguous: it could be slower stalling. **The discriminator is the reorder:place ratio.** A newly PLACEd minion is appended to the END of the board, so correcting its position costs ~1 move-to-front -- meaning legitimate positioning should scale WITH placement and sit below 1.0, whereas stalling should rise INDEPENDENTLY of it.
+
+| window | places/turn | reorders/turn | ratio |
+|---|---|---|---|
+| 3 | 1.55 | 0.98 | 0.63 |
+| 4 | 2.00 | 1.25 | 0.63 |
+| 5 | 2.48 | 1.63 | **0.66** |
+
+The ratio has **flattened at ~0.65** while both rates climb together -- the agent is filling its board faster and repositioning ~2 of every 3 new minions. The old uncosted run's final window gives 24.9/13.7 = **1.82** by the same arithmetic, i.e. nearly two reorders per minion placed and still climbing. So the rise is board-building, not step-padding, and REORDER_COST=0.03 did not over-suppress positioning either (it did not collapse to ~0).
+**Current state:** Run healthy at update 69, zero errors. First eval landed: **greedy=5.38, heuristic=5.97** at update 50 (~1,200 games) against an untrained baseline of ~7.2-8.0. `best_avg10` crossed 0 (+0.038); board 5.42, 17.2 rounds/game.
+**Open questions / next steps:**
+- The reorder:place RATIO (not the REORDER rate alone) is the metric to watch for this exploit. A rising REORDER share is expected and fine while the ratio stays below ~1.0; the alarm condition is the ratio climbing.
+- The direct redundancy diagnostic (`_reorder_waste.py`: reorders spent per turn vs the BFS-minimum needed for the order the turn ended on) is still slow and has not produced a number. The ratio analysis above supersedes it in practice, but the direct measurement would be strictly better evidence if this comes up again.
+- Reference eval still `n/a` until the snapshot freezes at update 500.
+---
