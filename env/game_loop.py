@@ -183,8 +183,60 @@ REORDER_COST = 0.03
 # actually improving the board. See CONTEXT.md for the full analysis.
 #
 # BOARD_SHAPE_STATS_SATURATION is the total effective attack+health+keyword+synergy
-# value at which this potential reads 0.5 (rough mid-game board, untuned).
-BOARD_SHAPE_STATS_SATURATION = 30.0
+# value at which this potential reads 0.5.
+#
+# RETUNED 2026-09-02 (30.0 -> 60.0) after a live-run trace showed the exact
+# degenerate policy this potential exists to prevent: one Suspicious
+# Prisonguard pumping a single minion from 3/3 to 36/36 over 18 rounds, board
+# held at 4/7 minions, all 10 gold banked every round from round 8, agent
+# taking ACTIVATE+FREEZE only and never buying/leveling again -- still won
+# the lobby. The 30.0 guess was documented as "rough mid-game board, untuned"
+# and was never checked against what boards actually reach under the real
+# combat engine.
+#
+# MEASUREMENT (checkpoint_backups/live_bg_agent_ppo.pt, update 378 -- the
+# checkpoint that produced the trace above -- 30 games, real seat mix: 2
+# PPOAgent + 2 StaticAgent sharing that policy + 2 HeuristicAgent + 2
+# GreedyPlayAgent, 3,474 per-player-round board samples). Raw value = this
+# function's numerator (power + keyword_bonus + synergy_bonus), i.e. BEFORE
+# the /(value+SATURATION) division, so it's independent of the constant being
+# tuned. For the trained-policy seats specifically (the only population this
+# potential's gradient actually trains against -- Static/Heuristic/Greedy
+# collect no PPO transitions):
+#
+#   percentile   p10   p25   p50   p75   p90   p95   p99   max
+#   raw value      9    26    71   121   162   187   249   308
+#
+# and by round (median): r8=57, r12=103, r16=131, r20=164, r24=177 -- boards
+# keep growing well past round 8, they don't plateau. The degenerate trace's
+# own round-18 board (Flighty Scout 36/36 + 3 others) computes to a raw value
+# of 137, squarely in the p75-p90 band of ordinary play, not an outlier.
+#
+# With the OLD constant (30.0), potential(p25=26)=0.46, potential(p50=71)=
+# 0.70, potential(p90=162)=0.84 -- already more than half-saturated by the
+# 25th percentile and essentially flat (dPhi/dvalue ~ 0.001) by the median.
+# That is the mechanism behind "every additional purchase pays ~0 shaped
+# reward" from round ~8 onward.
+#
+# NEW value (60.0) was chosen so potential(value)=0.5 lands near the p50 of
+# the trained-policy population (71) while also matching the ORIGINAL intent
+# of the comment ("rough mid-game board") once checked against a real
+# mid-game board: round 8 (median game length is 21 rounds, so round 8 is
+# genuinely early-mid) has a median raw value of 57, almost exactly 60. This
+# stretches the useful (non-flat) gradient across roughly the 25th-90th
+# percentile of real play: potential(p25=26)=0.30, potential(p50=71)=0.54,
+# potential(p90=162)=0.73, potential(p99=249)=0.81 -- a meaningfully wide,
+# still-climbing range instead of being pinned near the ceiling by round 8.
+#
+# Functional shape (value/(value+SATURATION)) was kept rather than replaced:
+# it is already a monotonic, noise-free map onto [0, 1) with a single
+# legible knob, and the measured problem was that the knob was set wrong, not
+# that the curve's shape was structurally unfit -- a differently-shaped curve
+# correctly calibrated would land in the same place. Re-review this constant
+# again if a future run's board-value distribution (re-run the measurement
+# above) drifts materially from the numbers here -- e.g. after a card-pool
+# refresh or a combat-sim change that shifts typical board power.
+BOARD_SHAPE_STATS_SATURATION = 60.0
 
 # Per-instance bonus for a "punches above its raw stats" keyword -- Divine Shield,
 # Taunt, Reborn, and Windfury all add real combat value a plain atk+hp sum misses.
@@ -239,8 +291,76 @@ RANK_DELTA_COEF      =  0.15 * DENSE_REWARD_SCALE   # was 0.15; compute_round_re
 HAND_PENALTY_COEF    =  0.08 * DENSE_REWARD_SCALE   # was 0.08; _end_of_turn_reward
 GOLD_PENALTY_COEF    =  0.05 * DENSE_REWARD_SCALE   # was 0.05; _end_of_turn_reward
 EMPTY_BOARD_PENALTY  =  0.30 * DENSE_REWARD_SCALE   # was 0.30 flat; step_shopping SELL
+# See _gold_penalty_scale() below for GOLD_SCALE_* (the late-game reshaping
+# of the multiplier GOLD_PENALTY_COEF is scaled by -- retuned 2026-09-02
+# alongside BOARD_SHAPE_STATS_SATURATION, same root-cause trace).
 REROLL_PENALTY_BASE  =  0.05 * DENSE_REWARD_SCALE   # was 0.05; step_shopping REROLL
 REROLL_PENALTY_STEP  =  0.05 * DENSE_REWARD_SCALE   # was 0.05/reroll past 2; step_shopping REROLL
+
+# --- Unspent-gold penalty schedule (_gold_penalty_scale) -------------------
+#
+# _end_of_turn_reward charges -GOLD_PENALTY_COEF * gold * gold_scale, where
+# gold_scale used to be a straight linear fade: max(0.2, 1.0 - (round-1)/15).
+# That expression's linear term crosses below 0.2 starting at round 13 (1 -
+# 12/15 = 0.2 exactly; round 14 = 0.133; verified numerically, not just
+# algebraically, because of float rounding right at the crossover) -- so in
+# practice the OLD schedule was 1.0 at round 1, decaying to 0.2 by round 13,
+# and FLAT at 0.2 for every round from 13 through the end of the game,
+# however long that took (games in the 30-game measurement below ran up to
+# 31 rounds).
+#
+# RETUNED 2026-09-02, same trace as BOARD_SHAPE_STATS_SATURATION above: the
+# live-run policy banked all 10 gold every round from round 8 onward for the
+# rest of the game (confirmed in the 30-game measurement too -- trained-seat
+# median leftover gold is already 9/10 by round 10 and stays there through
+# round 29). Under the old schedule that behaviour cost -0.015*10*0.2 =
+# -0.03/turn from round 13 on, against WIN_REWARD=+0.15 -- sitting on a full
+# purse was priced at 20% of a single combat win, every turn, for the entire
+# back half of the game.
+#
+# The linear fade down to round 13 is NOT changed here: early/mid-game gold
+# retention is sometimes genuinely correct (saving across 1-2 turns to hit a
+# tier-5/6 level-up spike), and CLAUDE.md / the task that produced this fix
+# both call for keeping that forgiving. What changes is what happens once the
+# linear fade would drop below its old floor: instead of flatlining at 0.2 for
+# the rest of the game -- exactly when hoarding gold is LEAST excusable, since
+# by round 13+ there is essentially always a legal buy/level/reroll to spend
+# it on -- the schedule now ramps back UP from that same pivot, reaching
+# GOLD_SCALE_LATE_CEIL by round 23 (near the ~21-round median game length
+# measured on the real seat mix, so most games actually reach the punishing
+# part of the schedule before ending, while the pivot itself stays exactly
+# where the old floor started so nothing before round 13 changes at all). At
+# gold_scale=1.5 and 10 gold banked, the per-turn cost becomes -0.015*10*1.5
+# = -0.225 -- larger than a full WIN_REWARD, i.e. sitting on a full purse for
+# one late turn now costs more than winning a combat round gains, which is
+# the "genuinely costly late" the fix asks for.
+GOLD_SCALE_FADE_ROUND = 13    # first round at which the OLD linear fade (1.0
+                               # - (round-1)/15) drops to/below 0.2 -- the
+                               # pivot, kept exactly here so every round
+                               # before it is byte-for-byte unchanged.
+GOLD_SCALE_FLOOR      = 0.2   # value at GOLD_SCALE_FADE_ROUND -- unchanged
+                               # from the old schedule's floor.
+GOLD_SCALE_LATE_RAMP  = 0.13  # gold_scale increase per round past the pivot
+GOLD_SCALE_LATE_CEIL  = 1.5   # cap -- reached at pivot + (1.5-0.2)/0.13 = +10
+                               # rounds, i.e. round 23.
+
+
+def _gold_penalty_scale(round_num: int) -> float:
+    """Multiplier on GOLD_PENALTY_COEF * gold -- see the block comment above.
+
+    Rounds 1..12: identical to the old max(0.2, 1 - (round-1)/15) fade, so
+    early-game saving-for-a-level behaviour is priced exactly as before.
+    Round 13 on: ramps linearly back UP to GOLD_SCALE_LATE_CEIL instead of
+    flatlining at the 0.2 floor, because late-game gold retention is the
+    specific failure this schedule exists to price correctly.
+    """
+    linear = 1.0 - (round_num - 1) / 15.0
+    if linear >= GOLD_SCALE_FLOOR:
+        return linear
+    return min(
+        GOLD_SCALE_LATE_CEIL,
+        GOLD_SCALE_FLOOR + GOLD_SCALE_LATE_RAMP * (round_num - GOLD_SCALE_FADE_ROUND),
+    )
 
 FINAL_PLACEMENT_REWARD: Dict[int, float] = {
     1: +4.0,
@@ -539,8 +659,11 @@ class BattlegroundsGame:
                                level-then-end-turn degenerate policy.
         Hand penalty         : -HAND_PENALTY_COEF per card left in hand — cards in
                                hand don't fight; discourages buying without placing.
-        Gold efficiency      : -GOLD_PENALTY_COEF * unspent_gold (scaled down over
-                               rounds).
+        Gold efficiency      : -GOLD_PENALTY_COEF * unspent_gold * _gold_penalty_scale
+                               (round_num) -- fades down early/mid game (saving for a
+                               level can be correct) then ramps back UP late game
+                               (see _gold_penalty_scale's docstring / the GOLD_SCALE_*
+                               block comment for the 2026-09-02 retune and why).
 
         Coefficients scaled by DENSE_REWARD_SCALE -- see the module constants
         block.
@@ -552,8 +675,8 @@ class BattlegroundsGame:
         # so that credit assignment is immediate rather than deferred.
         # Hand penalty: bought cards that aren't placed don't help in combat
         r -= HAND_PENALTY_COEF * hand_size
-        # Unspent gold penalty (fades to 20% by round 16+)
-        gold_scale = max(0.2, 1.0 - (ps.round_num - 1) / 15.0)
+        # Unspent gold penalty -- see _gold_penalty_scale for the schedule.
+        gold_scale = _gold_penalty_scale(ps.round_num)
         r -= GOLD_PENALTY_COEF * ps.gold * gold_scale
         return r
 

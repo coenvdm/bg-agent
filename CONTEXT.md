@@ -965,3 +965,30 @@ Every REORDER was necessary to reach the ordering the turn actually ended on -- 
 **Open questions / next steps:**
 - If this needs re-measuring at scale, relax the filter: score turns with membership changes by comparing only the SURVIVING minions' relative order, which would make most turns usable instead of ~1 in 10.
 ---
+
+---
+### 2026-09-02 (evening) — Adaptive opponent pool + economy retune; run restarted
+**Files changed:** `train.py`, `run_fresh_training.py`, `env/game_loop.py`, `CLAUDE.md`
+
+**Why.** A traced game of the u350 policy (see the artifact / `data/game_trace.json`) showed it winning 1st place with 40/40 HP via a single tier-1 card: buy `Suspicious Prisonguard` (`Activate (1): Give another minion +3/+3`), pump one `Flighty Scout` 3/3 -> 36/36, and from round 9 take exactly two actions per turn (ACTIVATE, FREEZE) while banking all 10 gold and holding a 4/7 board. Two root causes, both fixed.
+
+**Fix 1 -- the board potential was pinned at its ceiling, so developing paid nothing.** `BOARD_SHAPE_STATS_SATURATION` (the effective-stats value at which Φ reads 0.5) was **30.0**, its own comment admitting an untuned guess. Real late-game boards measure ~110, so Φ sat near its asymptote from ~round 8 and every further purchase earned ≈0 shaped reward. Raised to **60.0** after measuring the real board-value distribution by round. This was the deeper cause -- not that holding gold was cheap, but that spending it was worthless.
+
+**Fix 2 -- late-game idle gold was priced at almost nothing.** `gold_scale` faded linearly to a 0.2 floor and stayed flat there from round 13 to the end, so a full 10-gold purse cost `0.015*10*0.2 = -0.03`/turn against `WIN_REWARD = 0.15`. Replaced with a **V-shaped** schedule: the early fade is unchanged (saving to level is sometimes correct), then it ramps back up at `GOLD_SCALE_LATE_RAMP=0.13`/round to `GOLD_SCALE_LATE_CEIL=1.5`. Idle gold now costs ~0.19/turn at round 21, i.e. more than a combat win is worth -- which is the correct sign late.
+NOTE on units: `GOLD_PENALTY_COEF` is already `DENSE_REWARD_SCALE`-multiplied to **0.015**; the `0.05` in the source is pre-scale. An earlier analysis quoted the unscaled figure and overstated the penalty 3.3x. Always quote the scaled value.
+
+**Balance re-verified (the hard constraint).** CONTEXT records dense terms once running ~17x `FINAL_PLACEMENT_REWARD` and drowning out the objective, and Fix 2 makes a dense term materially larger. Measured over 12 games on the real seat mix: **|dense|/|placement| = 0.62 mean, 0.48 median** -- the terminal objective still dominates comfortably.
+The first attempt at this measurement returned a suspiciously exact ratio of 1.00; the cause was that `BattlegroundsGame._accumulated_rewards` is **dead code** (initialised at game_loop.py:698, never written), so reading it silently yielded 0.0 and made the ratio tautological. The real per-player total is `GameResult.final_rewards` (game_loop.py:1760). Worth deleting `_accumulated_rewards` at some point -- it is a live trap.
+
+**Fix 3 -- adaptive opponent pool.** The scripted baselines were exhausted at 8% of the run: eval vs greedy went 5.38 (u50) -> **1.42 with top1=0.81** (u450), while the PREVIOUS run's entire 4,400-update plateau sat at ~2.1. Four of six opponent slots were bots the agent beats almost always, scheduled to stay that way for ~92% of the run -- the same wasted-compute failure that made the last run useless after 31k games.
+`_train_parallel` now takes an optional `opponent_mix_fn()` consulted at TASK-CREATION time (default `None` reproduces the old fixed mix exactly), with a defensive clamp so a bad callable can never desync `opp_sds` from `opp_pids`. `AdaptiveOpponentMix` in run_fresh_training.py drives it off the **fixed-opponent eval only** -- in-game placement is confounded because the snapshot pool co-evolves, so "everyone improved together" is indistinguishable from "nobody improved". Two-threshold hysteresis: reduce at eval < 2.0 for 2 consecutive points, restore at > 3.0 for 2 consecutive.
+Reduced mix is **1 greedy + 0 heuristic + 5 snapshots**, deliberately not 0 scripted: greedy is the only agent in the pool that builds a WIDE board (6.75-7.0 minions), which is exactly the archetype that should punish the narrow carry board. Self-play is auto-curricular in DIFFICULTY but not in STRATEGIC DIVERSITY -- every snapshot plays the current policy's style, so dropping all scripted seats would remove the only non-self behaviour and risk polishing the monoculture rather than refuting it.
+Verified independently of the subagent: trigger logic passes 8/8 synthetic cases (no flip on a single noisy point, no oscillation inside the dead zone, non-consecutive lows ignored, NaN/None skipped rather than treated as data, correct round-trip). Subagent additionally confirmed real seat-label counts: default mix gives 2 heuristic + 2 greedy every game; reduced gives 0 heuristic + 1 greedy + 5 snapshots once the pool has entries.
+
+**Current state:** Fresh 200,000-game run **live** on contract 49669406, tmux `train`, healthy at update 7 with 0 errors (entropy ~1.6, `best_avg10` -3.57 -> -3.33). Local sync in tmux `bgsync`, live graph in tmux `bggraph` at http://127.0.0.1:8420. Credit ~$2.7.
+**Open questions / next steps:**
+- **Watch `opponent_mix` against the eval curve.** The mix is recorded on the same x-axis as `eval_updates` precisely so a metric change right after a switch is attributable rather than coincidence.
+- **Watch for loss spikes.** The pre-restart run showed isolated `total_loss` spikes (7.8, 1.7, 509) that recovered within one update, contained by `max_grad_norm=0.5`. Larger reward magnitudes from the gold ramp are exactly the condition that could make those worse -- if they stop self-correcting, that is the cause to check first.
+- The Prisonguard line may still be strong even after these fixes. If the agent re-converges on it, the next lever is the card itself or a baseline that punishes narrow boards -- not more reward tuning.
+- `_accumulated_rewards` is dead code and misleading; delete it.
+---

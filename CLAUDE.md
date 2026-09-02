@@ -173,11 +173,28 @@ Five components combine into the total reward:
    r +=  0.1   # flat survival bonus for being alive this round
    ```
 2. **`_end_of_turn_reward`** — fired on END_TURN: `-0.08` per card left in
-   hand, and `-0.05 * gold * gold_scale` for unspent gold, where `gold_scale`
-   fades from 1.0 down to a floor of 0.2 by round 16+.
+   hand, and `-GOLD_PENALTY_COEF * gold * gold_scale` for unspent gold.
+   All coefficients here are multiplied by `DENSE_REWARD_SCALE = 0.30`, so
+   `GOLD_PENALTY_COEF` is `0.05 * 0.30 = 0.015` — quote the *scaled* value
+   when reasoning about magnitudes, not the `0.05` written in the source.
+   `gold_scale` is **V-shaped**, retuned 2026-09-02: it fades linearly 1.0 →
+   `GOLD_SCALE_FLOOR = 0.2` by `GOLD_SCALE_FADE_ROUND = 13` (early/mid-game
+   gold retention is sometimes correct — saving to level), then *ramps back
+   up* at `GOLD_SCALE_LATE_RAMP = 0.13`/round to `GOLD_SCALE_LATE_CEIL = 1.5`.
+   The old schedule was flat at 0.2 from round 13 to the end, which priced a
+   full 10-gold purse at `-0.03`/turn against a `WIN_REWARD` of `0.15` — and
+   a trained policy duly banked all 10 gold every round from round 8 onward
+   (see `CONTEXT.md` 2026-09-02). Late-game idle gold now costs ~`0.19`/turn
+   at round 21.
 3. **Potential-based board-strength shaping** (`_apply_board_shape`) — on
-   every PLACE/SELL, runs a 30-trial Monte Carlo combat sim to estimate
-   win-probability Φ(s), and pays `α · (γ · Φ(s') − Φ(s))` with
+   every PLACE/SELL, pays `α · (γ · Φ(s') − Φ(s))` where Φ is the
+   deterministic stats potential `value / (value + BOARD_SHAPE_STATS_SATURATION)`
+   (the Monte Carlo win-probability estimate it replaced is described below).
+   `BOARD_SHAPE_STATS_SATURATION` was raised **30.0 → 60.0** on 2026-09-02:
+   at 30 the potential was pinned near its ceiling from roughly round 8 (real
+   late-game boards measure ~110 effective stats), so every further purchase
+   paid ≈0 shaped reward and the policy simply stopped developing its board.
+   Historic constants below, kept for the fix history:
    `BOARD_SHAPE_ALPHA = 0.20`, `BOARD_SHAPE_GAMMA = 1.0`, applied identically
    (unclipped) to both PLACE and SELL — an earlier version clipped PLACE to
    `max(0, shaped)` while leaving SELL unclipped, which broke the

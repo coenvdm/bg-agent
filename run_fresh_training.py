@@ -20,11 +20,114 @@ import torch
 
 from agent.policy import BGPolicyNetwork, N_ACTION_TYPES, ACTION_TYPE_NAMES
 from agent.ppo import PPOConfig, PPOTrainer
-from train import _train_parallel, N_PLAYERS, evaluate_policy
+from train import (
+    _train_parallel, N_PLAYERS, evaluate_policy,
+    N_HEURISTIC_SLOTS, N_GREEDY_SLOTS,
+    REDUCED_HEURISTIC_SLOTS, REDUCED_GREEDY_SLOTS,
+)
 
 for _ln in ('env.game_loop', 'env.tavern_pool', 'agent.ppo',
             'symbolic.firestone_client', 'symbolic.effect_handler'):
     logging.getLogger(_ln).setLevel(logging.WARNING)
+
+
+class AdaptiveOpponentMix:
+    """Hysteresis state machine switching between the full and reduced
+    scripted-opponent mixes, off the honest fixed-opponent eval only.
+
+    Background: every training game seats N_TRAIN_PLAYERS current-policy
+    agents against 6 opponent slots, historically fixed at
+    N_HEURISTIC_SLOTS HeuristicAgent + N_GREEDY_SLOTS GreedyPlayAgent + the
+    rest sampled SnapshotPool policies. Once the policy has clearly beaten
+    both scripted baselines, those 4 fixed slots are wasted compute -- see
+    train.py's REDUCED_HEURISTIC_SLOTS / REDUCED_GREEDY_SLOTS for why the
+    reduced mix keeps exactly one GreedyPlayAgent rather than dropping every
+    scripted seat.
+
+    This class owns ONLY the decision of which mix is active; it never
+    touches SnapshotPool, _train_parallel, or any training state, which is
+    what makes it possible to unit test with a synthetic sequence of eval
+    values instead of running real games.
+
+    Trigger source: the caller MUST feed this eval_mean_placement from
+    train.py's evaluate_policy(..., opponent='greedy') -- the only progress
+    signal that a co-evolving SnapshotPool or a shaping term cannot inflate.
+    In-game placement vs the pool is confounded (the pool co-evolves with
+    the policy, so "everyone improved together" looks identical to "nobody
+    improved") and must never drive this trigger.
+
+    Hysteresis: two DISTINCT thresholds (`low` < `high`) are required, not
+    one -- a single threshold sitting right where the eval is expected to
+    hover would flip the mix back and forth on ordinary eval noise. `low`
+    and `high` bound a dead zone the eval must clear on `streak` CONSECUTIVE
+    points (default 2) in the same direction before the mix actually
+    switches, so one noisy point past a threshold is never enough on its
+    own to flip it, and a run sitting between the thresholds never
+    oscillates.
+    """
+
+    def __init__(self, full_mix, reduced_mix, low=2.0, high=3.0, streak=2,
+                 reduced=False, log=None):
+        self.full_mix    = tuple(full_mix)
+        self.reduced_mix = tuple(reduced_mix)
+        self.low    = low
+        self.high   = high
+        self.streak_required = streak
+        self.reduced = reduced   # which mix is currently active
+        self.low_streak  = 0
+        self.high_streak = 0
+        self.switch_count = 0    # tests / callers can assert on this directly
+        # Injectable so tests can capture switch events without touching
+        # stdout; production default matches the task's logging requirement
+        # (print(..., flush=True)) exactly.
+        self._log = log if log is not None else (lambda msg: print(msg, flush=True))
+
+    @property
+    def mix(self):
+        """The currently active (n_heuristic, n_greedy) mix."""
+        return self.reduced_mix if self.reduced else self.full_mix
+
+    def update(self, update_count, eval_value):
+        """Feed ONE fixed-opponent eval point; return the active mix after
+        considering it (whether or not this point caused a switch).
+
+        A None/NaN eval_value (evaluate_policy's failure path) never moves
+        the hysteresis state -- it is treated as "no data for this point",
+        not as a data point that happens to fail both thresholds, so a
+        transient eval failure can never itself trigger or suppress a
+        switch.
+        """
+        if eval_value is None or (isinstance(eval_value, float) and eval_value != eval_value):
+            return self.mix
+
+        if not self.reduced:
+            self.low_streak = self.low_streak + 1 if eval_value < self.low else 0
+            if self.low_streak >= self.streak_required:
+                old, new = self.full_mix, self.reduced_mix
+                self.reduced = True
+                self.low_streak = self.high_streak = 0
+                self.switch_count += 1
+                self._log(
+                    f'OPPONENT MIX SWITCH @ update {update_count}: '
+                    f'eval_greedy={eval_value:.2f} < {self.low} for '
+                    f'{self.streak_required} consecutive eval points -- '
+                    f'reducing scripted seats (n_heuristic, n_greedy) {old} -> {new}'
+                )
+        else:
+            self.high_streak = self.high_streak + 1 if eval_value > self.high else 0
+            if self.high_streak >= self.streak_required:
+                old, new = self.reduced_mix, self.full_mix
+                self.reduced = False
+                self.low_streak = self.high_streak = 0
+                self.switch_count += 1
+                self._log(
+                    f'OPPONENT MIX SWITCH @ update {update_count}: '
+                    f'eval_greedy={eval_value:.2f} > {self.high} for '
+                    f'{self.streak_required} consecutive eval points -- '
+                    f'restoring full scripted seats (n_heuristic, n_greedy) {old} -> {new}'
+                )
+        return self.mix
+
 
 if __name__ == "__main__":
     DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -171,6 +274,15 @@ if __name__ == "__main__":
     eval_top4_rate        = []
     eval_heur_mean_placement = []   # vs heuristic
     eval_ref_mean_placement  = []   # vs 7 frozen copies of an early self
+    # Adaptive opponent-mix series: one entry per EVAL point (same x-axis as
+    # eval_updates), recording which opponent mix was ACTIVE for games
+    # dispatched right after that eval -- so this can be overlaid directly on
+    # the eval-vs-fixed-opponents curve to check that a metric change tracks
+    # a mix switch rather than coincidence. See AdaptiveOpponentMix.
+    opponent_mix_updates = []       # == eval_updates, kept separate so an
+                                     # older history file without this key
+                                     # can't desync the two series' lengths
+    opponent_mix         = []       # [n_heuristic, n_greedy] active at that point
     # Per-update mean/std pairs (mean+std over exactly the games that fed each
     # update, so charts show one aggregated point per update instead of one raw
     # point per game -- game-to-game noise was dominating the picture).
@@ -222,6 +334,8 @@ if __name__ == "__main__":
             eval_ref_mean_placement  = hist.get('eval_ref_mean_placement', [])
             eval_top1_rate          = hist.get('eval_top1_rate', [])
             eval_top4_rate          = hist.get('eval_top4_rate', [])
+            opponent_mix_updates    = hist.get('opponent_mix_updates', [])
+            opponent_mix            = hist.get('opponent_mix', [])
             update_reward_avg       = hist.get('update_reward_avg', [])
             update_reward_std       = hist.get('update_reward_std', [])
             update_length_avg       = hist.get('update_length_avg', [])
@@ -434,6 +548,31 @@ if __name__ == "__main__":
                               # this changes eval speed only, never eval
                               # results.
 
+    # ---- Adaptive opponent mix -------------------------------------------
+    # See AdaptiveOpponentMix's class docstring (module level, above) for the
+    # full trigger/hysteresis design. Thresholds are the task defaults:
+    # switch to the reduced mix below 2.0, back to full above 3.0, each on 2
+    # consecutive eval points.
+    #
+    # Resume: pick up whichever mix was last recorded, so restarting this
+    # script mid-run doesn't silently drop back to the full scripted mix for
+    # a while after a switch already happened. Streak counters intentionally
+    # start at 0 either way -- that just means two fresh consecutive points
+    # are required post-resume before the NEXT switch, the safe (conservative)
+    # direction to be wrong in.
+    _mix = AdaptiveOpponentMix(
+        full_mix=(N_HEURISTIC_SLOTS, N_GREEDY_SLOTS),
+        reduced_mix=(REDUCED_HEURISTIC_SLOTS, REDUCED_GREEDY_SLOTS),
+        low=2.0, high=3.0, streak=2,
+        reduced=bool(opponent_mix and
+                     list(opponent_mix[-1]) == [REDUCED_HEURISTIC_SLOTS, REDUCED_GREEDY_SLOTS]),
+    )
+
+    def opponent_mix_fn():
+        # Consulted by _train_parallel._make_task() at task-creation time for
+        # EVERY dispatched game -- must stay cheap and side-effect-free.
+        return _mix.mix
+
     _seed_offset = ppo_trainer.total_steps
     random.seed(_seed_offset); np.random.seed(_seed_offset); torch.manual_seed(_seed_offset)
 
@@ -486,6 +625,8 @@ if __name__ == "__main__":
             'eval_ref_mean_placement': eval_ref_mean_placement,
             'eval_top1_rate': eval_top1_rate,
             'eval_top4_rate': eval_top4_rate,
+            'opponent_mix_updates': opponent_mix_updates,
+            'opponent_mix': opponent_mix,
             'update_reward_avg': update_reward_avg,
             'update_reward_std': update_reward_std,
             'update_length_avg': update_length_avg,
@@ -889,6 +1030,17 @@ if __name__ == "__main__":
                   f'heuristic={eval_heur["mean_placement"]:.2f} | '
                   f'reference={"n/a" if ref_mean is None else f"{ref_mean:.2f}"}', flush=True)
 
+            # Adaptive opponent mix: trigger ONLY off this fixed-opponent
+            # greedy eval (never in-game placement vs the co-evolving
+            # SnapshotPool seats -- see AdaptiveOpponentMix's class
+            # docstring). Records the ACTIVE mix at every eval point (whether
+            # or not this point caused a switch) so opponent_mix_updates/
+            # opponent_mix share eval_updates' x-axis exactly and can be
+            # overlaid on the eval chart; logs loudly only on an actual switch.
+            mix_now = _mix.update(update_count, eval_result['mean_placement'])
+            opponent_mix_updates.append(update_count)
+            opponent_mix.append(list(mix_now))
+
         _save_history()
         _save_chart()
         _w_warn = '  WARNING: high weights' if max_w > 2.0 else ''
@@ -916,5 +1068,6 @@ if __name__ == "__main__":
         device=WORKER_DEVICE,
         on_batch=_on_batch,
         on_update=_on_update,
+        opponent_mix_fn=opponent_mix_fn,
     )
     print(f'\nDone -- steps={ppo_trainer.total_steps:,}, updates={ppo_trainer.update_count}', flush=True)

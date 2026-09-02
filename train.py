@@ -21,7 +21,7 @@ import time
 import uuid
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -57,6 +57,26 @@ N_HEURISTIC_SLOTS = 2   # opponent slots permanently assigned to HeuristicAgent
 N_GREEDY_SLOTS    = 2   # opponent slots permanently assigned to GreedyPlayAgent
 SNAPSHOT_EVERY    = 10  # rolling snapshot every N PPO updates
 MILESTONE_EVERY   = 50  # protected milestone snapshot every N PPO updates
+
+# Reduced-scripted opponent mix, switched to once the honest fixed-opponent
+# eval (evaluate_policy vs greedy — see run_fresh_training.py's adaptive-mix
+# trigger) shows the policy has already crushed both scripted baselines.  At
+# that point 4 of 6 opponent slots being bots the agent beats almost always
+# is wasted compute: reallocate most of them to sampled SnapshotPool
+# opponents, which co-evolve with the policy and so cannot saturate the way a
+# fixed script can.
+#
+# Deliberately NOT (0, 0): exactly one GreedyPlayAgent is kept because it is
+# the only agent in the whole opponent pool that reliably builds a WIDE board
+# (measured 6.75-7.0 minions) rather than a narrow one -- the archetype that
+# should punish the narrow ~4-minion carry board the agent currently wins
+# with. Pure self-play is auto-curricular in DIFFICULTY (snapshots track
+# whatever the policy can currently handle) but not in STRATEGIC DIVERSITY --
+# every snapshot plays the same style as the current policy, so dropping
+# every scripted seat would remove the only non-self-play behavior left in
+# the pool, not just the weakest opponents.
+REDUCED_HEURISTIC_SLOTS = 0
+REDUCED_GREEDY_SLOTS    = 1
 
 # SnapshotPool tuning (see class docstring for the full mechanism). Measured
 # on the run that ended at update 5,766: 115 milestones had accumulated
@@ -1552,6 +1572,7 @@ def _train_parallel(
     batch_timeout: int = 300,
     queue_factor: float = 2.0,
     stats_path: Optional[str] = "data/agent_stats.jsonl",
+    opponent_mix_fn: Optional[Callable[[], Tuple[int, int]]] = None,
 ) -> None:
     """Run self-play games in parallel using ProcessPoolExecutor.
 
@@ -1626,6 +1647,23 @@ def _train_parallel(
                          which agent types — training policy, heuristic, greedy,
                          historical snapshots — win most often over time).
                          Pass None to disable.
+    opponent_mix_fn    : optional zero-argument callable returning
+                         (n_heuristic, n_greedy) — the number of
+                         HeuristicAgent / GreedyPlayAgent opponent slots to
+                         use for the NEXT dispatched game. Consulted inside
+                         _make_task at task-creation time, so a change takes
+                         effect on the next game submitted to the pool, not
+                         retroactively on games already in flight. The
+                         remaining opponent slots (N_PLAYERS - N_TRAIN_PLAYERS
+                         - n_heuristic - n_greedy) are filled from
+                         snapshot_pool, exactly as when this is None. Default
+                         None reproduces today's exact fixed behavior
+                         (N_HEURISTIC_SLOTS, N_GREEDY_SLOTS) with zero
+                         per-task overhead. Callers own their own hysteresis /
+                         hold-out logic (see run_fresh_training.py's
+                         adaptive-mix trigger) — this function only ever reads
+                         whatever (n_heuristic, n_greedy) the callable returns
+                         at each task-creation instant.
     """
     import math
     import multiprocessing
@@ -1652,11 +1690,19 @@ def _train_parallel(
     stats_file     = Path(stats_path) if stats_path else None
 
     # Opponent slot composition per game:
-    #   N_HEURISTIC_SLOTS slots always use HeuristicAgent (leveling anchor)
-    #   N_GREEDY_SLOTS slots always use GreedyPlayAgent (naive buy/play anchor)
+    #   n_heuristic slots always use HeuristicAgent (leveling anchor)
+    #   n_greedy slots always use GreedyPlayAgent (naive buy/play anchor)
     #   remaining slots sample independently from the snapshot pool
-    N_OPP_SLOTS    = N_PLAYERS - N_TRAIN_PLAYERS                        # 6
-    n_policy_slots = N_OPP_SLOTS - N_HEURISTIC_SLOTS - N_GREEDY_SLOTS   # 2
+    #
+    # (n_heuristic, n_greedy) default to (N_HEURISTIC_SLOTS, N_GREEDY_SLOTS)
+    # and are re-read from opponent_mix_fn() on every _make_task() call below
+    # when one is supplied -- NOT computed once here. This used to be a
+    # single n_policy_slots computed once outside the dispatch loop, which
+    # made it impossible for a caller to change the mix mid-run (see
+    # opponent_mix_fn's docstring above). N_OPP_SLOTS itself stays fixed: it
+    # is just "how many non-training seats a game has" (6), unaffected by
+    # which agent types fill them.
+    N_OPP_SLOTS = N_PLAYERS - N_TRAIN_PLAYERS   # 6
 
     def _make_pool() -> ProcessPoolExecutor:
         return ProcessPoolExecutor(
@@ -1772,10 +1818,26 @@ def _train_parallel(
             sd = {k: v.detach().cpu().clone() for k, v in policy.state_dict().items()}
             weights_ref = _write_weights(sd)
             sd_stale = False
+        # Re-read the opponent mix at TASK-CREATION time (not once outside
+        # the loop) so a caller's opponent_mix_fn can change the mix mid-run
+        # and have it take effect on the very next dispatched game -- see
+        # opponent_mix_fn's docstring above. Default None reproduces the old
+        # fixed (N_HEURISTIC_SLOTS, N_GREEDY_SLOTS) mix exactly.
+        if opponent_mix_fn is not None:
+            n_heuristic, n_greedy = opponent_mix_fn()
+        else:
+            n_heuristic, n_greedy = N_HEURISTIC_SLOTS, N_GREEDY_SLOTS
+        # Defensive clamp: never let a misbehaving opponent_mix_fn push the
+        # snapshot-slot count negative or the fixed-slot count past the
+        # number of opponent seats a game actually has (N_OPP_SLOTS) -- either
+        # would desync opp_sds's length from opp_pids in _worker_run_game.
+        n_heuristic = max(0, min(n_heuristic, N_OPP_SLOTS))
+        n_greedy    = max(0, min(n_greedy, N_OPP_SLOTS - n_heuristic))
+        n_policy_slots = max(0, N_OPP_SLOTS - n_heuristic - n_greedy)
         policy_sds = snapshot_pool.sample_n(n_policy_slots)
         opp_sds    = (policy_sds
-                      + ["heuristic"] * N_HEURISTIC_SLOTS
-                      + ["greedy"] * N_GREEDY_SLOTS)
+                      + ["heuristic"] * n_heuristic
+                      + ["greedy"] * n_greedy)
         seed_value = (seed + ppo_trainer.total_steps + dispatch_counter) if seed is not None else None
         dispatch_counter += 1
         # weights_ref replaces the raw state_dict here -- (path, version) is
