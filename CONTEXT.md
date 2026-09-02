@@ -888,3 +888,32 @@ The mock returns 0.50 for all of them -- it was not teaching a wrong lesson, it 
 - Board size at END_TURN is worth watching now that combat is real: under the mock the agent settled at 4.1/7, but the real sim rewards stat CONCENTRATION at equal stat sum, so 4.1 may have been fine. This run's number is the first meaningful one.
 - The scripted baselines do not position their minions at all, so real combat may make them weaker relative to the agent than they should be. If the agent clears them quickly, they need positioning logic before they are a fair bar.
 ---
+
+---
+### 2026-09-02 (same day, follow-up) — REORDER discount-stalling exploit: measured, fixed, run restarted
+**Files changed:** `env/game_loop.py`
+**What was done:** The REORDER budget shipped earlier the same day bounded the discount-stalling exploit but did NOT remove the incentive, and the agent walked straight to the bound. Caught by inspecting the live run's action mix.
+
+**The measurement.** Over the first 51 updates of the run:
+
+| | first fifth | last fifth |
+|---|---|---|
+| REORDER | 2.4% | **24.9%** |
+| END_TURN | 12.0% | **5.0%** |
+
+REORDER reached **4.82 of the 6-per-turn budget (80% of cap)** while END_TURN more than halved -- turns were getting LONGER. A board changes by ~1-2 minions per turn, so ~5 move-to-front ops per turn is not plausibly positioning.
+
+**The arithmetic.** REORDER costs no gold, so it is a free action, and a free action in a discounted MDP is a stalling device: it advances a `gamma=0.997` step, so an agent expecting NEGATIVE return improves its objective purely by delaying the bad news. Gain per free step is `(1-gamma)*|V| = 0.003*|V|`, up to **~0.012/step** as V approaches the -4.0 placement floor. The only existing counterweight was the potential-shaping discount drag, `SHAPE_ALPHA*Phi*(SHAPE_GAMMA-1) ~= -0.0023/step` at Phi=0.5 -- about **5x too small**. At 4.82 reorders/turn over ~18 rounds that is ~87 extra steps/game, discounting terminal rewards by an extra ~23%.
+
+**The fix.** `REORDER_COST = 0.03`, charged on each REORDER that actually applies (invalid ones cannot be sampled -- the mask excludes slot 0, an exhausted budget, and boards under 2 minions -- so the cost cannot be dodged by aiming at a no-op). Sizing: 2.5x the worst-case per-step stalling gain, so the gradient is unambiguous; and small against what a real reposition is worth (board order swings win-loss by ~0.55, roughly a full placement step ~= 1.0 of FINAL_PLACEMENT_REWARD), so genuine positioning still pays ~30x over. This deliberately breaks strict potential-shaping policy-invariance -- it is a real action cost, not a potential difference, and that is the point: the free action has to stop being free.
+
+Verified mechanically: consecutive REORDERs now return **-0.0316** each (= -0.03 cost + -0.0016 shaping drag), consistently, and the cost is not charged on a slot-0 no-op or when the budget is exhausted. NOTE on verification method: the first `_apply_potential_shaping` call after `reset()` re-baselines `ps.phi`, so the first action of a turn carries a one-off correction -- an initial test that measured the very first action read the cost as absent. Warm up before measuring shaped rewards.
+
+**Restarted the run** at ~3,000/200,000 games (cheap) rather than letting a policy already 25% committed to stalling continue. Fresh run confirmed clean at update 2: REORDER=1%, END_TURN=26%, zero errors.
+**Current state:** Run live on contract 49669406, tmux `train`. Local sync (`bgsync`) and live graph (`bggraph`, http://127.0.0.1:8420) in local tmux -- note `nohup`/`setsid` do NOT survive Claude-session teardown, tmux does.
+**Open questions / next steps:**
+- **NOT yet confirmed.** REORDER at 1% by update 2 is not evidence -- the previous run also started at 2.4% and took ~50 updates to reach 24.9%. Re-check the action mix around update 50-100 and confirm REORDER settles well below the 6/turn cap.
+- The direct redundancy diagnostic (REORDERs spent per turn vs the BFS-minimum needed to reach the order the turn ended on) was written but **never produced a result** -- it was killed along with the tmux session during the restart. The case above rests on the action-rate trend plus the arithmetic, not on a measured productive-vs-redundant split. Worth completing if the exploit recurs.
+- If a cost of 0.03 turns out to suppress genuine positioning (watch whether REORDER collapses to ~0 AND board-order quality stays poor), the better fix is the principled one: treat REORDER as taking zero time (per-transition `gamma=1.0` in GAE), which removes the stalling incentive at its source without taxing useful repositioning. That needs a per-transition gamma in `RolloutBuffer.compute_advantages`.
+- ACTIVATE is at 0% in the new run (was climbing to 4.1%); it has a real gold cost so it should not stall, but worth a glance later.
+---

@@ -140,6 +140,38 @@ BOARD_SHAPE_TRIALS = 30    # sim trials per _board_win_prob call (~0.5 ms each)
 # once per player per round rather than once per action.
 COMBAT_SIM_TRIALS = 8
 
+# Explicit reward cost charged per successful REORDER.
+#
+# WHY THIS EXISTS. REORDER costs no gold, so without a charge it is a FREE
+# action, and a free action in a discounted MDP is a stalling device: each one
+# advances a gamma=0.997 step, so a policy that expects a NEGATIVE return can
+# improve its objective purely by delaying the bad news. The gain per free step
+# is (1 - gamma) * |V| = 0.003 * |V|, which for a losing agent (V approaching
+# the -4.0 FINAL_PLACEMENT_REWARD floor) is up to ~0.012/step. The only
+# counterweight already present is the potential-shaping discount drag,
+# SHAPE_ALPHA * Phi * (SHAPE_GAMMA - 1) ~= -0.0023/step at Phi=0.5 -- about 5x
+# too small.
+#
+# This is not hypothetical: it was MEASURED happening. Over the first 51
+# updates of the 2026-09-02 run, REORDER went 2.4% -> 24.9% of all actions,
+# reaching 4.82 of the 6-per-turn budget (80% of the cap) while END_TURN fell
+# 12.0% -> 5.0% -- i.e. turns were getting longer, which is the signature of
+# stalling rather than positioning. REORDER_BUDGET_PER_TURN bounds the damage
+# but does not remove the incentive, so the agent simply walks to the bound.
+# This is the same failure mode ACTIVATE showed before its mask was fixed
+# (CONTEXT.md 2026-09-01); the lesson is that a budget alone is not enough.
+#
+# SIZING. 0.03 is ~2.5x the worst-case per-step stalling gain, so the gradient
+# against redundant reordering is unambiguous. It is also small against what a
+# genuinely useful reposition is worth: board ORDER swings
+# (win_prob - loss_prob) by ~0.55 on non-blowout matchups, roughly a full
+# placement step, i.e. ~1.0 of FINAL_PLACEMENT_REWARD -- so a real
+# repositioning pays for itself ~30x over and is not suppressed. Note this
+# does break strict potential-shaping policy-invariance (it is a genuine
+# action cost, not a potential difference); that is intentional and is the
+# point -- the free action has to stop being free.
+REORDER_COST = 0.03
+
 # Deterministic, noise-free board-strength potential -- see BattlegroundsGame.
 # shape_stats_weight, which train.py now fixes at 1.0 (see BOARD_SHAPE_STATS_WEIGHT):
 # this fully replaced the MC win-probability estimate as the board-shape potential
@@ -1088,6 +1120,12 @@ class BattlegroundsGame:
             if 1 <= i < len(ps.board) and ps.board[i] is not None and ps.reorders_left > 0:
                 ps.board.insert(0, ps.board.pop(i))
                 ps.reorders_left -= 1
+                # Charged only on a reorder that actually happened. An invalid
+                # one cannot be sampled (build_type_mask/build_pointer_mask
+                # exclude slot 0, an exhausted budget, and boards under 2
+                # minions), so there is no way to dodge the cost by aiming at
+                # a no-op. See REORDER_COST for the sizing argument.
+                reward -= REORDER_COST
 
         # Potential shaping fires for every dispatched action type above (BUY,
         # SELL, PLACE, REROLL, FREEZE, LEVEL_UP, HERO_POWER, END_TURN, ACTIVATE,
