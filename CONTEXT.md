@@ -1208,3 +1208,116 @@ steps=24,519,279 / games=130,992. 0 exceptions.
 - Gauntlet still has only 2 references; a full 7-checkpoint spread is what
   makes the Elo meaningful.
 ---
+
+---
+### 2026-09-03 (addendum 2) — Reroll penalty flattened; two factual corrections
+**Files changed:** `env/game_loop.py`
+**What was done:** The flat gold penalty (this session, earlier) and the
+escalating reroll penalty were fighting each other. With a full board and no
+affordable buy, reroll is the only gold sink -- but the old escalating cost
+(0.015 base, +0.015/reroll past 2) priced even the FIRST reroll as a net loss
+against holding the gold (holding 1 gold costs 0.0075; the old reroll cost
+alone was 0.015). Measured live on the current checkpoint: 93% of round-13+
+end-of-turns banked >=5 gold (mean 7.47) with buy/reroll/freeze all legal and
+only 3.2/30 actions used that turn -- the policy was correctly solving the
+reward as written, not failing to converge.
+
+Per explicit user spec ("rerolling should give lower cost than floating gold
+overall, except for the freeze-to-afford-a-minion case, which should stay
+fine"): REROLL_PENALTY_BASE 0.015 -> 0.003 scaled, REROLL_PENALTY_STEP -> 0
+(escalation removed). FREEZE needed no change -- it has never carried a
+penalty beyond the ordinary flat gold charge.
+
+**Verified rigorously, not just argued, against the user's follow-up worry
+that this could let the agent get stuck only rerolling:** a plain reroll
+changes ps.shop only, never ps.board or ps.tavern_tier, so Phi(s) is
+EXACTLY unchanged by it. That makes the existing potential-shaping "discount
+drag" term (already derived for REORDER_COST) an exact per-reroll tax of
+0.003 + 0.0045*Phi, which is <= the 0.0075 gold-hold cost at EVERY reachable
+state (Phi in [0,1] always), not just on average -- so reroll is never
+reward-optimal as a substitute for a real BUY (BUY's own potential payout is
+unbounded by this tax), only as a substitute for hoarding gold when nothing
+is worth buying.
+
+**Two errors caught by the user and corrected in the same session, both
+recorded in the code comment now:**
+1. Claimed ps.max_gold was "fixed, non-extendable" at 10. Wrong -- it's a
+   per-player field; trinket_handler.py's max_gold_increase/max_gold_per_round
+   effects (Bob's Tip Jar +4, Goblin Wallet +1/turn) raise it at runtime,
+   capped only at min(20, ...). Didn't change the safety argument (only
+   needed SOME finite ceiling), only the stated number.
+2. While fixing (1), confirmed a real, separate symbolic-layer gap, flagged
+   inline and left unfixed (out of scope tonight): Snare Trapper (T4) and
+   Selfless Sightseer (T5) are MINIONS with "increase maximum gold" battlecry
+   text, but bg_card_pipeline.py only ever parses that text inside
+   parse_trinket_effect()/_TRINKET_RULES -- a trinket-only parser -- so no
+   code path emits the effect for a minion card. Goblin Wallet and Bob's Tip
+   Jar are genuinely Trinkets and ARE correctly wired; these two minions are
+   not.
+
+**Current state:** deployed and restarted on vast.ai contract 49669406 from
+bg_agent_ppo.pt at updates=2934/steps=26,535,285. Verified after restart: 0
+exceptions, checkpoint advancing normally (u2940, 26.7M steps at last check).
+
+**Open questions / next steps:**
+- Watch the training log's REROLL/BUY action-share and board_size over the
+  next several hundred updates to confirm the flattened cost doesn't shift
+  reroll share up at the expense of BUY in practice (the reward-design
+  argument above says it shouldn't, but that's a design guarantee, not yet
+  an observation under the new incentive).
+- Missing minion battlecry wiring (Snare Trapper, Selfless Sightseer) is
+  unfixed -- 2 of 275 cards, narrow impact, needs a minion-side parser rule
+  mirroring parse_trinket_effect()'s max-gold handling if picked up.
+- Also answered: why gauntlet/7-past-selves eval runs far less often than
+  greedy/heuristic. A gauntlet game runs 8 neural forward passes (policy +
+  GAUNTLET_SIZE=7 other checkpoints) vs 1 for greedy/heuristic (policy + 7
+  cheap scripted agents) -- ~8x cost/game. An earlier version at greedy's
+  cadence (96 games/50 updates) measured ~25% of total run wall-clock, hence
+  the throttle to 32 games/200 updates. No code change requested.
+---
+
+---
+### 2026-09-03 (addendum 3) — Snare Trapper / Selfless Sightseer max-gold wiring fixed
+**Files changed:** `symbolic/effect_handler.py`, `env/game_loop.py`
+**What was done:** Closed the gap flagged (but deliberately left unfixed) in
+addendum 2: Snare Trapper (T4) and Selfless Sightseer (T5) are minions whose
+battlecry text claims to raise maximum Gold, but `bg_card_pipeline.py` only
+ever parses "increase your maximum gold" inside
+`parse_trinket_effect()`/`_TRINKET_RULES`, a trinket-only parser with no hook
+for minions. Rather than extending that regex parser to minions, wired both
+directly into `symbolic/effect_handler.py`'s `on_play()` name-keyed dispatch,
+matching how every other minion battlecry in that file is handled (e.g.
+`shellcollector`'s gold gain). Selfless Sightseer applies its +1 max Gold
+unconditionally (scaled by Brann's `times`, same convention as the rest of
+the file); no Duos/team concept exists in this engine, so "your team's
+maximum Gold" just means the caster. Snare Trapper is a Choose One
+("Get a random Quilboar; or Increase your maximum Gold by 1"), and no Choose
+One decision mechanic exists anywhere in this codebase -- every other Choose
+One card (Crater Miner, Intrepid Botanist, Sly Infiltrator, Sprightly Scarab,
+Fearless Foodie, Veteran Brigand, Thorned Trailblazer) is likewise
+unimplemented. Building agent-facing choice infra (a new decision point, plus
+policy/masking changes) for one card was judged out of scope for this fix, so
+the missing choice is approximated with a 50/50 RNG pick between the two
+branches, following the same "no infra exists, approximate it" convention
+already used elsewhere in `on_play`/`on_activate` (e.g. Clever Castaway's
+Discover approximation). Both branches are otherwise fully real: the gold
+branch reuses the same `min(20, ps.max_gold + ...)` cap as Bob's Tip Jar /
+Goblin Wallet; the Quilboar branch reuses `_bc_draw_tribe` at
+`tier=ps.tavern_tier`. Verified with a standalone script constructing
+`PlayerState`/`MinionState`/`EffectHandler` directly: Selfless Sightseer
+raises `max_gold` 10->11 and respects the 20 cap; Snare Trapper's gold branch
+(RNG forced) raises it 10->11; its Quilboar branch (RNG forced, no
+`tavern_pool`) correctly leaves `max_gold` unchanged and no-ops safely.
+**Current state:** Both cards now genuinely raise `ps.max_gold` when played.
+The stale "out of scope, flagged for a separate pass" comment block in
+`env/game_loop.py` (originally added in addendum 2, just above the reroll
+cost formula) has been rewritten to describe the fix instead of the gap.
+**Open questions / next steps:**
+- The Choose One mechanic itself remains entirely unimplemented for all 8
+  affected Quilboar/Dragon cards; Snare Trapper's 50/50 RNG approximation
+  papers over that for max-gold purposes only. A real fix would need a new
+  agent-facing decision point (likely modeled on `discover_pending`'s
+  pause-shopping pattern) and is a materially larger change than this one.
+- No formal test suite exists in this repo to add regression coverage to;
+  verification here was a one-off manual script, not a committed test.
+---

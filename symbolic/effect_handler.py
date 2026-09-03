@@ -359,6 +359,23 @@ class EffectHandler:
         elif "endjinn" in name_key or "en-djinn" in name_key or "endjinnblazer" in name_key:
             # Passive: after the Tavern is refreshed, buff a random shop minion +8/+8
             ps._endjinn_active = True  # type: ignore[attr-defined]
+        elif "selflesssightseer" in name_key:
+            # Battlecry: Increase your (team's) maximum Gold by 1. No Duos/team
+            # concept exists in this engine (8-player FFA only), so this applies
+            # to the caster only.
+            ps.max_gold = min(20, ps.max_gold + 1 * times)
+        elif "snaretrapper" in name_key:
+            # Choose One - Get a random Quilboar; or Increase your maximum Gold
+            # by 1. There is no Choose One decision mechanic anywhere in this
+            # engine (no other Choose One card is implemented either), so
+            # building full agent-facing choice infra for one card is out of
+            # scope here; approximate the missing choice with a 50/50 RNG pick,
+            # same as the "no infra exists" approximations already used above
+            # (e.g. Clever Castaway). Both branches are otherwise fully real.
+            if self._rng.random() < 0.5:
+                self._bc_draw_tribe(ps, tier=ps.tavern_tier, tribe="QUILBOAR", count=times)
+            else:
+                ps.max_gold = min(20, ps.max_gold + 1 * times)
         # Righteous Protector has no battlecry — static keywords only.
 
     def on_sell(self, ps: "PlayerState", minion: "MinionState") -> None:

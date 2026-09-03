@@ -347,17 +347,22 @@ EMPTY_BOARD_PENALTY  =  0.30 * DENSE_REWARD_SCALE   # was 0.30 flat; step_shoppi
 # starts at 10 (game_loop.py reset default) but is NOT a fixed ceiling -- it
 # is a per-player field, and trinket_handler.py's "max_gold_increase" /
 # "max_gold_per_round" effects (Bob's Tip Jar +4, Goblin Wallet +1/turn, ...)
-# raise it at runtime, hard-capped only at min(20, ...). (Aside, CONFIRMED
-# while verifying this, out of scope for this retune, flagged for a separate
-# pass: Snare Trapper (Tier 4) and Selfless Sightseer (Tier 5) are MINIONS
-# with battlecries that read "Increase your maximum Gold by 1" in CARDS.md,
-# but "increase your maximum gold" is only ever matched inside
-# bg_card_pipeline.py's parse_trinket_effect()/_TRINKET_RULES -- a
-# trinket-only parser, confirmed by its own docstring and decorator name --
-# so no code path emits max_gold_increase/max_gold_per_round for a minion
-# card at all. Goblin Wallet and Bob's Tip Jar are genuinely Trinkets (see
-# CARDS.md's Trinkets sections) and ARE correctly wired; these two minions
-# are not.) Whatever
+# raise it at runtime, hard-capped only at min(20, ...). Snare Trapper (Tier
+# 4) and Selfless Sightseer (Tier 5) are MINIONS with battlecries that read
+# "Increase your maximum Gold by 1" in CARDS.md; bg_card_pipeline.py's
+# "increase your maximum gold" regex only ever ran inside
+# parse_trinket_effect()/_TRINKET_RULES (a trinket-only parser), so no
+# generated card_defs entry could carry it for a minion. Fixed 2026-09-03 by
+# hand-wiring both directly in symbolic/effect_handler.py's on_play() instead
+# of extending the trinket regex parser to minions, since minion battlecries
+# already dispatch by name there (see e.g. "shellcollector") and the regex
+# path has no hook for minions at all. Selfless Sightseer applies
+# unconditionally; Snare Trapper is Choose One, and since no Choose One
+# decision mechanic exists anywhere in this engine (every other Choose One
+# card is likewise unimplemented), its choice is approximated with a 50/50
+# RNG pick rather than building agent-facing choice infra for one card.
+# Goblin Wallet and Bob's Tip Jar are genuinely Trinkets (see CARDS.md's
+# Trinkets sections) and were already correctly wired. Whatever
 # ps.max_gold reaches, every gold grant routes through
 # min(ps.max_gold, ...) (player_state.py / hero_handler.py /
 # effect_handler.py / trinket_handler.py), so reroll count per turn is
