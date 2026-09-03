@@ -16,6 +16,7 @@ import logging
 import os
 import pickle
 import random
+import re
 import sys
 import time
 import uuid
@@ -1174,7 +1175,12 @@ def _load_snapshot_policy(path_str: str, snapshot_id: int, device: str):
 
 
 _W_EVAL_CACHE: "OrderedDict[str, Any]" = OrderedDict()
-_W_EVAL_CACHE_MAX = 4
+# 9 = the 7 gauntlet references + the policy under test + slack. This was 4
+# ("one eval needs at most two distinct networks"), which is true for the
+# greedy/heuristic/reference evals but WRONG for the gauntlet, where every
+# seat holds a different checkpoint -- at 4 the LRU thrashed and reloaded
+# networks from disk on essentially every game.
+_W_EVAL_CACHE_MAX = 9
 
 
 def _load_eval_policy(path_str: str, device: str):
@@ -1448,6 +1454,7 @@ def _worker_run_eval_game(task: tuple) -> tuple:
     matchmaker  = Matchmaker(n_players=N_PLAYERS, seed=game_seed)
 
     agents: List[Any] = [None] * N_PLAYERS
+    seat_refs: Dict[int, str] = {}   # gauntlet only: seat -> reference path
     for pid in range(N_PLAYERS):
         if pid == eval_pid:
             # supports_batching = False forces BattlegroundsGame's sequential
@@ -1466,6 +1473,21 @@ def _worker_run_eval_game(task: tuple) -> tuple:
             agents[pid] = EvalStaticAgent(
                 _load_eval_policy(ref_path, device), player_id=pid, device=device
             )
+        elif opponent == "gauntlet":
+            # Seven DIFFERENT frozen checkpoints spanning the run, one per
+            # seat. A Battlegrounds lobby seats 8, so ONE game is already a
+            # full 8-way comparison -- the game does the round-robin for
+            # free. Comparing n agents pairwise would otherwise cost O(n^2)
+            # matches; here a single game yields 28 pairwise outcomes, which
+            # is what makes fitting ratings affordable at eval cadence.
+            # The seat->reference assignment is rotated by game_idx so no
+            # reference is permanently advantaged by its seat position.
+            _others = [p for p in range(N_PLAYERS) if p != eval_pid]
+            _ref    = ref_path[(_others.index(pid) + game_idx) % len(ref_path)]
+            agents[pid] = EvalStaticAgent(
+                _load_eval_policy(_ref, device), player_id=pid, device=device
+            )
+            seat_refs[pid] = _ref
         else:
             agents[pid] = HeuristicAgent(player_id=pid)
 
@@ -1483,7 +1505,18 @@ def _worker_run_eval_game(task: tuple) -> tuple:
                                     # sequential path regardless.
     )
     result = game.run_game()
-    return game_idx, result.placements[eval_pid], result.n_rounds
+    # 4th element is None for every non-gauntlet opponent, so the cheap eval
+    # paths pay nothing for it. For the gauntlet it carries exactly what
+    # rating fitting needs: every seat's placement, and which reference sat
+    # in each seat.
+    extra = None
+    if opponent == "gauntlet":
+        extra = {
+            "eval_pid":   eval_pid,
+            "placements": {p: result.placements[p] for p in range(N_PLAYERS)},
+            "seat_refs":  seat_refs,
+        }
+    return game_idx, result.placements[eval_pid], result.n_rounds, extra
 
 
 # -------------------------------------------------------------------------
@@ -2231,6 +2264,7 @@ def _evaluate_policy_sequential(
     firestone  = FirestoneClient(firestone_path=None, mock_mode=True)
 
     placements: List[int] = []
+    extras: List[dict] = []          # gauntlet only; see the parallel path
     for g in range(n_games):
         game_seed = (seed + g) if seed is not None else None
         # Rotate which seat the policy occupies so no single table
@@ -2244,6 +2278,7 @@ def _evaluate_policy_sequential(
         matchmaker  = Matchmaker(n_players=N_PLAYERS, seed=game_seed)
 
         agents: List[Any] = [None] * N_PLAYERS
+        seat_refs: Dict[int, str] = {}
         for pid in range(N_PLAYERS):
             if pid == eval_pid:
                 agents[pid] = EvalAgent(policy, player_id=pid, device=device)
@@ -2256,6 +2291,15 @@ def _evaluate_policy_sequential(
                 agents[pid] = EvalStaticAgent(
                     _load_eval_policy(ref_path, device), player_id=pid, device=device
                 )
+            elif opponent == "gauntlet":
+                # Same rotation rule as the parallel path -- see there. This
+                # loop's game index is `g`, not `game_idx`.
+                _others = [p for p in range(N_PLAYERS) if p != eval_pid]
+                _ref    = ref_path[(_others.index(pid) + g) % len(ref_path)]
+                agents[pid] = EvalStaticAgent(
+                    _load_eval_policy(_ref, device), player_id=pid, device=device
+                )
+                seat_refs[pid] = _ref
             else:
                 agents[pid] = HeuristicAgent(player_id=pid)
 
@@ -2277,7 +2321,13 @@ def _evaluate_policy_sequential(
         )
         result = game.run_game()
         placements.append(result.placements[eval_pid])
-    return placements
+        if opponent == "gauntlet":
+            extras.append({
+                "eval_pid":   eval_pid,
+                "placements": {p: result.placements[p] for p in range(N_PLAYERS)},
+                "seat_refs":  dict(seat_refs),
+            })
+    return placements, extras
 
 
 def _evaluate_policy_parallel(
@@ -2366,7 +2416,112 @@ def _evaluate_policy_parallel(
 
     # Aggregate by game index, not completion/arrival order (see docstring).
     results.sort(key=lambda r: r[0])
-    return [placement for _game_idx, placement, _n_rounds in results]
+    # The worker returns a 4-tuple; the 4th element is the gauntlet's per-seat
+    # detail (None otherwise). Returned alongside the placements so the caller
+    # can fit ratings without re-running any games.
+    placements = [placement for _g, placement, _n, _x in results]
+    extras     = [x for _g, _p, _n, x in results if x is not None]
+    return placements, extras
+
+
+def fit_gauntlet_elo(extras, n_iter: int = 200, prior: float = 1.0, anchor: str = None):
+    """Fit Bradley-Terry ratings (reported on the Elo scale) from gauntlet games.
+
+    A Battlegrounds lobby ranks 8 players at once, so each game yields
+    C(8,2) = 28 pairwise outcomes "i placed above j" -- which is why fitting
+    ratings here is cheap: n agents cost O(n) GAMES, not O(n^2) matches.
+
+    Why ratings at all: once the policy beats every fixed bar, in-game
+    placement is pinned at 4.5 by construction and a single frozen reference
+    saturates at 1.0. A rating fitted over a SPREAD of past selves keeps
+    moving as long as improvement is real, because the comparison set spans
+    the whole run rather than sitting at one point in it.
+
+    Solver: the MM / Zermelo iteration
+        p_i <- (W_i + prior) / sum_j [ n_ij / (p_i + p_j) ]
+    which is the standard algorithm for Bradley-Terry and converges
+    monotonically with no step size to tune. An earlier version of this used
+    plain gradient ascent with a fixed learning rate in Elo units; on a
+    synthetic set with known strengths it diverged to +-2000 and scrambled the
+    ordering outright, because the gradient scales with the number of
+    comparisons while the step size did not. `prior` adds a fraction of a
+    virtual win and loss against an average opponent, which keeps an
+    undefeated agent's rating finite instead of running off to infinity.
+
+    Ratings are identified only up to a constant, so the anchor (default: the
+    oldest reference, the weakest and most stable member) is pinned at 0 and
+    everything else is relative to it. Without an anchor the scale drifts and
+    successive evals are not comparable.
+
+    CAVEAT when reading the number: Elo assumes TRANSITIVITY. Self-play
+    readily produces cyclic strength (A beats B beats C beats A) that a single
+    scalar cannot represent -- a rising rating alongside a FLAT gauntlet
+    placement is the signature of that. See Balduzzi et al. 2018,
+    "Re-evaluating Evaluation", for the Nash-averaging treatment of the
+    cyclic case.
+
+    Returns {"current", "per_ref", "n_pairs", "anchor"} or None.
+    """
+    import math
+    CUR = "__current__"
+    wins: Dict[str, float] = {}
+    n_ij: Dict[tuple, float] = {}
+    players = set()
+    for e in extras:
+        pl, refs, epid = e["placements"], e["seat_refs"], e["eval_pid"]
+        ident = {p: (CUR if p == epid else refs.get(p)) for p in pl}
+        seats = sorted(pl)
+        for x in range(len(seats)):
+            for y in range(x + 1, len(seats)):
+                a, b = seats[x], seats[y]
+                ia, ib = ident.get(a), ident.get(b)
+                if ia is None or ib is None or ia == ib:
+                    continue      # same checkpoint on both seats: no information
+                players.add(ia); players.add(ib)
+                key = (ia, ib) if ia < ib else (ib, ia)
+                n_ij[key] = n_ij.get(key, 0.0) + 1.0
+                win = ia if pl[a] < pl[b] else ib
+                wins[win] = wins.get(win, 0.0) + 1.0
+    if not n_ij:
+        return None
+    players = sorted(players)
+    if anchor is None:
+        refs_only = [p for p in players if p != CUR]
+        # Anchor on the OLDEST reference by update number. Using min() on the
+        # raw path strings sorts lexicographically -- "ref_u1200" < "ref_u300"
+        # -- which silently picked the wrong anchor, and worse, would CHANGE
+        # the anchor as new references were added, making successive Elo
+        # values incomparable. That defeats the entire purpose of anchoring.
+        def _age(path):
+            m = re.search(r"_u(\d+)", str(path))
+            return int(m.group(1)) if m else float("inf")
+        anchor = min(refs_only, key=lambda p: (_age(p), str(p))) if refs_only else CUR
+
+    opponents: Dict[str, list] = {p: [] for p in players}
+    for (i, j), c in n_ij.items():
+        opponents[i].append((j, c))
+        opponents[j].append((i, c))
+
+    p = {q: 1.0 for q in players}
+    for _ in range(n_iter):
+        new_p = {}
+        for q in players:
+            denom = sum(c / (p[q] + p[o]) for o, c in opponents[q])
+            # prior: one virtual win and one virtual loss vs an average (p=1)
+            # opponent, so an undefeated agent stays finite.
+            denom += 2.0 * prior / (p[q] + 1.0)
+            new_p[q] = (wins.get(q, 0.0) + prior) / denom if denom > 0 else p[q]
+        gm = math.exp(sum(math.log(max(v, 1e-12)) for v in new_p.values()) / len(new_p))
+        p = {q: v / gm for q, v in new_p.items()}
+
+    def elo(q):
+        return 400.0 * math.log10(max(p[q], 1e-12) / max(p[anchor], 1e-12))
+    return {
+        "current": round(elo(CUR), 1) if CUR in p else None,
+        "per_ref": {q: round(elo(q), 1) for q in players if q != CUR},
+        "n_pairs": int(sum(n_ij.values())),
+        "anchor":  anchor,
+    }
 
 
 def evaluate_policy(
@@ -2466,13 +2621,19 @@ def evaluate_policy(
     run. Callers should treat NaN metrics as "eval unavailable this round"
     rather than a real measurement.
     """
-    if opponent not in ("greedy", "heuristic", "reference"):
+    if opponent not in ("greedy", "heuristic", "reference", "gauntlet"):
         raise ValueError(
             f"evaluate_policy: unknown opponent {opponent!r}, expected "
-            "'greedy', 'heuristic' or 'reference'"
+            "'greedy', 'heuristic', 'reference' or 'gauntlet'"
         )
     if opponent == "reference" and not ref_path:
         raise ValueError("evaluate_policy: opponent='reference' requires ref_path")
+    if opponent == "gauntlet":
+        if not ref_path or isinstance(ref_path, str):
+            raise ValueError(
+                "evaluate_policy: opponent='gauntlet' requires ref_path to be a "
+                "LIST of checkpoint paths (one per non-eval seat), not a single path"
+            )
 
     was_training  = policy.training
     _random_state = random.getstate()
@@ -2482,7 +2643,7 @@ def evaluate_policy(
         try:
             if n_workers > 1:
                 try:
-                    placements = _evaluate_policy_parallel(
+                    placements, extras = _evaluate_policy_parallel(
                         policy, card_defs, n_games, opponent, seed, n_workers,
                         ref_path=ref_path,
                     )
@@ -2492,23 +2653,25 @@ def evaluate_policy(
                         "falling back to sequential eval",
                         type(exc).__name__, exc,
                     )
-                    placements = _evaluate_policy_sequential(
+                    placements, extras = _evaluate_policy_sequential(
                         policy, card_defs, n_games, opponent, device, seed,
                         ref_path=ref_path,
                     )
             else:
-                placements = _evaluate_policy_sequential(
+                placements, extras = _evaluate_policy_sequential(
                     policy, card_defs, n_games, opponent, device, seed,
                     ref_path=ref_path,
                 )
 
             placements_arr = np.asarray(placements, dtype=np.float64)
+            _elo = fit_gauntlet_elo(extras) if opponent == "gauntlet" and extras else None
             return {
                 "mean_placement": float(placements_arr.mean()),
                 "top1_rate":       float((placements_arr == 1).mean()),
                 "top4_rate":       float((placements_arr <= 4).mean()),
                 "n_games":         n_games,
                 "opponent":        opponent,
+                "elo":             _elo,
             }
         except Exception as exc:
             # Belt-and-braces: even the sequential fallback above raised (or

@@ -274,6 +274,8 @@ if __name__ == "__main__":
     eval_top4_rate        = []
     eval_heur_mean_placement = []   # vs heuristic
     eval_ref_mean_placement  = []   # vs 7 frozen copies of an early self
+    eval_gauntlet_placement  = []   # placement vs 7 DIFFERENT past selves
+    eval_gauntlet_elo        = []   # Bradley-Terry rating vs that same set
     # Adaptive opponent-mix series: one entry per EVAL point (same x-axis as
     # eval_updates), recording which opponent mix was ACTIVE for games
     # dispatched right after that eval -- so this can be overlaid directly on
@@ -332,6 +334,8 @@ if __name__ == "__main__":
             eval_mean_placement     = hist.get('eval_mean_placement', [])
             eval_heur_mean_placement = hist.get('eval_heur_mean_placement', [])
             eval_ref_mean_placement  = hist.get('eval_ref_mean_placement', [])
+            eval_gauntlet_placement  = hist.get('eval_gauntlet_placement', [])
+            eval_gauntlet_elo        = hist.get('eval_gauntlet_elo', [])
             eval_top1_rate          = hist.get('eval_top1_rate', [])
             eval_top4_rate          = hist.get('eval_top4_rate', [])
             opponent_mix_updates    = hist.get('opponent_mix_updates', [])
@@ -532,6 +536,29 @@ if __name__ == "__main__":
     # it is a meaningful bar to measure against for the rest of the run.
     REF_SNAPSHOT_UPDATE = 500
     REF_SNAPSHOT_PATH   = Path('bg_agent_ppo_reference.pt')
+
+    # --- Gauntlet: rating the policy against a SPREAD of its own past -------
+    # A single frozen reference is still a fixed bar, and every fixed bar
+    # eventually gets cleared -- greedy already has (1.2-1.7, top1 ~0.9 for
+    # 1,600 updates, measuring nothing). The gauntlet seats the current policy
+    # against GAUNTLET_SIZE DIFFERENT frozen checkpoints spanning the run.
+    # Because a BG lobby seats 8, one game is a full 8-way comparison: 28
+    # pairwise outcomes per game, so ratings cost O(n) games rather than the
+    # O(n^2) matches a 2-player game would need.
+    # It does not saturate the way one reference does, because the comparison
+    # set rolls forward as new checkpoints are added.
+    GAUNTLET_DIR   = Path('gauntlet_refs')
+    GAUNTLET_EVERY = 300     # freeze a new gauntlet reference every N updates
+    GAUNTLET_SIZE  = 7       # non-eval seats in the lobby
+    # Sizing, measured rather than guessed: a gauntlet lobby runs a neural
+    # forward pass for ALL 8 seats, where the greedy/heuristic evals run one
+    # (the other 7 are scripted). So it costs roughly 8x per game. At 96 games
+    # every 50 updates that projected to ~25% of total run wall-clock.
+    # 32 games still yields 32 x C(8,2) = 896 pairwise outcomes, which is
+    # ample to fit 8 ratings -- the multiplayer lobby is exactly what makes
+    # this affordable. Run on its own slower cadence.
+    EVAL_GAUNTLET_GAMES = 32
+    GAUNTLET_EVAL_EVERY = 200   # updates between gauntlet evals (vs EVAL_EVERY=50)
     EVAL_EVERY      = 50
     EVAL_N_GAMES    = 128
     EVAL_WORKERS    = 24     # CPU workers for evaluate_policy's pool -- eval
@@ -623,6 +650,8 @@ if __name__ == "__main__":
             'eval_mean_placement': eval_mean_placement,
             'eval_heur_mean_placement': eval_heur_mean_placement,
             'eval_ref_mean_placement': eval_ref_mean_placement,
+            'eval_gauntlet_placement': eval_gauntlet_placement,
+            'eval_gauntlet_elo': eval_gauntlet_elo,
             'eval_top1_rate': eval_top1_rate,
             'eval_top4_rate': eval_top4_rate,
             'opponent_mix_updates': opponent_mix_updates,
@@ -702,7 +731,7 @@ if __name__ == "__main__":
 
 
     def _save_chart():
-        fig, axes = plt.subplots(2, 6, figsize=(36, 8))
+        fig, axes = plt.subplots(2, 7, figsize=(42, 8))
 
         # ---- Row 1: training internals / health ----
         # Reward: one point per PPO update (mean over exactly the games whose
@@ -840,11 +869,31 @@ if __name__ == "__main__":
             if _ref_xy:
                 ax.plot([u for u, _ in _ref_xy], [v for _, v in _ref_xy], color='seagreen',
                         marker='^', ms=3, label=f'vs frozen self ({EVAL_REF_GAMES}g)')
+            _g_xy = [(u, v) for u, v in zip(eval_updates, eval_gauntlet_placement) if v is not None]
+            if _g_xy:
+                ax.plot([u for u, _ in _g_xy], [v for _, v in _g_xy], color='mediumvioletred',
+                        marker='D', ms=3, label=f'vs {GAUNTLET_SIZE} past selves')
             ax.axhline(4.5, color='gray', lw=0.8, ls='--')  # random-play expectation, 8 players
             ax.invert_yaxis()
             ax.legend(fontsize=7, loc='best')
             ax.set_xlabel('PPO update'); ax.set_ylabel('Mean placement (inverted, up=better)')
             ax.set_title(f'Eval vs Fixed Opponents (greedy last={eval_mean_placement[-1]:.2f})')
+
+        # Elo gets its OWN axes: it is unbounded rating points, not a 1-8
+        # placement. Two different scales on one axis is the chart mistake
+        # that makes both unreadable, so they stay separate.
+        ax = axes[0][6]
+        _e_xy = [(u, v) for u, v in zip(eval_updates, eval_gauntlet_elo) if v is not None]
+        if _e_xy:
+            ax.plot([u for u, _ in _e_xy], [v for _, v in _e_xy],
+                    color='darkslateblue', marker='o', ms=3)
+            ax.axhline(0, color='gray', lw=0.8, ls='--')
+            ax.set_xlabel('PPO update')
+            ax.set_ylabel('Elo vs oldest reference')
+            ax.set_title(f'Gauntlet rating (last={_e_xy[-1][1]:+.0f})')
+        else:
+            ax.set_title('Gauntlet rating (no data yet)')
+        axes[1][6].axis('off')
 
         plt.tight_layout()
         fig.savefig(CHART_PATH, dpi=100)
@@ -973,6 +1022,22 @@ if __name__ == "__main__":
         # Freeze the reference opponent exactly once, at REF_SNAPSHOT_UPDATE.
         # Written before the eval block below so the eval at that same update
         # already has it available.
+        # Freeze a gauntlet reference on a schedule. Seeded from the existing
+        # single reference so a RESUMED run starts with a non-empty set rather
+        # than a gauntlet that only becomes meaningful hundreds of updates in.
+        GAUNTLET_DIR.mkdir(exist_ok=True)
+        if not any(GAUNTLET_DIR.glob('ref_u*.pt')) and REF_SNAPSHOT_PATH.exists():
+            import shutil as _sh
+            _sh.copy2(REF_SNAPSHOT_PATH, GAUNTLET_DIR / f'ref_u{REF_SNAPSHOT_UPDATE}.pt')
+            print(f'  Gauntlet seeded from {REF_SNAPSHOT_PATH} '
+                  f'-> ref_u{REF_SNAPSHOT_UPDATE}.pt', flush=True)
+        if update_count % GAUNTLET_EVERY == 0:
+            _gp = GAUNTLET_DIR / f'ref_u{update_count}.pt'
+            if not _gp.exists():
+                torch.save({k: v.detach().cpu().clone()
+                            for k, v in policy_train.state_dict().items()}, str(_gp))
+                print(f'  Gauntlet reference frozen at update {update_count}', flush=True)
+
         if update_count >= REF_SNAPSHOT_UPDATE and not REF_SNAPSHOT_PATH.exists():
             torch.save({k: v.detach().cpu().clone()
                         for k, v in policy_train.state_dict().items()},
@@ -1016,6 +1081,39 @@ if __name__ == "__main__":
                 )
                 ref_mean = ref_res['mean_placement']
 
+            # Gauntlet: seat the policy against a SPREAD of its own past.
+            # Picking GAUNTLET_SIZE evenly-spaced checkpoints (always keeping
+            # the oldest and newest) means the comparison set spans the whole
+            # run instead of clustering at one point in it.
+            g_place, g_elo = None, None
+            _refs = sorted(GAUNTLET_DIR.glob('ref_u*.pt'),
+                           key=lambda p: int(p.stem.split('_u')[1]))
+            if _refs and update_count % GAUNTLET_EVAL_EVERY == 0:
+                if len(_refs) > GAUNTLET_SIZE:
+                    _idx = [round(i * (len(_refs) - 1) / (GAUNTLET_SIZE - 1))
+                            for i in range(GAUNTLET_SIZE)]
+                    _sel = [_refs[i] for i in sorted(set(_idx))]
+                else:
+                    _sel = _refs
+                try:
+                    _gres = evaluate_policy(
+                        policy_train, card_defs_train,
+                        n_games=EVAL_GAUNTLET_GAMES, opponent='gauntlet',
+                        device=DEVICE, seed=EVAL_SEED, n_workers=EVAL_WORKERS,
+                        ref_path=[str(p) for p in _sel],
+                    )
+                    g_place = _gres['mean_placement']
+                    g_elo   = (_gres.get('elo') or {}).get('current')
+                    print(f'  GAUNTLET @ update {update_count}: '
+                          f'placement={g_place:.2f} vs {len(_sel)} past selves '
+                          f'({_sel[0].stem}..{_sel[-1].stem}) '
+                          f'elo={"n/a" if g_elo is None else f"{g_elo:+.0f}"}', flush=True)
+                except Exception as _e:
+                    # An eval failure must never take down a multi-hour run.
+                    print(f'  GAUNTLET eval failed ({type(_e).__name__}: {_e})', flush=True)
+
+            eval_gauntlet_placement.append(g_place)
+            eval_gauntlet_elo.append(g_elo)
             eval_updates.append(update_count)
             eval_mean_placement.append(eval_result['mean_placement'])
             eval_top1_rate.append(eval_result['top1_rate'])

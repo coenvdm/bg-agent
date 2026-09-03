@@ -1044,3 +1044,29 @@ Fix for the NEXT run (not worth a third restart at 49% with the primary fix work
 - Games run 14-19 rounds now; the earlier "~15% exceed 25 rounds" figure came from a weaker checkpoint and should be re-measured against the current policy before acting on it.
 - The trace tool's `gold` column is the round's GRANTED gold (`_gold_for_round`), NOT leftover -- leftover has to be read from the last action's `gold: 'X->Y'` field. Easy to misread; it briefly led me to think the agent was still hoarding all 10.
 ---
+
+---
+### 2026-09-03 — Gauntlet eval + Bradley-Terry ratings; resumed from checkpoint
+**Files changed:** `train.py`, `run_fresh_training.py`
+
+**Why.** Self-play makes in-game placement structurally useless: with 8 seats drawn from one policy family the mean is FORCED to 4.5, so "everyone improved together" and "nobody improved" are the same number. The fixed-opponent evals solve that but each is a fixed bar that eventually gets cleared -- greedy already has (1.2-1.7, top1 ~0.9 for 1,600 updates, measuring nothing). A single frozen reference just moves the wall.
+Also measured: the existing reference eval was **noise-dominated**. At `EVAL_REF_GAMES=32` the placement SE is ~0.4 against a total trend of ~0.94 over 1,800 updates.
+
+**The gauntlet.** Seat the current policy against `GAUNTLET_SIZE=7` DIFFERENT frozen checkpoints spanning the run, chosen evenly spaced (always keeping oldest and newest). Key structural point: **a BG lobby seats 8, so ONE game is already a full 8-way comparison** -- 28 pairwise outcomes per game. Comparing n agents pairwise in a 2-player game costs O(n^2) matches; here it costs O(n) games. That is what makes rating-fitting affordable at eval cadence. References roll forward (`GAUNTLET_EVERY=300`), so unlike a single reference the comparison set does not saturate.
+
+**Ratings.** `fit_gauntlet_elo` fits Bradley-Terry over those pairwise outcomes and reports on the Elo scale, anchored so successive evals are comparable.
+- **First implementation was wrong and the test caught it.** Plain gradient ascent with a fixed step in Elo units DIVERGED on a synthetic set with known strengths -- ratings of +-2000 and the ordering scrambled -- because the gradient scales with the number of comparisons while the step size did not. Replaced with the standard MM/Zermelo iteration (`p_i <- (W_i + prior) / sum_j n_ij/(p_i+p_j)`), which is parameter-free and converges monotonically. Verified: recovers the true ordering of 7 synthetic references exactly, and ratings are monotone in true strength (+100 -> +1261 as strength rises 2 -> 14).
+- **Anchor bug, also caught by test:** anchoring on `min()` of path strings sorts lexicographically, so `"ref_u1200" < "ref_u300"` picked the wrong anchor -- and worse, the anchor would CHANGE as references were added, making successive Elo values incomparable, which defeats the entire purpose of anchoring. Now parses the update number out of the filename.
+- Caveat recorded in the docstring: Elo assumes TRANSITIVITY, and self-play readily produces cyclic strength that a scalar cannot represent. **A rising rating alongside a flat gauntlet placement is the signature of that.** Balduzzi et al. 2018 ("Re-evaluating Evaluation") is the Nash-averaging treatment for the cyclic case.
+
+**Cost, measured not guessed.** A gauntlet lobby runs a neural forward pass for ALL 8 seats where the scripted evals run 1 -- roughly **8x per game**. At the 96 games/50 updates I first wrote, that projected to ~25% of total run wall-clock. Cut to `EVAL_GAUNTLET_GAMES=32` on its own `GAUNTLET_EVAL_EVERY=200` cadence: 32 games still yields 896 pairwise outcomes, ample for 8 ratings. Also raised `_W_EVAL_CACHE_MAX` 4 -> 9: it was sized for "one eval needs at most two distinct networks", true for the scripted evals but wrong for the gauntlet where every seat is a different checkpoint, so the LRU thrashed and reloaded from disk nearly every game.
+
+**Resumed rather than restarted**, per the user's instruction and because the gauntlet is **eval-only** -- it does not touch the reward function or the action space, so the policy, optimiser state and history all stay valid. Verified continuity: `Resumed this run: steps=21142995, games=114312, updates=2382`.
+Before stopping the old process a verified checkpoint backup was secured (`checkpoint_backups/preGauntlet_u2369_bg_agent_ppo.pt`, loads with model+optimizer) -- the sync loop had already pulled it, which is exactly the failure mode that loop exists for.
+**Current state:** Live on contract 49669406, resumed at update 2382, 0 errors. First gauntlet eval fires at update 2400.
+**Open questions / next steps:**
+- The gauntlet is thin at first on a resumed run: it seeds from the single existing `bg_agent_ppo_reference.pt` (u500) and accumulates one new reference per 300 updates, so it reaches a full 7-checkpoint spread around update ~4200. Early gauntlet numbers compare against fewer distinct selves and should be read as provisional.
+- Watch gauntlet placement AND Elo together -- divergence between them is the cyclic-strength tell described above.
+- Still unfixed from the previous entry: the gold ramp is indexed to absolute round number and its teeth (r13-23) fall outside games that now end at ~14.
+- Trap for later: `pkill -f <pattern>` matched this session's own wrapping shell and killed it mid-sequence. Use precise patterns or pgrep-then-kill by PID.
+---
