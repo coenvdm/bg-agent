@@ -344,14 +344,39 @@ EMPTY_BOARD_PENALTY  =  0.30 * DENSE_REWARD_SCALE   # was 0.30 flat; step_shoppi
 # margin (0.003 vs 0.0075 -- 40%, comfortably favouring reroll at every count
 # from 1 to the max 10 reachable in a turn) and REROLL_PENALTY_STEP is 0 --
 # unlike REORDER, reroll is not a free repeatable action to guard against:
-# every use spends real, non-regenerating gold (min(2+round,10)/turn, no
-# carry-over), so it is already self-limiting to at most `gold` uses per turn
-# with no escalation needed. The one case where floating gold is legitimately
-# correct -- freezing a shop that has a minion worth waiting a turn to afford
-# -- pays only the ordinary flat gold penalty already covered above, exactly
+# every use spends real gold hard-capped at ps.max_gold=10 regardless of
+# source (every gold grant, hero powers and battlecries included, routes
+# through min(ps.max_gold, ...) -- see player_state.py / hero_handler.py /
+# effect_handler.py), so it is already self-limiting to at most 10 uses per
+# turn with no escalation needed, even if gold regenerates mid-turn.
+#
+# This bound is exact, not just typical, because a plain reroll changes ONLY
+# ps.shop -- never ps.board or ps.tavern_tier -- so board_potential and
+# tier_potential, and therefore Phi(s), are LITERALLY unchanged by it. That
+# makes the module's existing "potential-shaping discount drag" (the same
+# SHAPE_ALPHA * Phi * (SHAPE_GAMMA - 1) term the REORDER_COST comment above
+# derives for REORDER, and the module-constants block calls "the tiny
+# (SHAPE_GAMMA - 1) discount drag on intermediate states") an EXACT per-reroll
+# tax, stacking with REROLL_PENALTY_BASE:
+#     cost(Phi) = REROLL_PENALTY_BASE + SHAPE_ALPHA * (1 - SHAPE_GAMMA) * Phi
+#               = 0.003 + 0.0045 * Phi
+# Since Phi(s) in [0, 1] for every reachable state (CLAUDE.md's Reward
+# Shaping (3): both potential components are already in [0, 1] and their
+# weights sum to 1), cost(Phi) <= 0.003 + 0.0045 = 0.0075 for EVERY reachable
+# state, with equality only in the limit of a maximally saturated board and
+# tier -- so a reroll that improves nothing is weakly cheaper than holding
+# the same gold at every reachable state, not merely on average. Whenever a
+# reroll instead surfaces something worth buying, BUY's own positive
+# potential-shaping term (Phi(s') > Phi(s)) is the incentive that follows,
+# and it is not bounded the way this tax is -- so reroll can never be
+# reward-optimal AS A SUBSTITUTE for buying real value, only as a substitute
+# for sitting on gold when nothing is worth buying, which is the case this
+# retune targets. The one case where floating gold is legitimately correct
+# -- freezing a shop that has a minion worth waiting a turn to afford --
+# pays only the ordinary flat gold penalty already covered above, exactly
 # once, same as any other unspent gold; FREEZE has never carried a separate
-# penalty (see step_shopping type_action == 4), so that case needed no change
-# here.
+# penalty (see step_shopping type_action == 4), so that case needed no
+# change here.
 REROLL_PENALTY_BASE  =  0.01  * DENSE_REWARD_SCALE   # was 0.05 raw (0.015 scaled); see above
 REROLL_PENALTY_STEP  =  0.0   * DENSE_REWARD_SCALE   # was 0.05 raw; escalation removed -- see above
 
