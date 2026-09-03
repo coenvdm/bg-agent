@@ -1018,3 +1018,29 @@ Notably the degenerate traced board (one pumped minion, 4/7 board, round 18) com
 - `~15%` of games exceeding 25 rounds is a pre-existing engine characteristic worth a look independently of this work.
 - `_accumulated_rewards` is still dead code (see the previous entry) -- delete it.
 ---
+
+---
+### 2026-09-03 — Mid-run check at 49%: economy fix worked; gold ramp is mistimed
+**Files changed:** none (measurement only)
+**What was done:** Traced the live policy (update ~2050) and compared against the u350 degenerate trace.
+
+**The economy fix WORKED.** Board size by round, current policy vs the old degenerate one:
+```
+rnd:        1  2  3  4  5  6  7  8  9 10 11 12 13 14
+u2050:      0  1  2  3  4  4  4  4  4  6  7  7  7  7     <- full board by r11, held
+u350:       0  1  2  2  2  2  2  2  4  4  4  4  4  4     <- 4/7 forever
+```
+It now buys AND sells to upgrade (r11 is a 10-action turn: ACTIVATE x3, SELL x2, BUY x2, PLACE x2, FREEZE) where the old policy did nothing but ACTIVATE+FREEZE for ten consecutive rounds. Game length 18 -> 14 rounds. Still 1st, still 40/40 HP.
+
+**CORRECTION to an in-session misread.** The aggregate `update_board_avg` reads 3.95 and I initially reported board width as "essentially unchanged". That was wrong: the whole-game mean averages over the early ramp, so a game reaching 7 still means ~4.3. **Late-game board width is the metric; the whole-game mean is not.** ACTIVATE doubling 8.3% -> 16.9% is likewise not the degenerate engine reasserting itself -- it now happens alongside a full board and active shop churn.
+
+**REAL REMAINING PROBLEM -- the gold ramp is mistimed relative to game length.** Leftover gold by round: `r9=5, r10=4, r11=3, r12=7, r13=9, r14=9`. It spends down mid-game then re-banks late. Cause: `gold_scale` is at its 0.2 FLOOR at round 13 and only reaches `GOLD_SCALE_LATE_CEIL=1.5` by round **23** -- but this game ended at round **14**, so the ramp's teeth are in a round range the game never reaches and late idle gold still costs ~0.03/turn, exactly the value the fix was meant to correct.
+The ramp was sized against a measured ~21-round median taken from the u449 checkpoint. **A stronger policy ends games FASTER** (it eliminates opponents sooner), so the ramp slides out of range precisely as the agent improves -- the schedule is chasing a target that moves away from it. Indexing it to an absolute round number is the design error.
+Fix for the NEXT run (not worth a third restart at 49% with the primary fix working): index the ramp to something that co-moves with game state -- players remaining, or a fraction of expected remaining game length -- rather than `round_num`.
+
+**Run health at 49%** (update 2053/4167, 98,424 games, 0 errors): adaptive pool switched (2,2) -> (0,1) at update 300 as designed. Evals -- greedy floored at 1.2-1.7 (top1 ~0.9) for 1,600 updates and no longer discriminating; heuristic 1.5-2.4; **vs-frozen-u500-self 4.34 -> 2.97 and still moving**, which is exactly the axis it was added to supply. `explained_var` 0.60 -> 0.73 (last run plateaued at 0.63). REORDER 4.3% of actions with a reorder:place ratio of 0.31, far below the 1.0 alarm.
+**Open questions / next steps:**
+- Gold ramp indexing (above) -- the one concrete carry-over for the next run.
+- Games run 14-19 rounds now; the earlier "~15% exceed 25 rounds" figure came from a weaker checkpoint and should be re-measured against the current policy before acting on it.
+- The trace tool's `gold` column is the round's GRANTED gold (`_gold_for_round`), NOT leftover -- leftover has to be read from the last action's `gold: 'X->Y'` field. Easy to misread; it briefly led me to think the agent was still hoarding all 10.
+---
