@@ -341,14 +341,29 @@ EMPTY_BOARD_PENALTY  =  0.30 * DENSE_REWARD_SCALE   # was 0.30 flat; step_shoppi
 # Rerolling should cost LESS than floating the same gold, full stop, so
 # spending it (even fruitlessly) always beats sitting on it once nothing else
 # is buyable. REROLL_PENALTY_BASE is set below the per-gold holding cost with
-# margin (0.003 vs 0.0075 -- 40%, comfortably favouring reroll at every count
-# from 1 to the max 10 reachable in a turn) and REROLL_PENALTY_STEP is 0 --
-# unlike REORDER, reroll is not a free repeatable action to guard against:
-# every use spends real gold hard-capped at ps.max_gold=10 regardless of
-# source (every gold grant, hero powers and battlecries included, routes
-# through min(ps.max_gold, ...) -- see player_state.py / hero_handler.py /
-# effect_handler.py), so it is already self-limiting to at most 10 uses per
-# turn with no escalation needed, even if gold regenerates mid-turn.
+# margin (0.003 vs 0.0075 -- 40%, favouring reroll at every reachable count)
+# and REROLL_PENALTY_STEP is 0 -- unlike REORDER, reroll is not a free
+# repeatable action to guard against: every use spends real gold. ps.max_gold
+# starts at 10 (game_loop.py reset default) but is NOT a fixed ceiling -- it
+# is a per-player field, and trinket_handler.py's "max_gold_increase" /
+# "max_gold_per_round" effects (Bob's Tip Jar +4, Goblin Wallet +1/turn, ...)
+# raise it at runtime, hard-capped only at min(20, ...). (Aside, CONFIRMED
+# while verifying this, out of scope for this retune, flagged for a separate
+# pass: Snare Trapper (Tier 4) and Selfless Sightseer (Tier 5) are MINIONS
+# with battlecries that read "Increase your maximum Gold by 1" in CARDS.md,
+# but "increase your maximum gold" is only ever matched inside
+# bg_card_pipeline.py's parse_trinket_effect()/_TRINKET_RULES -- a
+# trinket-only parser, confirmed by its own docstring and decorator name --
+# so no code path emits max_gold_increase/max_gold_per_round for a minion
+# card at all. Goblin Wallet and Bob's Tip Jar are genuinely Trinkets (see
+# CARDS.md's Trinkets sections) and ARE correctly wired; these two minions
+# are not.) Whatever
+# ps.max_gold reaches, every gold grant routes through
+# min(ps.max_gold, ...) (player_state.py / hero_handler.py /
+# effect_handler.py / trinket_handler.py), so reroll count per turn is
+# self-limiting to at most ps.max_gold uses with no escalation needed, even
+# with mid-turn gold regeneration -- 20 in the worst case today, still
+# finite regardless of which cards are or aren't wired.
 #
 # This bound is exact, not just typical, because a plain reroll changes ONLY
 # ps.shop -- never ps.board or ps.tavern_tier -- so board_potential and
