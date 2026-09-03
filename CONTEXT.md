@@ -1265,9 +1265,15 @@ exceptions, checkpoint advancing normally (u2940, 26.7M steps at last check).
   reroll share up at the expense of BUY in practice (the reward-design
   argument above says it shouldn't, but that's a design guarantee, not yet
   an observation under the new incentive).
-- Missing minion battlecry wiring (Snare Trapper, Selfless Sightseer) is
-  unfixed -- 2 of 275 cards, narrow impact, needs a minion-side parser rule
-  mirroring parse_trinket_effect()'s max-gold handling if picked up.
+- Missing minion battlecry wiring (Snare Trapper, Selfless Sightseer), flagged
+  above as out of scope for tonight, was fixed concurrently by another active
+  session (bg-agent-dc) directly in symbolic/effect_handler.py's on_play()
+  while this session was still writing this entry -- hand-wired by name
+  rather than extending the trinket regex parser to minions (minion
+  battlecries already dispatch by name there), with Snare Trapper's Choose
+  One approximated as a 50/50 RNG pick, consistent with this file's existing
+  approximation for other unimplemented-choice cards (Clever Castaway). Left
+  for that session to test and commit; not folded into this session's commit.
 - Also answered: why gauntlet/7-past-selves eval runs far less often than
   greedy/heuristic. A gauntlet game runs 8 neural forward passes (policy +
   GAUNTLET_SIZE=7 other checkpoints) vs 1 for greedy/heuristic (policy + 7
