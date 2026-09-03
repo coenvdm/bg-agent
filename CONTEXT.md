@@ -1100,3 +1100,80 @@ Removed `_gold_penalty_scale`/`GOLD_SCALE_FADE_ROUND`/`GOLD_SCALE_FLOOR`/`GOLD_S
 - Not yet validated by an actual training run — this is a measured-on-trajectories sizing, not an outcome measurement. Worth checking `level_rate`/board_size/placement together after the next run, per CLAUDE.md's standing guidance on retuning economy incentives.
 - The `GOLD_PENALTY_SCALE=0.5` measurement used one checkpoint (`live_bg_agent_ppo.pt`, ~u2369+). Gold-hoarding behavior may differ across checkpoint strength; re-measure if a future policy shows the old hoarding pattern again.
 ---
+
+---
+### 2026-09-03 — Ghost fights, Rao-Blackwellised combat reward, damage-coef retune
+**Files changed:** `env/game_loop.py`, `env/matchmaker.py`, `CLAUDE.md`
+**What was done:** Three changes to the combat reward path, each sized by
+measurement on 40 games with the real greedy/heuristic seat mix before being
+committed.
+(1) **Ghosts are fought for real.** `step_combat` short-circuited every ghost
+matchup to an automatic win with zero damage — a free `WIN_REWARD` on 7.5% of
+all pairings (3.92 per lobby-game, rounds 9–16, ~16.6-round mean game).
+`Matchmaker.get_ghost` had been written for exactly this and was never called
+from anywhere. Ghosts now resolve to the **most recently eliminated** player
+(user's call; uniform-random left a round-8 corpse in the pool all game) and
+run through `BGCombatSim` normally. `pair_players` returns a real dead
+player's id; `-1` now means only "nobody has died yet". Also fixed the
+announcement path so `next_opponent_id` points at the ghost — it was `None`,
+which encoded an *empty* opponent board, so simulating ghost fights without
+this would have added lethal risk while keeping the agent blind to it.
+(2) **Rao-Blackwellised combat reward.** `compute_round_reward` takes an
+`outcome_dist` and pays the outcome/damage terms at their expectation over the
+combat distribution instead of the single sampled roll. Free — `BGCombatSim`
+already runs `COMBAT_SIM_TRIALS = 8` full combats and `step_combat` was
+collapsing them to one coin flip purely to label the reward. Dynamics stay
+sampled deliberately.
+(3) **Damage coefficients retuned in opposite directions**, both having
+measured at 0.0% of reward variance. `DAMAGE_TAKEN_COEF` 0.05 → 0.6 raw
+(0.015 → 0.18): it telescopes, so its *lifetime* maximum was 0.015 against a
+placement span of 8 — inert, not weak. `DAMAGE_DEALT_COEF` 0.05 → 0: it does
+not telescope (unbounded positive income) and triple-counts `WIN_REWARD`,
+`RANK_DELTA_COEF` and `board_potential`.
+Also fixed dead code in `Matchmaker`: the ghost-recipient filter tested
+`last_round_pairs.get(pid) == -1`, but that dict is built with `if b != -1`,
+so it was always empty and always fell through to uniform choice; now avoids
+giving the same player a ghost twice in a row.
+
+**Measurements (40 games each, greedy/heuristic mix):**
+- ghost frequency before fix: 3.92/lobby-game, 7.5% of pairings, round p50=12
+- ghosts after fix: 93% win / 4% loss / 3% tie, mean `win_prob` 0.919, 13.7
+  damage on losses, board visible to recipient in 93% of shop actions
+- Rao-Blackwell: unbiased (mean gap +0.0008); removes 22.6% of per-combat
+  reward variance but only **2.3% of total return variance** — 76.5% of
+  combats are already near-decisive (`win_prob<=0.125` or `>=0.875`) and
+  placement variance (sd 2.50) dwarfs combat variance (sd 0.63) by design
+- per-round reward variance decomposition: outcome 44.6%, rank 18.4%,
+  damage_taken 0.0%, damage_dealt 0.0% (rest is outcome/rank covariance)
+- dense/placement ratio 0.22 → 0.25 (band 0.6–0.8), mean dense −0.154
+
+**Honest correction:** the ghost fix was initially framed as "the agent is
+told its board doesn't matter in the window where board strength decides
+placement." The measurement does not support that. Ghosts really are
+near-certain wins (dead boards are weak *by selection*), so the old auto-win
+approximated a ~92%-win fight; expected `WIN_REWARD` moves 0.150 → ~0.138.
+It is a correctness fix, not a large behavioural lever. The substantive
+change in this batch is the damage-coefficient retune.
+
+**Current state:** Restarted on vast.ai contract 49669406 (ssh9.vast.ai:29406)
+from `bg_agent_ppo.pt` at updates=2549 / steps=22,894,433 / games=122,280.
+Verified after restart: 0 exceptions, `update_count` continuing correctly
+(2549 → 2558), steps 23.02M. Pre-restart checkpoint backed up locally as
+`checkpoint_backups/preRB_u2541_bg_agent_ppo.pt` (loads clean, u2544). Local
+tmux `bgsync` + `bggraph` still running.
+
+**Open questions / next steps:**
+- The critic was trained on the OLD reward scale (damage term 12x smaller,
+  damage_dealt present). Expect a value-loss transient and a visible
+  discontinuity in the reward series at update 2549 — do not misread it as a
+  regression. Watch `eval_greedy`/gauntlet, which no shaping term can inflate.
+- Gauntlet still has only 2 references (`ref_u500`, `ref_u2400`); the 5.22
+  placement anomaly is still unexplained and still needs a fuller spread.
+- `_accumulated_rewards` in `env/game_loop.py` is still dead code (initialised,
+  never written) — delete it.
+- The `RANK_DELTA_COEF` term is 18.4% of per-round reward variance and cannot
+  be Rao-Blackwellised cheaply (it depends on the whole lobby's joint
+  trajectory). Unaddressed.
+- Placement variance (sd 2.50) dominates total return variance ~16:1 over the
+  dense terms. The lever there is a better critic, not reward engineering.
+---

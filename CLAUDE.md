@@ -174,16 +174,44 @@ anywhere, they are stale — `env/game_loop.py` is the only source of truth.
 
 1. **`compute_round_reward`** — dense per-combat-round signal (coefficients
    shown already multiplied by `DENSE_REWARD_SCALE = 0.30`; the raw values in
-   the source are 0.5/-0.3/0.05/0.05/0.15 respectively — see the module
+   the source are 0.5/-0.3/0.6/0.0/0.15 respectively — see the module
    constants block for why everything in this component and (2) is scaled
-   down 0.30x, and quote the *scaled* number when reasoning about magnitude):
+   down 0.30x, and quote the *scaled* number when reasoning about magnitude).
+   Since 2026-09-03 the outcome and damage terms are paid at their
+   **expectation** over the combat distribution (`outcome_dist`), not at the
+   single sampled roll:
    ```python
-   r  =  0.15   if result == "win"  else 0.0     # WIN_REWARD
-   r += -0.09   if result == "loss" else 0.0     # LOSS_PENALTY
-   r += -0.015 * (damage_taken / max_health)     # DAMAGE_TAKEN_COEF
-   r +=  0.015 * (damage_dealt  / max_health)    # DAMAGE_DEALT_COEF
+   r  =  0.15   * p_win                          # WIN_REWARD
+   r += -0.09   * p_loss                         # LOSS_PENALTY
+   r += -0.18   * (E[damage_taken] / max_health) # DAMAGE_TAKEN_COEF
+   r +=  0.0    * (E[damage_dealt]  / max_health) # DAMAGE_DEALT_COEF (removed)
    r += (prev_rank - cur_rank) * 0.045           # RANK_DELTA_COEF
    ```
+   This is Rao-Blackwellisation and it is free: `BGCombatSim` already runs
+   `COMBAT_SIM_TRIALS = 8` full combats and aggregates them, and `step_combat`
+   was collapsing that aggregate back to one coin flip purely to label the
+   reward. Unbiased and provably non-increasing in variance, but **small**:
+   measured 22.6% of per-combat reward variance and only 2.3% of *total*
+   return variance, because 76.5% of combats are already near-decisive
+   (`win_prob <= 0.125` or `>= 0.875`) and placement variance (sd 2.50) dwarfs
+   combat-reward variance (sd 0.63) by design. Only the **reward** is
+   expectation-ed — the dynamics stay sampled, deliberately: expectation-ing
+   health too would make a 55%-win board never lose and delete risk management
+   from a game whose objective is a step function over placement.
+   The two damage coefficients were retuned in **opposite** directions on
+   2026-09-03 after both measured at 0.0% of reward variance:
+   - `DAMAGE_TAKEN_COEF` 0.05 → **0.6 raw** (`0.18` scaled). It *telescopes*:
+     summed over a game the damage penalty equals `COEF * (max_health -
+     final_health)/max_health`, so the **lifetime** cost of taking all 40
+     damage and dying was exactly `0.015` against a `FINAL_PLACEMENT_REWARD`
+     span of 8. Not weak — inert: the agent was indifferent between losing a
+     fight at 5 damage and at 20, which in Battlegrounds is the difference
+     between dying on round 12 and surviving to round 18. At 0.18 that gap is
+     worth `0.0675`, ~75% of `|LOSS_PENALTY|`.
+   - `DAMAGE_DEALT_COEF` 0.05 → **0**. It does *not* telescope — 8 wins × 15
+     damage is unbounded positive income, the same one-sided ratchet the split
+     board/tier shaping was killed for on 2026-08-31 — and it triple-counts
+     `WIN_REWARD`, `RANK_DELTA_COEF` and `board_potential`.
    There is no flat per-round survival bonus — one existed historically
    (`+0.1` unconditionally) but was removed 2026-08-31: it was passive income
    that fired merely for being alive and diluted the placement signal
@@ -297,6 +325,46 @@ placement together (not `level_rate` alone) — a naive leveling incentive can
 reproduce the same kind of degenerate policy a flat `board_size` reward
 caused historically (agent chases the proxy metric at the expense of what it
 actually stands for).
+
+---
+
+## Ghost Matchups
+
+When an odd number of players is alive, one player is paired against a
+**ghost**: the board of the **most recently eliminated** player, frozen at the
+moment they died. Dead players keep their board (nothing in `env/game_loop.py`
+ever assigns or clears `.board`, and the shopping phase iterates alive players
+only), so `ps.board` on a dead player *is* their board at death.
+
+Rules, as of 2026-09-03:
+
+- The fight is **simulated for real** through `BGCombatSim`, like any other
+  combat. Losing to a ghost costs full damage and can eliminate you.
+- Winning deals damage to nobody — there is no player left to damage. This
+  needs no special case now that `DAMAGE_DEALT_COEF` is 0.
+- `Matchmaker.pair_players` returns `(recipient, dead_player_id)` with a
+  **real** id. The `-1` sentinel now means only "nobody has died yet"
+  (reachable only with an odd `n_players`) and keeps a degenerate free-win
+  fallback. A ghost matchup is identified by the opponent not being `alive`.
+- `next_opponent_id` **must** point at the ghost, so its board is visible
+  during shopping through the normal `opponent_snapshots` machinery. Before
+  this it was set to `None`, which encoded an *empty* opponent board and made
+  `_board_shape_potential` fall back to 0.5. Simulating ghost fights while
+  leaving that alone would add lethal risk while keeping the agent blind to
+  it — strictly worse than the old free win.
+- The recipient is chosen avoiding whoever got the ghost last round.
+
+Until 2026-09-03 every ghost was short-circuited to an automatic win with zero
+damage — a free `WIN_REWARD` on 7.5% of all pairings (3.92 per lobby-game,
+concentrated at rounds 9–16). `Matchmaker.get_ghost` had been written for this
+and was never called from anywhere.
+
+**Do not over-estimate this fix.** Measured over 40 games, ghosts resolve to
+93% win / 4% loss / 3% tie with mean `win_prob` 0.919 — dead players' boards
+are weak *by selection*, since they died of them. The old auto-win was a
+decent approximation of a ~92%-win fight. This is a correctness fix (a weak
+board *can* now be punished, and the 4% losses cost ~13.7 damage), not a large
+behavioural lever.
 
 ---
 
