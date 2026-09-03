@@ -1705,7 +1705,15 @@ def _train_parallel(
 
     mp_context = multiprocessing.get_context("spawn")
 
-    update_count = 0
+    # CONTINUE the global update count across a resume rather than restarting
+    # at 0. Everything downstream is indexed by this number -- eval_updates,
+    # opponent_mix_updates, gauntlet reference filenames (ref_u<N>.pt, whose
+    # <N> the Elo anchor parses to find the OLDEST reference), and the
+    # SNAPSHOT_EVERY/MILESTONE_EVERY cadences. Restarting at 0 on a resumed
+    # run appended eval points at 50,100,... AFTER existing entries ending at
+    # ~2350, which silently corrupts every history series' x-axis and makes
+    # the charts read as jumping backwards in time.
+    update_count = int(getattr(ppo_trainer, "update_count", 0) or 0)
     game_idx     = 0   # games RESOLVED so far: completed OR lost to error/timeout
     dispatched   = 0   # games SUBMITTED so far
 

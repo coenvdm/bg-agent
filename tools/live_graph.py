@@ -132,6 +132,12 @@ def build_series() -> dict:
         "reference": h.get("eval_ref_mean_placement") or [],
         "top1": h.get("eval_top1_rate") or [],
         "top4": h.get("eval_top4_rate") or [],
+        # Added 2026-09-03. Gauntlet = placement against 7 DIFFERENT frozen
+        # checkpoints spanning the run (not 7 copies of one), plus a
+        # Bradley-Terry rating fitted from the 28 pairwise outcomes each
+        # 8-player lobby produces. Absent from older runs, so tolerate [].
+        "gauntlet": h.get("eval_gauntlet_placement") or [],
+        "elo":      h.get("eval_gauntlet_elo") or [],
     }
 
     action_names = ["BUY", "SELL", "PLACE", "REROLL", "FREEZE", "LEVEL",
@@ -163,6 +169,8 @@ def build_series() -> dict:
         "landmarks": {"untrained": UNTRAINED_VS_GREEDY, "chance": CHANCE},
         "headline": {
             "eval_greedy": (eval_block["greedy"] or [None])[-1],
+            "gauntlet": next((v for v in reversed(eval_block["gauntlet"]) if v is not None), None),
+            "elo":      next((v for v in reversed(eval_block["elo"]) if v is not None), None),
             "eval_heuristic": (eval_block["heuristic"] or [None])[-1],
             "eval_reference": (eval_block["reference"] or [None])[-1],
             "top1": (eval_block["top1"] or [None])[-1],
@@ -405,6 +413,8 @@ async function render(){
     ${tile('Eval vs greedy', fmt(H.eval_greedy), `untrained ${L.untrained} &middot; chance ${L.chance}`, st(H.eval_greedy))}
     ${tile('Eval vs heuristic', fmt(H.eval_heuristic), '1 agent vs 7 heuristic', st(H.eval_heuristic))}
     ${tile('Eval vs reference', fmt(H.eval_reference), 'vs 7 frozen early self', st(H.eval_reference))}
+    ${tile('Gauntlet', fmt(H.gauntlet), '7 DIFFERENT past selves', st(H.gauntlet))}
+    ${tile('Gauntlet Elo', H.elo===null?'--':(H.elo>0?'+':'')+Math.round(H.elo), 'vs oldest reference')}
     ${tile('Top-1 rate', H.top1===null?'--':(H.top1*100).toFixed(0)+'%', 'wins vs 7 greedy')}
     ${tile('Board @ end turn', fmt(H.board), 'max 7 &middot; baselines 6.8-7.0')}
     ${tile('Rounds / game', fmt(H.rounds,1), 'real BG 12-18')}
@@ -418,9 +428,17 @@ async function render(){
   const evalSeries=[{name:'vs greedy',x:ex,y:EV.greedy,color:'var(--s1)'}];
   if((EV.heuristic||[]).length) evalSeries.push({name:'vs heuristic',x:ex,y:EV.heuristic,color:'var(--s2)'});
   if((EV.reference||[]).length) evalSeries.push({name:'vs frozen self',x:ex,y:EV.reference,color:'var(--s3)'});
+  if((EV.gauntlet||[]).some(v=>v!==null&&v!==undefined))
+    evalSeries.push({name:'gauntlet (7 past selves)',x:ex,y:EV.gauntlet,color:'var(--text-muted)'});
   g.appendChild(card('Eval placement &mdash; the honest metric',
     'Deterministic policy, 1 seat vs 7 fixed opponents. Axis flipped so up = better.',
     evalSeries, {invert:true, refs:[{v:L.untrained,label:'untrained'},{v:L.chance,label:'4.5'}], y0:1, y1:8}));
+
+  if((EV.elo||[]).some(v=>v!==null&&v!==undefined)){
+    g.appendChild(card('Gauntlet rating (Elo)',
+      'Bradley-Terry fit over the 28 pairwise outcomes every 8-player lobby yields, anchored at the oldest reference. Rising = beating a spread of past selves by more. Unlike the fixed bars this does not saturate, because the reference set rolls forward.',
+      [{name:'Elo',x:ex,y:EV.elo,color:'var(--s2)'}], {nd:0}));
+  }
 
   g.appendChild(card('Eval top-1 / top-4 rate','Share of eval games finishing 1st, and in the top half.',
     [{name:'top-1',x:ex,y:EV.top1},{name:'top-4',x:ex,y:EV.top4,color:'var(--s2)'}], {y0:0,y1:1}));
@@ -478,12 +496,14 @@ async function render(){
   }
 
   // Table view -- required relief for the low-contrast slot, and useful anyway.
+  const _e=v=>(v===null||v===undefined)?'--':(v>0?'+':'')+Math.round(v);
   let rows = ex.map((u,i)=>`<tr><td>${u}</td><td>${(EV.games[i]||0).toLocaleString()}</td>`+
     `<td>${fmt(EV.greedy[i])}</td><td>${fmt((EV.heuristic||[])[i])}</td><td>${fmt((EV.reference||[])[i])}</td>`+
+    `<td>${fmt((EV.gauntlet||[])[i])}</td><td>${_e((EV.elo||[])[i])}</td>`+
     `<td>${fmt(EV.top1[i])}</td><td>${fmt(EV.top4[i])}</td></tr>`).reverse().join('');
   root.insertAdjacentHTML('beforeend',
     `<details><summary>Eval table (${ex.length} points)</summary><div class="tblwrap"><table>
-     <thead><tr><th>update</th><th>games</th><th>vs greedy</th><th>vs heuristic</th><th>vs frozen self</th><th>top-1</th><th>top-4</th></tr></thead>
+     <thead><tr><th>update</th><th>games</th><th>vs greedy</th><th>vs heuristic</th><th>vs frozen self</th><th>gauntlet</th><th>elo</th><th>top-1</th><th>top-4</th></tr></thead>
      <tbody>${rows}</tbody></table></div></details>`);
   if(d.png) root.insertAdjacentHTML('beforeend',
     `<details><summary>Trainer-side PNG (synced from the instance)</summary>
