@@ -319,8 +319,41 @@ RANK_DELTA_COEF      =  0.15 * DENSE_REWARD_SCALE   # was 0.15; compute_round_re
 HAND_PENALTY_COEF    =  0.08 * DENSE_REWARD_SCALE   # was 0.08; _end_of_turn_reward
 GOLD_PENALTY_COEF    =  0.05 * DENSE_REWARD_SCALE   # was 0.05; _end_of_turn_reward
 EMPTY_BOARD_PENALTY  =  0.30 * DENSE_REWARD_SCALE   # was 0.30 flat; step_shopping SELL
-REROLL_PENALTY_BASE  =  0.05 * DENSE_REWARD_SCALE   # was 0.05; step_shopping REROLL
-REROLL_PENALTY_STEP  =  0.05 * DENSE_REWARD_SCALE   # was 0.05/reroll past 2; step_shopping REROLL
+
+# --- Reroll penalty ----------------------------------------------------------
+#
+# Retuned 2026-09-03 alongside the flat GOLD_PENALTY_SCALE change above, after
+# that change made the two penalties fight each other. Once gold no longer
+# fades away late-game, reroll is the ONLY gold sink available with a full
+# board and no affordable buys -- but the escalating per-turn penalty priced
+# even the first reroll as a net loss relative to just holding the gold:
+#   holding 1 gold to end of turn costs GOLD_PENALTY_COEF * GOLD_PENALTY_SCALE
+#     = 0.015 * 0.5 = 0.0075
+#   the OLD first reroll cost REROLL_PENALTY_BASE alone = 0.015 -- already 2x
+#     the gold-penalty relief it buys, before the per-reroll escalation even
+#     starts. Measured live (40 games, current checkpoint): 93% of round>=13
+#     end-of-turns left >=5 gold banked (mean 7.47), with buy/reroll/freeze
+#     all LEGAL and only 3.2/30 actions used that turn -- the policy was
+#     correctly solving the reward as written, which is why it never converged
+#     out of it during training rather than being an artifact worth waiting
+#     out.
+#
+# Rerolling should cost LESS than floating the same gold, full stop, so
+# spending it (even fruitlessly) always beats sitting on it once nothing else
+# is buyable. REROLL_PENALTY_BASE is set below the per-gold holding cost with
+# margin (0.003 vs 0.0075 -- 40%, comfortably favouring reroll at every count
+# from 1 to the max 10 reachable in a turn) and REROLL_PENALTY_STEP is 0 --
+# unlike REORDER, reroll is not a free repeatable action to guard against:
+# every use spends real, non-regenerating gold (min(2+round,10)/turn, no
+# carry-over), so it is already self-limiting to at most `gold` uses per turn
+# with no escalation needed. The one case where floating gold is legitimately
+# correct -- freezing a shop that has a minion worth waiting a turn to afford
+# -- pays only the ordinary flat gold penalty already covered above, exactly
+# once, same as any other unspent gold; FREEZE has never carried a separate
+# penalty (see step_shopping type_action == 4), so that case needed no change
+# here.
+REROLL_PENALTY_BASE  =  0.01  * DENSE_REWARD_SCALE   # was 0.05 raw (0.015 scaled); see above
+REROLL_PENALTY_STEP  =  0.0   * DENSE_REWARD_SCALE   # was 0.05 raw; escalation removed -- see above
 
 # --- Unspent-gold penalty (flat) --------------------------------------------
 #
@@ -1205,7 +1238,11 @@ class BattlegroundsGame:
                     ps._free_refreshes = _free - 1  # type: ignore[attr-defined]
                 else:
                     ps.gold -= ps.reroll_cost
-                    # Escalating penalty: 1-2 rerolls ok, 3+ gets expensive fast
+                    # Flat per-reroll cost, deliberately cheaper than holding
+                    # the same gold to end of turn -- see REROLL_PENALTY_BASE
+                    # block comment. _n_rerolls is kept (rather than a flat
+                    # `-= REROLL_PENALTY_BASE`) only so REROLL_PENALTY_STEP
+                    # still works if it's ever retuned off 0.
                     _n_rerolls = getattr(ps, "_rerolls_this_turn", 0)
                     reward -= REROLL_PENALTY_BASE + REROLL_PENALTY_STEP * max(0, _n_rerolls - 2)
                     ps._rerolls_this_turn = _n_rerolls + 1  # type: ignore[attr-defined]

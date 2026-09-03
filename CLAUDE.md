@@ -246,6 +246,29 @@ anywhere, they are stale — `env/game_loop.py` is the only source of truth.
    dominating" — see `CONTEXT.md` 2026-09-03). At `GOLD_PENALTY_SCALE = 0.5`,
    a full 10-gold purse costs `-0.075`/turn — half of `WIN_REWARD = 0.15`,
    every turn, not just late.
+
+   `step_shopping`'s REROLL branch charges its own separate,
+   **non-escalating** flat cost, `-REROLL_PENALTY_BASE` = `-0.003` per use
+   (`REROLL_PENALTY_STEP = 0`). Retuned 2026-09-03 in the same session as the
+   flat gold penalty above, because the two fought each other: with a full
+   board and no affordable buy, reroll is the *only* gold sink, but the old
+   escalating cost (`REROLL_PENALTY_BASE = 0.015`, `+0.015`/reroll past 2)
+   priced even the **first** reroll as a net loss against just holding the
+   gold — holding 1 gold to end of turn only costs `GOLD_PENALTY_COEF *
+   GOLD_PENALTY_SCALE = 0.0075`, half the old reroll cost. Measured live (40
+   games, the checkpoint that motivated this fix): 93% of round-13+
+   end-of-turns banked ≥5 gold (mean 7.47) with buy/reroll/freeze all legal
+   and only 3.2/30 actions used that turn — the policy was solving the
+   reward exactly as written, not failing to converge. Reroll must cost
+   *less* than floating the same gold at every count for spending it to ever
+   be worth it once nothing else is buyable: `0.003` is 40% of `0.0075`, and
+   with no escalation that margin holds at every reroll count up to the
+   max of 10 reachable in a turn (gold is real and non-regenerating —
+   `min(2+round,10)`/turn, no carry-over — so unlike `REORDER` this needed no
+   budget to stay safe from a discounting exploit). Freezing a shop to wait a
+   turn for a minion you can't yet afford is unaffected and intentionally
+   so: `FREEZE` has never carried a penalty beyond the ordinary flat gold
+   charge above, paid once, same as any other unspent gold.
 3. **Unified potential-based shaping** (`_apply_potential_shaping`) — a
    single potential Φ(s) ∈ [0, 1] (Ng, Harada & Russell 1999), paid out at
    **every** shopping action (BUY/SELL/PLACE/REROLL/FREEZE/LEVEL_UP/
