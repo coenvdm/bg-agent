@@ -1500,3 +1500,64 @@ copy of the same data. Not yet observed against a live run from this session.
   still hasn't been touched -- same reasoning as addendum 5: not asked for,
   and it's the user's own in-progress work.
 ---
+
+---
+### 2026-09-03 (addendum 7) — Action-mix charts show all 10 action types, no "other" bucket
+**Files changed:** `tools/live_graph.py`
+**What was done:** User found the action-mix panels unclear because lower-
+frequency action types were folded into a single "other" line, hiding what
+was actually in it. Consulted the `dataviz` skill rather than improvising:
+its non-negotiables say a >8th categorical series is never a generated hue —
+it must fold to "Other", split into small multiples, or use composite
+encoding — and folding is exactly what the user was objecting to. Chose
+composite encoding (color + dash) over small multiples, since the request
+was specifically to see every action type on one chart, not spread across
+more cards.
+Expanded the page's palette from the 3-slot "all-pairs-safe" subset it was
+using to the reference palette's full 8-slot categorical set (blue, orange,
+aqua, yellow, magenta, green, violet, red — `--s4` through `--s8` added to
+all three theme blocks: bare `:root`, the `prefers-color-scheme: dark` media
+block, and `:root[data-theme="dark"]`). The file's own comment had
+mis-scoped the earlier 3-slot choice as "the all-pairs-safe subset" — that
+restriction is for scatter/small-multiples forms; this file's charts are
+lines with a legend, which validate against the full 8 slots per
+`references/palette.md`. Added a fixed action-index -> {color, dash} map
+(`ACTION_STYLE`, `S8`), assigned once in `ACTION_TYPE_NAMES` order and never
+re-ranked by current value (color follows the entity, not its rank, per the
+skill's own non-negotiables — the OLD top-3-by-mean-this-update logic
+violated that: a given action's color could change over time as rankings
+shifted). ACTIVATE and REORDER (indices 8-9) reuse slots 1-2 with a dashed
+stroke. Rewrote both the flat "Action mix" card and the per-round-bucket
+cards (added last session) to build all 10 series directly via a shared
+`actionSeries()` helper — no top-3/other folding logic left anywhere.
+Also capped direct end-of-line text labels at <=4 series (the skill's own
+"<=4 are also direct-labeled" rule) since 10 overlapping end-labels would
+have been its own clutter problem; the end-marker DOT stays on every line as
+a cheap anchor, and the legend (now dash-aware: a dashed swatch for the two
+composite-encoded series) plus the existing hover tooltip carry full
+identification for the rest.
+**Verified:** Python file parses; restarted the local `bggraph` tmux session
+(this time via `tmux kill-session` directly, not Ctrl-C into a non-shell
+pane — avoiding the mistake from the previous restart) and confirmed via
+curl: the new JS (`ACTION_STYLE`/`S8`/`actionSeries`) and all 8 `--s4`..`--s8`
+CSS variables in both themes are being served; `series.json`'s action names
+in both the flat block and all 6 round-bucket blocks match the new JS
+`ACTION_NAMES` array exactly (BUY/SELL/PLACE/REROLL/FREEZE/LEVEL/HERO_PWR/
+END_TURN/ACTIVATE/REORDER), so every name-keyed lookup resolves. Could not
+visually render or screenshot the page (no browser/`node` in this sandbox,
+same limitation as the previous session) — the palette values themselves are
+copied verbatim from the skill's pre-validated reference instance
+(`references/palette.md` states this exact 8-hue order passes every adjacent-
+pair gate in both light and dark), so only the JS wiring was newly at risk,
+and that was reviewed by hand plus confirmed via the data-shape checks above.
+This file is local-only tooling (serves the localhost dashboard from synced
+history data) and does not run on the remote training instance, so no
+remote redeploy was needed for this change.
+**Current state:** http://127.0.0.1:8420 now shows every action type
+distinctly on the Action Mix panels (flat + all 6 round-bucket cards), fixed
+colors/dash per action, no "other" bucket anywhere in this file.
+**Open questions / next steps:**
+- Actually look at the rendered page (a real browser, not curl) to confirm
+  the 10-series chart reads well at a glance and the dash pattern is visible
+  at the line's stroke-width — this was verified structurally, not visually.
+---

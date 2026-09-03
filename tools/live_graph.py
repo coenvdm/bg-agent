@@ -241,16 +241,27 @@ INDEX_HTML = r"""<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BG Agent - Live Training</title>
 <style>
-/* Palette: the data-viz reference instance, slots 1-3 (blue/orange/aqua),
-   used unchanged. Those three are the documented all-pairs-safe subset in both
-   light and dark. Aqua sits under 3:1 on the light surface, so the relief rule
-   applies: every series carries a direct end-label and a table view exists. */
+/* Palette: the data-viz reference instance's full 8-slot categorical set
+   (blue/orange/aqua/yellow/magenta/green/violet/red), fixed order, validated
+   for the adjacent pairlist (stacks/bars/LINES) in both modes -- this file's
+   charts are lines with a legend, not small multiples/scatter, so the
+   8-slot set applies, not the 3-slot all-pairs subset. Action mix has 10
+   series (agent/policy.py's N_ACTION_TYPES): the two past slot 8 (ACTIVATE,
+   REORDER) reuse slots 1-2 with a dashed stroke -- composite encoding, one
+   of the three sanctioned outs (fold to "Other" / small multiples / composite
+   encoding) for a 9th+ series per the data-viz skill's non-negotiables,
+   chosen over folding because the user explicitly wants every action type
+   visible, not summarized away. Magenta/yellow/aqua sit under 3:1 on the
+   light surface, so the relief rule applies: every series carries a legend
+   entry (direct end-labels too, when few enough series to stay legible) and
+   a table view exists. */
 :root{
   color-scheme: light;
   --surface-0:#f4f4f2; --surface-1:#fcfcfb; --surface-2:#ececea;
   --border:#dcdcd8; --grid:#e6e6e2;
   --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#7a7975;
-  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+  --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
   --good:#1a7f52; --warn:#a9750a; --crit:#c0392b;
 }
 @media (prefers-color-scheme: dark){
@@ -259,7 +270,8 @@ INDEX_HTML = r"""<!doctype html>
     --surface-0:#141413; --surface-1:#1a1a19; --surface-2:#242422;
     --border:#33332f; --grid:#2b2b28;
     --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#8d8c83;
-    --s1:#3987e5; --s2:#d95926; --s3:#199e70;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
+    --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
     --good:#3fae7c; --warn:#d0a03a; --crit:#e66767;
   }
 }
@@ -268,7 +280,8 @@ INDEX_HTML = r"""<!doctype html>
   --surface-0:#141413; --surface-1:#1a1a19; --surface-2:#242422;
   --border:#33332f; --grid:#2b2b28;
   --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#8d8c83;
-  --s1:#3987e5; --s2:#d95926; --s3:#199e70;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
+  --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
   --good:#3fae7c; --warn:#d0a03a; --crit:#e66767;
 }
 *{box-sizing:border-box}
@@ -331,6 +344,16 @@ footer{margin-top:26px;color:var(--text-muted);font-size:11.5px}
 <script>
 const POLL_MS = 15000;
 const S = ['var(--s1)','var(--s2)','var(--s3)'];
+// Full 8-slot categorical set, fixed order -- used only by the action-mix
+// panels, which have up to 10 series (see the palette comment in <style>).
+const S8 = ['var(--s1)','var(--s2)','var(--s3)','var(--s4)','var(--s5)','var(--s6)','var(--s7)','var(--s8)'];
+// Fixed action-index -> {color, dash} map, in agent/policy.py's ACTION_TYPE_NAMES
+// order (BUY..REORDER). Never re-ranked by current value -- color/dash follow
+// the entity, not its rank, so a given action keeps the same look across every
+// render and every panel. Indices 8-9 (ACTIVATE, REORDER) reuse slots 1-2 with
+// a dash, since only 8 hues are validated -- see the palette comment above.
+const ACTION_STYLE = [0,1,2,3,4,5,6,7,0,1].map((slot,i)=>(
+  {color:S8[slot], dash: i>=8 ? '6 3' : null}));
 const tip = document.getElementById('tip');
 const fmt = (v,n=2)=> (v===null||v===undefined||Number.isNaN(v)) ? '--' : (+v).toFixed(n);
 const kfmt = v => v>=1000 ? (v/1000).toFixed(v>=10000?0:1)+'k' : String(v);
@@ -369,16 +392,23 @@ function lineChart(el, series, opts={}){
     s+=`<line class="ref" x1="${mL}" y1="${y.toFixed(1)}" x2="${W-mR}" y2="${y.toFixed(1)}"/>`;
     s+=`<text class="refl" x="${W-mR+4}" y="${(y+3).toFixed(1)}">${r.label}</text>`;
   });
+  // Direct end-of-line text labels are capped at <=4 series (data-viz skill:
+  // "<=4 are also direct-labeled") -- past that they overlap into clutter,
+  // which is exactly what "not really clear" meant for the 10-series action
+  // mix. The end-DOT stays for every series (a cheap "line ends here"
+  // anchor); the legend + hover tooltip carry identity for the rest.
+  const labelAll = pts.length<=4;
   pts.forEach((sr,si)=>{
     let d='', open=false;
     sr.y.forEach((v,i)=>{ if(v===null){open=false;return;}
       d += (open?'L':'M') + X(sr.x[i]).toFixed(1) + ' ' + YY(v).toFixed(1) + ' '; open=true; });
-    s+=`<path d="${d}" fill="none" stroke="${sr.color||S[si]}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    const dash = sr.dash ? ` stroke-dasharray="${sr.dash}"` : '';
+    s+=`<path d="${d}" fill="none" stroke="${sr.color||S[si]}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"${dash}/>`;
     // Direct end-label: identity is never color-alone (relief rule).
     for(let i=sr.y.length-1;i>=0;i--){ if(sr.y[i]!==null){
       const cx=X(sr.x[i]), cy=YY(sr.y[i]);
       s+=`<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="3.2" fill="${sr.color||S[si]}" stroke="var(--surface-1)" stroke-width="2"/>`;
-      s+=`<text class="endl" x="${(cx+7).toFixed(1)}" y="${(cy+3.5).toFixed(1)}" fill="${sr.color||S[si]}">${fmt(sr.y[i],opts.nd??2)}</text>`;
+      if(labelAll) s+=`<text class="endl" x="${(cx+7).toFixed(1)}" y="${(cy+3.5).toFixed(1)}" fill="${sr.color||S[si]}">${fmt(sr.y[i],opts.nd??2)}</text>`;
       break; } }
   });
   s+=`<line id="ch" x1="0" y1="${mT}" x2="0" y2="${H-mB}" stroke="var(--text-muted)" stroke-width="1" opacity="0"/>`;
@@ -406,8 +436,15 @@ function lineChart(el, series, opts={}){
 
 function card(title, note, series, opts){
   const d=document.createElement('div'); d.className='card';
+  // Dashed series (composite-encoded, sharing a hue with a solid series) get
+  // a dashed swatch instead of a solid one, so the legend matches the line.
   const leg = series.length>1
-    ? `<div class="legend">${series.map((s,i)=>`<span><i style="background:${s.color||S[i]}"></i>${s.name}</span>`).join('')}</div>` : '';
+    ? `<div class="legend">${series.map((s,i)=>{
+        const c=s.color||S[i];
+        const sw = s.dash ? `background:none;border-bottom:2.5px dashed ${c};height:0`
+                           : `background:${c}`;
+        return `<span><i style="${sw}"></i>${s.name}</span>`;
+      }).join('')}</div>` : '';
   d.innerHTML=`<h2>${title}</h2><p class="note">${note||''}</p>${leg}<div class="plot"></div>`;
   lineChart(d.querySelector('.plot'), series, Object.assign({title}, opts||{}));
   return d;
@@ -504,38 +541,28 @@ async function render(){
   g.appendChild(card('Level-up rate','Share of actions spent levelling the tavern.',
     [{name:'level rate',x:X.update_levelrate_avg,y:SER.update_levelrate_avg}, ], {nd:3, y0:0}));
 
-  // Action mix: cap at the 3 all-pairs-safe slots plus a folded "other",
-  // rather than cycling hues across 10 action types.
+  // Action mix -- ALL 10 action types shown, none folded into "other".
+  // Fixed color+dash per action type (ACTION_STYLE, in ACTION_NAMES order),
+  // never re-ranked by current value: color follows the entity, not its
+  // rank, so a given action keeps the same look across every render and
+  // every panel (including the per-round-bucket cards below).
+  const ACTION_NAMES = ['BUY','SELL','PLACE','REROLL','FREEZE','LEVEL','HERO_PWR','END_TURN','ACTIVATE','REORDER'];
+  const actionSeries = (seriesDict, x) => ACTION_NAMES
+    .map((name,i)=>({name, x, y:(seriesDict[name]||[]), color:ACTION_STYLE[i].color, dash:ACTION_STYLE[i].dash}))
+    .filter(s=>s.y.length);
+
   const A=d.actions&&d.actions.series||{};
-  const names=Object.keys(A).filter(k=>(A[k]||[]).length);
-  if(names.length){
-    const mean=k=>{const v=(A[k]||[]).filter(x=>x!==null); return v.length?v.reduce((a,b)=>a+b,0)/v.length:0;};
-    const top=names.sort((a,b)=>mean(b)-mean(a)).slice(0,3);
-    const rest=names.filter(k=>!top.includes(k));
-    const ser=top.map((k,i)=>({name:k,x:d.actions.x,y:A[k],color:S[i]}));
-    if(rest.length){
-      const n=d.actions.x.length, other=[];
-      for(let i=0;i<n;i++){ let s=0,any=false; rest.forEach(k=>{const v=(A[k]||[])[i]; if(v!==null&&v!==undefined){s+=v;any=true;}}); other.push(any?s:null); }
-      ser.push({name:`other (${rest.length})`,x:d.actions.x,y:other,color:'var(--text-muted)'});
-    }
-    g.appendChild(card('Action mix','Share of actions per game. Lower-frequency types folded into "other".', ser, {nd:3, y0:0}));
+  if(Object.keys(A).length){
+    g.appendChild(card('Action mix','Share of actions per game — all 10 action types.',
+      actionSeries(A, d.actions.x), {nd:3, y0:0}));
   }
 
   // Same breakdown, split by which round of the game the actions happened in
   // -- e.g. does the policy front-load REROLL early and shift to SELL/PLACE
   // churn late. One card per bucket, only for buckets with data so far.
   (d.round_buckets||[]).forEach(rb=>{
-    const rnames=Object.keys(rb.series||{}).filter(k=>(rb.series[k]||[]).length);
-    if(!rnames.length) return;
-    const rmean=k=>{const v=(rb.series[k]||[]).filter(x=>x!==null); return v.length?v.reduce((a,b)=>a+b,0)/v.length:0;};
-    const rtop=rnames.sort((a,b)=>rmean(b)-rmean(a)).slice(0,3);
-    const rrest=rnames.filter(k=>!rtop.includes(k));
-    const rser=rtop.map((k,i)=>({name:k,x:rb.x,y:rb.series[k],color:S[i]}));
-    if(rrest.length){
-      const n=rb.x.length, other=[];
-      for(let i=0;i<n;i++){ let s=0,any=false; rrest.forEach(k=>{const v=(rb.series[k]||[])[i]; if(v!==null&&v!==undefined){s+=v;any=true;}}); other.push(any?s:null); }
-      rser.push({name:`other (${rrest.length})`,x:rb.x,y:other,color:'var(--text-muted)'});
-    }
+    const rser = actionSeries(rb.series||{}, rb.x);
+    if(!rser.length) return;
     g.appendChild(card(`Action mix — round ${rb.label}`,
       'Share of actions per game, this round bucket only.', rser, {nd:3, y0:0}));
   });
