@@ -190,20 +190,34 @@ anywhere, they are stale — `env/game_loop.py` is the only source of truth.
    without rewarding any actual decision (see `CONTEXT.md`).
 2. **`_end_of_turn_reward`** — fired on END_TURN/FREEZE: `-HAND_PENALTY_COEF`
    (`0.024`) per card left in hand, and `-GOLD_PENALTY_COEF * gold *
-   gold_scale` for unspent gold, `GOLD_PENALTY_COEF = 0.015`.
-   `gold_scale` is **V-shaped**, retuned 2026-09-02: it fades linearly 1.0 →
-   `GOLD_SCALE_FLOOR = 0.2` by `GOLD_SCALE_FADE_ROUND = 13` (early/mid-game
-   gold retention is sometimes correct — saving to level), then *ramps back
-   up* at `GOLD_SCALE_LATE_RAMP = 0.13`/round to `GOLD_SCALE_LATE_CEIL = 1.5`
-   by round 23. The old schedule was flat at `0.2` from round 13 to the end
-   of the game however long it ran, which priced a full 10-gold purse at
-   `-0.03`/turn against `WIN_REWARD = 0.15` — and a live-run trace showed a
-   trained policy duly banking all 10 gold every round from round 8 onward
-   for the rest of an 18-round game while it stopped buying/leveling
-   entirely (see `CONTEXT.md` 2026-09-02). Late-game idle gold now costs up
-   to `-0.225`/turn (round 23+, gold=10) — more than a full `WIN_REWARD`.
-   Rounds 1-12 are numerically unchanged from the old schedule (see
-   `_gold_penalty_scale` in `env/game_loop.py`).
+   GOLD_PENALTY_SCALE` for unspent gold, `GOLD_PENALTY_COEF = 0.015`.
+   `GOLD_PENALTY_SCALE` is **flat** (`0.5`), replacing a round-indexed
+   V-shaped schedule (2026-09-02 → 2026-09-03). The V-shape was built on the
+   premise that early/mid-game gold retention is sometimes correct ("saving
+   for a level spike"), but that premise is false for this game: `ps.gold`
+   is unconditionally overwritten by `_gold_for_round(round_num)` every
+   round (no carry-over, no interest — matching real Battlegrounds, unlike
+   TFT/Underlords-style banking) and `ps.level_cost` decays on its own each
+   round regardless of spending, so leftover gold buys nothing next turn at
+   *any* round — there's no round at which holding it is anything but pure
+   waste. The V-shape also had an independent mistiming bug: its late-game
+   ramp was tuned to reach full strength by round 23 against a ~21-round
+   median, but as the policy improved games got *shorter* (15-21 rounds on
+   the checkpoint that motivated this fix), so the ramp's punishing teeth
+   increasingly fell outside the round range most games actually reached
+   (see `CONTEXT.md` 2026-09-02 "gold ramp mistimed"). A flat coefficient
+   has no round dependence, so this can't recur.
+   `GOLD_PENALTY_SCALE = 0.5` was sized by replaying 2,436 real end-of-turn
+   (round, gold) events from 24 games on the real seat mix against the OLD
+   schedule: flat `0.5` reproduces the old schedule's aggregate cost almost
+   exactly (29.93 vs 29.28 total, 1.02x) on those same trajectories, so the
+   already-validated dense/placement balance carries over rather than being
+   re-gambled (measured on the same games: mean|dense_plus_shaping| = 0.823
+   vs mean|placement_reward| = 2.125 per player-game, ratio 0.39, well under
+   the ~0.6-0.8 band prior sessions treated as "meaningful but not
+   dominating" — see `CONTEXT.md` 2026-09-03). At `GOLD_PENALTY_SCALE = 0.5`,
+   a full 10-gold purse costs `-0.075`/turn — half of `WIN_REWARD = 0.15`,
+   every turn, not just late.
 3. **Unified potential-based shaping** (`_apply_potential_shaping`) — a
    single potential Φ(s) ∈ [0, 1] (Ng, Harada & Russell 1999), paid out at
    **every** shopping action (BUY/SELL/PLACE/REROLL/FREEZE/LEVEL_UP/
@@ -271,11 +285,13 @@ Historically, the dense per-round/per-action terms in (1)/(2) summed to
 roughly **17x** `FINAL_PLACEMENT_REWARD`'s magnitude before
 `DENSE_REWARD_SCALE` was introduced (see `CONTEXT.md`, 2026-08-31) — drowning
 out the actual objective. Whenever retuning any dense coefficient (including
-the gold-penalty schedule above), re-measure the dense-sum-per-player-game
+the gold-penalty scale above), re-measure the dense-sum-per-player-game
 vs. `FINAL_PLACEMENT_REWARD` balance on the real seat mix and confirm it
 hasn't drifted back toward dominating; the 2026-09-02 gold-schedule retune
 was checked this way (mean dense_sum stayed near 0, well inside the ±4
-placement span, on a 30-game/240-player-game sample — see `CONTEXT.md`).
+placement span, on a 30-game/240-player-game sample), and so was the
+2026-09-03 flattening (dense/placement ratio 0.39 on a 24-game/192-player-game
+sample — see `CONTEXT.md`).
 When retuning leveling incentives, watch `level_rate` *and* `board_size`/
 placement together (not `level_rate` alone) — a naive leveling incentive can
 reproduce the same kind of degenerate policy a flat `board_size` reward

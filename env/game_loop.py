@@ -291,76 +291,59 @@ RANK_DELTA_COEF      =  0.15 * DENSE_REWARD_SCALE   # was 0.15; compute_round_re
 HAND_PENALTY_COEF    =  0.08 * DENSE_REWARD_SCALE   # was 0.08; _end_of_turn_reward
 GOLD_PENALTY_COEF    =  0.05 * DENSE_REWARD_SCALE   # was 0.05; _end_of_turn_reward
 EMPTY_BOARD_PENALTY  =  0.30 * DENSE_REWARD_SCALE   # was 0.30 flat; step_shopping SELL
-# See _gold_penalty_scale() below for GOLD_SCALE_* (the late-game reshaping
-# of the multiplier GOLD_PENALTY_COEF is scaled by -- retuned 2026-09-02
-# alongside BOARD_SHAPE_STATS_SATURATION, same root-cause trace).
 REROLL_PENALTY_BASE  =  0.05 * DENSE_REWARD_SCALE   # was 0.05; step_shopping REROLL
 REROLL_PENALTY_STEP  =  0.05 * DENSE_REWARD_SCALE   # was 0.05/reroll past 2; step_shopping REROLL
 
-# --- Unspent-gold penalty schedule (_gold_penalty_scale) -------------------
+# --- Unspent-gold penalty (flat) --------------------------------------------
 #
-# _end_of_turn_reward charges -GOLD_PENALTY_COEF * gold * gold_scale, where
-# gold_scale used to be a straight linear fade: max(0.2, 1.0 - (round-1)/15).
-# That expression's linear term crosses below 0.2 starting at round 13 (1 -
-# 12/15 = 0.2 exactly; round 14 = 0.133; verified numerically, not just
-# algebraically, because of float rounding right at the crossover) -- so in
-# practice the OLD schedule was 1.0 at round 1, decaying to 0.2 by round 13,
-# and FLAT at 0.2 for every round from 13 through the end of the game,
-# however long that took (games in the 30-game measurement below ran up to
-# 31 rounds).
+# _end_of_turn_reward charges -GOLD_PENALTY_COEF * gold * GOLD_PENALTY_SCALE.
+# This used to be a round-indexed schedule (_gold_penalty_scale, removed
+# 2026-09-03) that faded 1.0 -> 0.2 by round 13 on the theory that
+# early/mid-game gold retention is "saving for a level spike." That theory
+# is wrong for this game: `ps.gold` is unconditionally OVERWRITTEN by
+# `_gold_for_round(round_num)` at the top of every round (see reset() /
+# the per-round setup loop) -- there is no carry-over and no interest, so
+# gold held back this turn buys literally nothing next turn (next turn's
+# gold is fixed by round number alone, matching real Battlegrounds rules,
+# unlike TFT/Underlords-style banking). `ps.level_cost` also decays on its
+# own every round regardless of spending, so "wait to level" never requires
+# holding gold either. There is therefore no round at which leftover gold
+# is anything but pure waste -- a flat coefficient is the more CORRECT
+# model, not a simplification traded for accuracy.
 #
-# RETUNED 2026-09-02, same trace as BOARD_SHAPE_STATS_SATURATION above: the
-# live-run policy banked all 10 gold every round from round 8 onward for the
-# rest of the game (confirmed in the 30-game measurement too -- trained-seat
-# median leftover gold is already 9/10 by round 10 and stays there through
-# round 29). Under the old schedule that behaviour cost -0.015*10*0.2 =
-# -0.03/turn from round 13 on, against WIN_REWARD=+0.15 -- sitting on a full
-# purse was priced at 20% of a single combat win, every turn, for the entire
-# back half of the game.
+# The round-indexed schedule also had an independent bug the flat model
+# sidesteps entirely: its late-game ramp back up to GOLD_SCALE_LATE_CEIL
+# was timed to reach full strength by round 23, sized against a ~21-round
+# median measured on an older checkpoint. As the policy improved, games got
+# SHORTER (this checkpoint: 15-21 rounds, mean 17.2, measured below) -- the
+# ramp's punishing teeth increasingly fell in a round range most games
+# never reached, so it was chasing a target that moves away from it as
+# training progresses (see CONTEXT.md 2026-09-02 "gold ramp mistimed").
+# Flat has no round dependence, so this failure mode cannot recur.
 #
-# The linear fade down to round 13 is NOT changed here: early/mid-game gold
-# retention is sometimes genuinely correct (saving across 1-2 turns to hit a
-# tier-5/6 level-up spike), and CLAUDE.md / the task that produced this fix
-# both call for keeping that forgiving. What changes is what happens once the
-# linear fade would drop below its old floor: instead of flatlining at 0.2 for
-# the rest of the game -- exactly when hoarding gold is LEAST excusable, since
-# by round 13+ there is essentially always a legal buy/level/reroll to spend
-# it on -- the schedule now ramps back UP from that same pivot, reaching
-# GOLD_SCALE_LATE_CEIL by round 23 (near the ~21-round median game length
-# measured on the real seat mix, so most games actually reach the punishing
-# part of the schedule before ending, while the pivot itself stays exactly
-# where the old floor started so nothing before round 13 changes at all). At
-# gold_scale=1.5 and 10 gold banked, the per-turn cost becomes -0.015*10*1.5
-# = -0.225 -- larger than a full WIN_REWARD, i.e. sitting on a full purse for
-# one late turn now costs more than winning a combat round gains, which is
-# the "genuinely costly late" the fix asks for.
-GOLD_SCALE_FADE_ROUND = 13    # first round at which the OLD linear fade (1.0
-                               # - (round-1)/15) drops to/below 0.2 -- the
-                               # pivot, kept exactly here so every round
-                               # before it is byte-for-byte unchanged.
-GOLD_SCALE_FLOOR      = 0.2   # value at GOLD_SCALE_FADE_ROUND -- unchanged
-                               # from the old schedule's floor.
-GOLD_SCALE_LATE_RAMP  = 0.13  # gold_scale increase per round past the pivot
-GOLD_SCALE_LATE_CEIL  = 1.5   # cap -- reached at pivot + (1.5-0.2)/0.13 = +10
-                               # rounds, i.e. round 23.
-
-
-def _gold_penalty_scale(round_num: int) -> float:
-    """Multiplier on GOLD_PENALTY_COEF * gold -- see the block comment above.
-
-    Rounds 1..12: identical to the old max(0.2, 1 - (round-1)/15) fade, so
-    early-game saving-for-a-level behaviour is priced exactly as before.
-    Round 13 on: ramps linearly back UP to GOLD_SCALE_LATE_CEIL instead of
-    flatlining at the 0.2 floor, because late-game gold retention is the
-    specific failure this schedule exists to price correctly.
-    """
-    linear = 1.0 - (round_num - 1) / 15.0
-    if linear >= GOLD_SCALE_FLOOR:
-        return linear
-    return min(
-        GOLD_SCALE_LATE_CEIL,
-        GOLD_SCALE_FLOOR + GOLD_SCALE_LATE_RAMP * (round_num - GOLD_SCALE_FADE_ROUND),
-    )
+# GOLD_PENALTY_SCALE = 0.5 was picked (not guessed) by replaying 2,436 real
+# end-of-turn events across 24 games on the real seat mix (4 policy seats
+# sharing one live checkpoint + 2 HeuristicAgent + 2 GreedyPlayAgent) and
+# comparing candidate flat scales against what the OLD schedule actually
+# charged on those SAME trajectories:
+#   old schedule total cost  = 29.28   (mean 0.0120/event)
+#   flat 0.5 total cost      = 29.93   (mean 0.0123/event, 1.02x old)
+#   flat 1.0 total cost      = 59.87   (2.04x old)
+# 0.5 reproduces the old schedule's aggregate magnitude almost exactly, so
+# the already-validated dense/placement balance (see DENSE_REWARD_SCALE
+# above and CLAUDE.md's re-measurement mandate) carries over unchanged --
+# this fixes the false premise and the round-mistiming bug without also
+# gambling on a new, unvalidated penalty magnitude. Measured on the same
+# 24 games: mean|dense_plus_shaping| = 0.823 vs mean|placement_reward| =
+# 2.125 per player-game (ratio 0.39, comfortably under the ~0.6-0.8 band
+# prior sessions treated as "meaningful but not dominating"), and gold
+# events skew low already (median leftover = 0 gold, p90 = 7) -- this
+# checkpoint mostly isn't hoarding, so the fix mainly matters for the tail
+# and for future checkpoints, not as a wholesale reward-magnitude increase.
+# At GOLD_PENALTY_SCALE=0.5, a full 10-gold purse costs -0.075/turn -- half
+# a WIN_REWARD (0.15), i.e. meaningful every turn without being punitive on
+# a turn where 1-2 gold is structurally unspendable (shop/board/hand full).
+GOLD_PENALTY_SCALE = 0.5
 
 FINAL_PLACEMENT_REWARD: Dict[int, float] = {
     1: +4.0,
@@ -659,11 +642,11 @@ class BattlegroundsGame:
                                level-then-end-turn degenerate policy.
         Hand penalty         : -HAND_PENALTY_COEF per card left in hand — cards in
                                hand don't fight; discourages buying without placing.
-        Gold efficiency      : -GOLD_PENALTY_COEF * unspent_gold * _gold_penalty_scale
-                               (round_num) -- fades down early/mid game (saving for a
-                               level can be correct) then ramps back UP late game
-                               (see _gold_penalty_scale's docstring / the GOLD_SCALE_*
-                               block comment for the 2026-09-02 retune and why).
+        Gold efficiency      : -GOLD_PENALTY_COEF * unspent_gold * GOLD_PENALTY_SCALE --
+                               flat (round-independent): gold never carries over between
+                               rounds (see the GOLD_PENALTY_SCALE block comment for why
+                               that makes leftover gold pure waste at every round, and
+                               for the 2026-09-03 measurement behind the 0.5 value).
 
         Coefficients scaled by DENSE_REWARD_SCALE -- see the module constants
         block.
@@ -675,9 +658,8 @@ class BattlegroundsGame:
         # so that credit assignment is immediate rather than deferred.
         # Hand penalty: bought cards that aren't placed don't help in combat
         r -= HAND_PENALTY_COEF * hand_size
-        # Unspent gold penalty -- see _gold_penalty_scale for the schedule.
-        gold_scale = _gold_penalty_scale(ps.round_num)
-        r -= GOLD_PENALTY_COEF * ps.gold * gold_scale
+        # Unspent gold penalty -- see GOLD_PENALTY_SCALE block comment.
+        r -= GOLD_PENALTY_COEF * ps.gold * GOLD_PENALTY_SCALE
         return r
 
     def _level_cost_for_tier(self, current_tier: int) -> int:

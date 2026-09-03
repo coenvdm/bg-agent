@@ -1070,3 +1070,33 @@ Before stopping the old process a verified checkpoint backup was secured (`check
 - Still unfixed from the previous entry: the gold ramp is indexed to absolute round number and its teeth (r13-23) fall outside games that now end at ~14.
 - Trap for later: `pkill -f <pattern>` matched this session's own wrapping shell and killed it mid-sequence. Use precise patterns or pgrep-then-kill by PID.
 ---
+
+---
+### 2026-09-03 (evening) — Flattened the unspent-gold penalty: round-indexed schedule was built on a false premise
+**Files changed:** `env/game_loop.py`, `CLAUDE.md`
+
+**Why.** User observed that gold cannot be banked across turns in this game (`ps.gold` is unconditionally overwritten by `_gold_for_round(round_num)` every round — verified, no carry-over/interest anywhere in the codebase, matching real Battlegrounds rather than TFT/Underlords). The V-shaped `_gold_penalty_scale` schedule's early/mid-game leniency (fading 1.0 → 0.2 by round 13) was justified in the code comments as "saving across 1-2 turns to hit a tier-5/6 level-up spike is sometimes correct" — but that's not possible here: next turn's gold is a fixed function of round number regardless of what's held back, and `ps.level_cost` decays on its own each round independent of spending. So there is no round at which leftover gold is anything but pure waste, and a flat coefficient is the more correct model, not a simplification.
+
+The schedule also had an independent, previously-flagged bug: its late-game ramp (round 13 → `GOLD_SCALE_LATE_CEIL=1.5` by round 23) was sized against a ~21-round median from an older checkpoint, but as the policy improves games get *shorter* — the 2026-09-02 mid-run entry already caught this in a live trace (game ended round 14, ramp's teeth start at round 13, barely engaged). A flat coefficient has no round dependence, so this mistiming can't recur as the policy keeps improving.
+
+**Measurement, not a guess.** Wrote a throwaway script (monkeypatched `BattlegroundsGame._end_of_turn_reward` to record every `(round_num, gold)` pair, no permanent instrumentation left behind) and replayed 24 games on the real seat mix (4 policy-driven seats sharing the live checkpoint `checkpoint_backups/live_bg_agent_ppo.pt` via `EvalAgent` + 2 `HeuristicAgent` + 2 `GreedyPlayAgent`, seeded). Collected 2,436 end-of-turn events across games running 15-21 rounds (mean 17.2). Candidate flat scales against the SAME trajectories:
+
+| schedule | total cost (2,436 events) | ratio to old |
+|---|---|---|
+| OLD (V-shaped) | 29.28 | 1.00 |
+| flat 0.2 | 11.97 | 0.41 |
+| **flat 0.5** | **29.93** | **1.02** |
+| flat 1.0 | 59.87 | 2.04 |
+| flat 1.5 | 89.80 | 3.07 |
+
+`GOLD_PENALTY_SCALE = 0.5` chosen because it reproduces the old schedule's aggregate magnitude almost exactly on real trajectories — fixes the false premise and the mistiming bug without also gambling on an unvalidated new magnitude. Gold-events skew low already (median leftover = 0, p90 = 7) — this checkpoint mostly isn't hoarding, so the fix matters mainly for the tail and for future checkpoints, not as a wholesale reward-magnitude change.
+
+**Balance re-verified** (same 24 games, 192 player-game rows): mean|dense_plus_shaping| = 0.823 vs mean|placement_reward| = 2.125 per player-game → ratio 0.39, comfortably under the ~0.6-0.8 band prior sessions treated as "meaningful but not dominating." At flat 0.5, a full 10-gold purse costs -0.075/turn (half of `WIN_REWARD=0.15`) at every round, not just late.
+
+Removed `_gold_penalty_scale`/`GOLD_SCALE_FADE_ROUND`/`GOLD_SCALE_FLOOR`/`GOLD_SCALE_LATE_RAMP`/`GOLD_SCALE_LATE_CEIL` entirely (no other callers anywhere in the codebase — grepped to confirm). `CLAUDE.md`'s reward-shaping section (`_end_of_turn_reward`) and the balance-mandate paragraph updated to match.
+
+**Current state:** Change is a pure reward-shaping edit, not yet trained against — no live run affected (no instance currently running). Smoke-tested: a scripted-only game (4 Heuristic + 4 Greedy) runs end-to-end post-edit with no errors.
+**Open questions / next steps:**
+- Not yet validated by an actual training run — this is a measured-on-trajectories sizing, not an outcome measurement. Worth checking `level_rate`/board_size/placement together after the next run, per CLAUDE.md's standing guidance on retuning economy incentives.
+- The `GOLD_PENALTY_SCALE=0.5` measurement used one checkpoint (`live_bg_agent_ppo.pt`, ~u2369+). Gold-hoarding behavior may differ across checkpoint strength; re-measure if a future policy shows the old hoarding pattern again.
+---
