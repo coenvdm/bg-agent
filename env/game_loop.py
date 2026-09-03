@@ -285,8 +285,36 @@ DENSE_REWARD_SCALE = 0.30
 
 WIN_REWARD          =  0.5  * DENSE_REWARD_SCALE   # was 0.5;  compute_round_reward win term
 LOSS_PENALTY         = -0.3  * DENSE_REWARD_SCALE   # was -0.3; compute_round_reward loss term
-DAMAGE_TAKEN_COEF    =  0.05 * DENSE_REWARD_SCALE   # was 0.05; compute_round_reward
-DAMAGE_DEALT_COEF    =  0.05 * DENSE_REWARD_SCALE   # was 0.05; compute_round_reward
+# --- Damage coefficients ----------------------------------------------------
+#
+# These two look symmetric but behave in opposite ways, and were retuned
+# 2026-09-03 in opposite directions after measuring their variance
+# contribution at 0.0% each (see CONTEXT.md).
+#
+# DAMAGE_TAKEN_COEF telescopes.  Summed over a game,
+#   sum_rounds COEF * dmg/max_health  ==  COEF * (max_health - final_health)/max_health
+# so the LIFETIME cost of taking all 40 damage and dying is exactly one
+# COEF.  At the old 0.05 raw (0.015 scaled) that lifetime maximum was 0.015
+# against a FINAL_PLACEMENT_REWARD span of 8 -- 0.2% of the objective.  The
+# term wasn't weak, it was inert: the agent was ~indifferent between losing a
+# fight at 5 damage and losing it at 20, even though in Battlegrounds that is
+# the difference between dying on round 12 and surviving to round 18.
+# At 0.6 raw (0.18 scaled) that same gap is worth 0.0675 -- 75% of
+# |LOSS_PENALTY| -- so margin now matters about as much as the binary
+# outcome, while the dense/placement ratio moves only 0.22 -> 0.25 (measured,
+# 40 games; CLAUDE.md's "meaningful but not dominating" band is 0.6-0.8).
+#
+# DAMAGE_DEALT_COEF does NOT telescope -- it is unbounded positive income
+# (8 wins x 15 damage is 3x the coefficient, every game, forever), i.e. the
+# same one-sided ratchet the split board/tier shaping was killed for on
+# 2026-08-31.  It also triple-counts: WIN_REWARD already pays for winning,
+# RANK_DELTA_COEF already pays for opponents dying, and board_potential
+# already pays for the board strength that produced the damage -- at every
+# action rather than once per round.  Set to 0.  This also makes ghost
+# combats need no special case: we don't care by how much you beat anyone,
+# so there is nothing to zero out separately for a dead opponent.
+DAMAGE_TAKEN_COEF    =  0.6  * DENSE_REWARD_SCALE   # was 0.05; compute_round_reward
+DAMAGE_DEALT_COEF    =  0.0  * DENSE_REWARD_SCALE   # was 0.05; removed -- see above
 RANK_DELTA_COEF      =  0.15 * DENSE_REWARD_SCALE   # was 0.15; compute_round_reward
 HAND_PENALTY_COEF    =  0.08 * DENSE_REWARD_SCALE   # was 0.08; _end_of_turn_reward
 GOLD_PENALTY_COEF    =  0.05 * DENSE_REWARD_SCALE   # was 0.05; _end_of_turn_reward
@@ -375,6 +403,7 @@ def compute_round_reward(
     cur_rank: int,
     result: str,           # "win" | "loss" | "tie"
     max_health: int = 40,
+    outcome_dist: Optional[dict] = None,
 ) -> float:
     """Dense reward shaping for one shopping+combat round.
 
@@ -397,7 +426,45 @@ def compute_round_reward(
     2026-08-31: it was unconditional passive income (~+1.2/game, fired merely
     for being alive) that diluted the placement signal without rewarding any
     actual decision -- see CONTEXT.md for the STEP 0 measurement that found it.
+
+    outcome_dist
+    ------------
+    When supplied (keys: p_win, p_loss, exp_damage_taken, exp_damage_dealt --
+    the last two already UNCONDITIONAL, i.e. probability-weighted), the
+    outcome and damage terms are paid at their *expectation* over the combat
+    distribution rather than at the single sampled realisation.  This is
+    Rao-Blackwellisation: E[r | boards] is a conditional expectation given
+    everything the agent's actions control, so it is unbiased
+    (E[rbar] == E[r]) and by the orthogonal decomposition
+    Var(sampled) == Var(expected) + Var(noise) it can never increase
+    variance.  It is also free: BGCombatSim already runs COMBAT_SIM_TRIALS
+    full combats and aggregates them, and step_combat was collapsing that
+    aggregate back to one coin flip purely to label the reward.
+
+    Measured effect (40 games, 2026-09-03): removes 22.6% of per-combat
+    reward variance but only 2.3% of TOTAL return variance -- because 76.5%
+    of combats are already near-decisive (win_prob <= 0.125 or >= 0.875),
+    where the sample IS the expectation, and because placement variance
+    (sd 2.50) dwarfs combat-reward variance (sd 0.63) by design. Taken
+    because it is free and provably non-negative, not because it moves
+    training.
+
+    NOTE: only the REWARD is Rao-Blackwellised.  The dynamics stay sampled --
+    health still moves by the realised damage.  Expectation-ing the dynamics
+    too would make a 55%-win board never lose, delete risk management from a
+    game whose objective (FINAL_PLACEMENT_REWARD) is a step function over
+    placement, and tune the policy for a game it does not play.
     """
+    if outcome_dist is not None:
+        p_win  = outcome_dist["p_win"]
+        p_loss = outcome_dist["p_loss"]
+        r  = WIN_REWARD  * p_win
+        r += LOSS_PENALTY * p_loss
+        r += -DAMAGE_TAKEN_COEF * (outcome_dist["exp_damage_taken"] / max_health)
+        r +=  DAMAGE_DEALT_COEF * (outcome_dist["exp_damage_dealt"] / max_health)
+        r += (prev_rank - cur_rank) * RANK_DELTA_COEF
+        return r
+
     r  = WIN_REWARD          if result == "win"  else 0.0
     r += LOSS_PENALTY         if result == "loss" else 0.0
     r += -DAMAGE_TAKEN_COEF * (damage_taken / max_health)
@@ -1344,20 +1411,43 @@ class BattlegroundsGame:
         """Simulate combat between two players via FirestoneClient.
 
         Returns a combat result dict and updates player health.
-        opponent_id == -1 means a ghost matchup; the opponent's board is empty
-        (player always wins, takes 0 damage).
+
+        GHOSTS.  ``opponent_id`` may name a *dead* player: that is a ghost
+        matchup, and it is fought for real against that player's final board.
+        Dead players keep their board (nothing here ever assigns or clears
+        ``.board``, and the shopping phase iterates alive players only), so
+        ``opp.board`` is exactly the board they died with -- which is what a
+        Battlegrounds ghost is.  Losing to a ghost costs full damage and can
+        eliminate you; winning deals damage to nobody, because there is no
+        one left to damage.  That last part needs no special case now that
+        DAMAGE_DEALT_COEF is 0.
+
+        Until 2026-09-03 this method short-circuited every ghost to an
+        automatic win with zero damage, handing out a free WIN_REWARD.  That
+        was 7.5% of all pairings (measured: 3.92 per lobby-game, concentrated
+        at rounds 9-16 against a ~16.6-round mean game), i.e. the agent was
+        told its board did not matter in exactly the window where board
+        strength decides placement.  ``Matchmaker.get_ghost`` had been written
+        for this and was never called from anywhere.
+
+        ``opponent_id == -1`` now means only "no ghost source exists yet"
+        (no player has died -- reachable only with an odd ``n_players``), and
+        keeps the old free-win behaviour as a degenerate fallback.
         """
         ps = self.players[player_id]
         player_board = [_minion_to_dict(m) for m in ps.board]
 
         if opponent_id == -1 or opponent_id >= len(self.players):
-            # Ghost matchup: automatic win, no damage
+            # No ghost source available at all: nothing to fight.
             result = {
                 "result": "win",
                 "damage_taken": 0,
                 "damage_dealt": 0.0,
                 "player_id": player_id,
                 "opponent_id": opponent_id,
+                "is_ghost": True,
+                "outcome_dist": {"p_win": 1.0, "p_loss": 0.0,
+                                 "exp_damage_taken": 0.0, "exp_damage_dealt": 0.0},
             }
             ps.last_result = "win"
             ps.last_damage_taken = 0
@@ -1365,6 +1455,7 @@ class BattlegroundsGame:
             return result
 
         opp = self.players[opponent_id]
+        is_ghost = not opp.alive
 
         # Fire start-of-combat trinket effects (e.g. stat buffs) before sim snapshot
         self.trinket_handler.apply_on_combat_start(ps)
@@ -1392,7 +1483,11 @@ class BattlegroundsGame:
                 opp_tier=opp.tavern_tier,
             )
 
-        # Determine concrete outcome by sampling from the full probability distribution
+        # Determine concrete outcome by sampling from the full probability
+        # distribution.  The DYNAMICS stay sampled -- health must move by a
+        # realised amount, and expectation-ing it would delete risk from a
+        # game whose objective is a step function over placement.  Only the
+        # REWARD is paid at expectation (outcome_dist below).
         roll = self._rng.random()
         if roll < sim.win_prob:
             outcome = "win"
@@ -1400,6 +1495,21 @@ class BattlegroundsGame:
             outcome = "tie"
         else:
             outcome = "loss"
+
+        # Rao-Blackwellised reward terms.  BGCombatSim already ran
+        # COMBAT_SIM_TRIALS full combats to produce these; collapsing them to
+        # the single roll above purely to label the reward threw that work
+        # away.  NOTE sim.expected_damage_{dealt,taken} are CONDITIONAL on
+        # winning/losing (combat_sim.py divides by max(wins,1)/max(losses,1)),
+        # so they must be probability-weighted here to become unconditional.
+        p_win  = sim.win_prob
+        p_loss = max(0.0, 1.0 - sim.win_prob - sim.tie_prob)
+        outcome_dist = {
+            "p_win":  p_win,
+            "p_loss": p_loss,
+            "exp_damage_taken": p_loss * float(sim.expected_damage_taken),
+            "exp_damage_dealt": 0.0 if is_ghost else p_win * float(sim.expected_damage_dealt),
+        }
 
         # Damage calculation (simplified: tier + board size when player loses)
         if outcome == "loss":
@@ -1410,7 +1520,10 @@ class BattlegroundsGame:
         else:
             damage_taken = 0
 
-        damage_dealt = float(sim.expected_damage_dealt) if outcome == "win" else 0.0
+        # A ghost win damages nobody -- there is no player left to damage.
+        damage_dealt = (0.0 if is_ghost
+                        else float(sim.expected_damage_dealt) if outcome == "win"
+                        else 0.0)
 
         # Update health
         effective_hp = ps.health + ps.armor
@@ -1479,6 +1592,8 @@ class BattlegroundsGame:
             "win_prob":     sim.win_prob,
             "player_id":    player_id,
             "opponent_id":  opponent_id,
+            "is_ghost":     is_ghost,
+            "outcome_dist": outcome_dist,
         }
 
     # ------------------------------------------------------------------
@@ -1540,7 +1655,16 @@ class BattlegroundsGame:
             for pid_a, pid_b in pairings:
                 if pid_a < len(self.players):
                     self.players[pid_a].next_opponent_id = pid_b if pid_b != -1 else None
-                if pid_b != -1 and pid_b < len(self.players):
+                # Announce back only to a LIVE opponent.  For a ghost matchup
+                # pid_b is a real but dead player, and pid_a must still get
+                # the announcement: it is what makes the ghost's board visible
+                # through the existing opponent_snapshots machinery during
+                # shopping.  Without it next_opponent_id stayed None, opp_tokens
+                # encoded an EMPTY board and _board_shape_potential fell back to
+                # 0.5 -- so simulating ghost fights while leaving this alone
+                # would add real lethal risk while keeping the agent blind to
+                # it, which is strictly worse than the old free win.
+                if pid_b != -1 and pid_b < len(self.players) and self.players[pid_b].alive:
                     self.players[pid_b].next_opponent_id = pid_a
 
             # ---- Shopping phase ----------------------------------------
@@ -1628,14 +1752,16 @@ class BattlegroundsGame:
             for (pid_a, pid_b) in pairings:
                 if not self.players[pid_a].alive:
                     continue
-                # Ghost matchup
-                if pid_b == -1:
-                    result = self.step_combat(pid_a, -1)
+
+                # Ghost matchup: pid_b is either -1 (nobody has died yet) or a
+                # real DEAD player whose final board we fight for real.  Either
+                # way only pid_a fights and only pid_a is paid -- hence the
+                # -1 sentinel kept in the combat_results tuple below, which is
+                # what the reward loop keys off to skip the dead side.
+                if pid_b == -1 or not self.players[pid_b].alive:
+                    result = self.step_combat(pid_a, pid_b)
                     round_summary["combats"].append(result)
                     combat_results.append((pid_a, -1, result, {}))
-                    continue
-
-                if not self.players[pid_b].alive:
                     continue
 
                 result_a = self.step_combat(pid_a, pid_b)
@@ -1662,6 +1788,7 @@ class BattlegroundsGame:
                         cur_rank=cur_rank,
                         result=result_info["result"],
                         max_health=ps.max_health,
+                        outcome_dist=result_info.get("outcome_dist"),
                     )
                     # Potential shaping, evaluated right after combat -- the
                     # charge the old per-round reset silently absorbed. In this

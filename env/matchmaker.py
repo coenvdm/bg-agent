@@ -26,6 +26,9 @@ class Matchmaker:
         self.n_players = n_players
         self._rng = random.Random(seed)
         self.history: List[List[Tuple[int, int]]] = []
+        # Recipient of last round's ghost, so we don't hand it to them twice
+        # in a row (real BG spreads ghosts around).
+        self._last_ghosted: Optional[int] = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -56,8 +59,11 @@ class Matchmaker:
 
         Returns
         -------
-        List of ``(player_id_a, player_id_b)`` pairs.  Ghost matchups are
-        ``(player_id, -1)``.
+        List of ``(player_id_a, player_id_b)`` pairs.  A ghost matchup is
+        ``(player_id, dead_player_id)`` -- a real, *dead* player's id, so the
+        caller can fight that player's final board.  It degrades to
+        ``(player_id, -1)`` only when no player has died yet (reachable only
+        with an odd ``n_players``).
         """
         alive = [p for p in players if p.alive]
         alive_ids = [p.player_id for p in alive]
@@ -71,22 +77,43 @@ class Matchmaker:
                     last_round_pairs[b] = a
 
         ghost_player_id: Optional[int] = None
+        ghost_source_id: int = -1
         if len(alive_ids) % 2 == 1:
-            # Pick the ghost candidate: prefer someone who faced a ghost last round.
-            ghost_candidates = [
-                pid for pid in alive_ids if last_round_pairs.get(pid) == -1
-            ]
+            # Pick the ghost recipient, AVOIDING whoever got the ghost last
+            # round.  The previous version filtered on
+            # ``last_round_pairs.get(pid) == -1``, but last_round_pairs is
+            # built with ``if b != -1``, so ghost pairs never entered it and
+            # that list was always empty -- the filter was dead code that
+            # always fell through to a uniform choice, and its comment said
+            # "prefer", which is backwards from real Battlegrounds anyway.
+            ghost_candidates = [pid for pid in alive_ids
+                                if pid != self._last_ghosted]
             if not ghost_candidates:
                 ghost_candidates = alive_ids
             ghost_player_id = self._rng.choice(ghost_candidates)
             alive_ids.remove(ghost_player_id)
 
+            # Resolve the ghost to a REAL dead player.  Dead players keep their
+            # board (nothing in game_loop ever assigns or clears .board, and the
+            # shopping phase iterates alive players only), so ps.board on a dead
+            # player is exactly their board at the moment of death -- which is
+            # what a Battlegrounds ghost is.
+            ghost = self.get_ghost([p for p in players if not p.alive])
+            if ghost is not None:
+                ghost_source_id = ghost.player_id
+
         pairs = self._round_robin_avoid(alive_ids, last_round_pairs)
 
+        # History keeps the legacy (recipient, -1) form so the ``if b != -1``
+        # rematch filter above still excludes ghost rounds; the caller gets the
+        # real dead player's id so it can look up that board.
+        history_pairs = list(pairs)
         if ghost_player_id is not None:
-            pairs.append((ghost_player_id, -1))
+            history_pairs.append((ghost_player_id, -1))
+            pairs.append((ghost_player_id, ghost_source_id))
+        self._last_ghosted = ghost_player_id
 
-        self.update_history(pairs)
+        self.update_history(history_pairs)
         return pairs
 
     def get_ghost(self, dead_players: List[PlayerState]) -> Optional[PlayerState]:
