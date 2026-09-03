@@ -8,7 +8,11 @@ Architecture:
   - Single Transformer encoder over [CLS + 7 board + 7 shop + 10 hand + 7 opp] = 32 tokens
   - type_head:    CLS + scalar_context → 9 action-type logits
   - pointer_head: per-token scorers (sell/buy/place/activate) acting directly on
-                  Transformer outputs for board/shop/hand tokens → 24 card-pointer logits
+                  Transformer outputs for board/shop/hand tokens → 24 card-pointer
+                  logits, returned as TWO parallel [B, 24] tensors (pointer_logits
+                  and activate_pointer_logits) that agree everywhere except the
+                  board slice -- see forward()'s docstring for why ACTIVATE needs
+                  a scorer separate from SELL/REORDER's.
   - value_head:   CLS + scalar_context → scalar value
 
 Action types (10; 0-7 match the original BGPolicyV2 BC model, 8-9 added later):
@@ -21,8 +25,10 @@ Action types (10; 0-7 match the original BGPolicyV2 BC model, 8-9 added later):
   6 hero_power → no pointer
   7 end_turn   → no pointer
   8 activate   → pointer: board slot  [PTR_BOARD_OFF + i,  i in 0-6] (minion's
-                 own "Activate (N)" ability; reuses the board zone since the
-                 target is always the activating minion itself)
+                 own "Activate (N)" ability; shares the board ZONE with SELL
+                 since the target is always the activating minion itself, but
+                 is scored by its own activate_scorer, not sell_scorer -- see
+                 forward()'s docstring)
   9 reorder    → pointer: board slot  [PTR_BOARD_OFF + i,  i in 1-6] (move that
                  minion to the FRONT of the board). Slot 0 is never valid, so
                  every REORDER is a real state change and can never be used as
@@ -91,7 +97,8 @@ _ZONE_SLICE = {
     0: (PTR_SHOP_OFF,  SHOP_ZONE_SIZE),
     1: (PTR_BOARD_OFF, BOARD_ZONE_SIZE),
     2: (PTR_HAND_OFF,  HAND_ZONE_SIZE),
-    8: (PTR_BOARD_OFF, BOARD_ZONE_SIZE),  # activate → board zone (same slot as sell)
+    8: (PTR_BOARD_OFF, BOARD_ZONE_SIZE),  # activate → board zone (same ZONE as sell,
+                                           # but scored by activate_scorer -- see forward())
     9: (PTR_BOARD_OFF, BOARD_ZONE_SIZE),  # reorder  → board zone (minion to move)
 }
 
@@ -217,6 +224,25 @@ class BGPolicyNetwork(nn.Module):
         self.buy_scorer   = nn.Linear(d_model, 1)   # scores shop  tokens → buy   logits
         self.place_scorer = nn.Linear(d_model, 1)   # scores hand  tokens → place logits
 
+        # activate_scorer looks at the SAME board tokens as sell_scorer (type 8
+        # ACTIVATE, like type 1 SELL, targets a minion on the board) but scores
+        # them through its own Linear instead of reusing sell_scorer's output.
+        # "Worth selling?" and "worth activating?" are different questions about
+        # the same minion, so one number cannot answer both -- before this, the
+        # ACTIVATE pointer WAS sell_logits verbatim (both types shared
+        # _ZONE_SLICE's board slice, and forward() only ever computed one score
+        # per board token), and the network learned to put ~1.000 probability on
+        # a single fixed board slot for ACTIVATE across many different game
+        # states, since it had no way to express an activate-specific
+        # preference. Constructed identically to sell_scorer (same shape, same
+        # default init) so it starts as a true drop-in before training
+        # differentiates the two.
+        #
+        # REORDER (type 9) deliberately keeps sharing sell_scorer's board score
+        # -- that pairing is intentional (see _ZONE_SLICE) and is NOT changed
+        # here; only ACTIVATE gets a dedicated scorer.
+        self.activate_scorer = nn.Linear(d_model, 1)  # scores board tokens → activate logits
+
         # Value head: [CLS ‖ scalar] → scalar value
         self.value_head = nn.Sequential(
             nn.Linear(d_model * 2, d_model),
@@ -253,13 +279,25 @@ class BGPolicyNetwork(nn.Module):
         type_mask:    Optional[torch.Tensor] = None,     # [B, 8]  True=valid
         pointer_mask: Optional[torch.Tensor] = None,     # [B, 24] True=valid
         opp_tokens:   Optional[torch.Tensor] = None,     # [B, 7,  44]
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Returns
         -------
-        type_logits    : [B, 8]
-        pointer_logits : [B, 24]
-        value          : [B, 1]
+        type_logits             : [B, 8]
+        pointer_logits          : [B, 24] -- buy/sell/place scores (REORDER, type 9,
+                                   reads this tensor too: it intentionally shares
+                                   sell_scorer's board slice, see _ZONE_SLICE)
+        activate_pointer_logits : [B, 24] -- identical to pointer_logits EXCEPT the
+                                   board slice (PTR_BOARD_OFF : PTR_BOARD_OFF +
+                                   BOARD_ZONE_SIZE) holds activate_scorer's output
+                                   instead of sell_logits. Callers must read the
+                                   pointer for an ACTIVATE (type 8) action from
+                                   THIS tensor, and from `pointer_logits` for every
+                                   other pointer type -- never mix the two for a
+                                   single transition (see get_action's used_ptr_mask
+                                   docstring for why sampling- and evaluation-time
+                                   distributions must match exactly).
+        value                   : [B, 1]
         """
         B      = board_tokens.shape[0]
         device = board_tokens.device
@@ -315,10 +353,19 @@ class BGPolicyNetwork(nn.Module):
         # Per-token pointer scoring: each scorer acts directly on the token's
         # Transformer output, which has already attended to all other tokens.
         # Indices: 1-7=board, 8-14=shop, 15-24=hand  (0=CLS, 25-31=opp unused for pointers)
-        sell_logits  = self.sell_scorer(tokens[:, 1:8, :]).squeeze(-1)    # [B, 7]  board→sell
-        buy_logits   = self.buy_scorer(tokens[:, 8:15, :]).squeeze(-1)    # [B, 7]  shop→buy
-        place_logits = self.place_scorer(tokens[:, 15:25, :]).squeeze(-1) # [B, 10] hand→place
+        sell_logits     = self.sell_scorer(tokens[:, 1:8, :]).squeeze(-1)     # [B, 7]  board→sell
+        buy_logits      = self.buy_scorer(tokens[:, 8:15, :]).squeeze(-1)     # [B, 7]  shop→buy
+        place_logits    = self.place_scorer(tokens[:, 15:25, :]).squeeze(-1)  # [B, 10] hand→place
+        activate_logits = self.activate_scorer(tokens[:, 1:8, :]).squeeze(-1) # [B, 7]  board→activate
         pointer_logits = torch.cat([buy_logits, sell_logits, place_logits], dim=-1)  # [B, 24]
+        # activate_pointer_logits mirrors pointer_logits layout-for-layout, with
+        # only the board slice swapped for activate_logits. Built via a fresh
+        # torch.cat (never by mutating pointer_logits in place) so the two
+        # tensors are fully independent -- neither aliases the other's storage
+        # or autograd graph.
+        activate_pointer_logits = torch.cat(
+            [buy_logits, activate_logits, place_logits], dim=-1
+        )  # [B, 24]
 
         if type_mask is not None:
             # Sanitise before masked_fill: an all-False row here would fill to
@@ -328,11 +375,19 @@ class BGPolicyNetwork(nn.Module):
         if pointer_mask is not None:
             # Same guard for the pointer head — a non-pointer-type row or a
             # state-inconsistent occupancy mask must never reach Categorical
-            # as an all -inf row.
+            # as an all -inf row. Both pointer_logits and activate_pointer_logits
+            # get the IDENTICAL mask and treatment: whichever one a given
+            # transition's action type ends up reading from must be equally
+            # NaN-safe, and a pointer slot that's invalid for SELL/BUY/PLACE is
+            # invalid for ACTIVATE too (both key off the same board/shop/hand
+            # occupancy).
             pointer_mask = _sanitize_mask(pointer_mask)
             pointer_logits = pointer_logits.masked_fill(~pointer_mask, float("-inf"))
+            activate_pointer_logits = activate_pointer_logits.masked_fill(
+                ~pointer_mask, float("-inf")
+            )
 
-        return type_logits, pointer_logits, value
+        return type_logits, pointer_logits, activate_pointer_logits, value
 
     # ── Action sampling ───────────────────────────────────────────────────────
 
@@ -407,13 +462,12 @@ class BGPolicyNetwork(nn.Module):
         """
         self.eval()
         with torch.no_grad():
-            type_logits, ptr_logits, value = self.forward(
+            type_logits, ptr_logits, activate_ptr_logits, value = self.forward(
                 board_tokens, shop_tokens, hand_tokens,
                 scalar_context, type_mask, None, opp_tokens,
                 # pass pointer_mask=None here; zone restriction applied below
             )
             t_logits_1d = type_logits.squeeze(0)   # [8]
-            p_logits_1d = ptr_logits.squeeze(0)    # [24]
             dev = t_logits_1d.device
 
             # _safe_categorical: defensive fallback in case an all -inf row
@@ -426,6 +480,14 @@ class BGPolicyNetwork(nn.Module):
             ptr_idx = -1
             used_ptr_mask = torch.ones(POINTER_DIM, dtype=torch.bool, device=dev)
             if type_idx in TYPES_WITH_POINTER:
+                # ACTIVATE (type 8) reads its pointer score from
+                # activate_pointer_logits, not ptr_logits -- they are two
+                # different distributions (see forward()'s docstring on why
+                # "worth selling" and "worth activating" need separate scores
+                # for the same board slot). REORDER (type 9) intentionally
+                # keeps reading ptr_logits/sell_scorer's score, unchanged.
+                p_logits_1d = (activate_ptr_logits if type_idx == 8 else ptr_logits).squeeze(0)  # [24]
+
                 # Restrict pointer to this type's zone
                 start, size = _ZONE_SLICE[type_idx]
                 zone_bits   = torch.zeros(POINTER_DIM, dtype=torch.bool, device=dev)
@@ -522,11 +584,11 @@ class BGPolicyNetwork(nn.Module):
         """
         self.eval()
         with torch.no_grad():
-            type_logits, ptr_logits, values = self.forward(
+            type_logits, ptr_logits, activate_ptr_logits, values = self.forward(
                 board_tokens, shop_tokens, hand_tokens,
                 scalar_context, type_mask, None, opp_tokens,
             )
-            # type_logits: [B, 8], ptr_logits: [B, 24], values: [B, 1]
+            # type_logits: [B, 8], ptr_logits: [B, 24], activate_ptr_logits: [B, 24], values: [B, 1]
             # _safe_categorical: defensive fallback for any all -inf row (see
             # module note above forward()).
             t_dist = _safe_categorical(type_logits)
@@ -556,7 +618,13 @@ class BGPolicyNetwork(nn.Module):
                     else:
                         combined = zone_bits
 
-                    masked_ptr = ptr_logits[i].masked_fill(~combined, float("-inf"))
+                    # ACTIVATE (type 8) rows score their pointer from
+                    # activate_ptr_logits; every other pointer type (including
+                    # REORDER, which intentionally still shares sell_scorer's
+                    # score) reads ptr_logits, matching get_action()'s
+                    # single-row logic and forward()'s docstring.
+                    row_ptr_logits = activate_ptr_logits[i] if t_idx == 8 else ptr_logits[i]
+                    masked_ptr = row_ptr_logits.masked_fill(~combined, float("-inf"))
                     # Defensive fallback, same reasoning as get_action() above.
                     p_dist     = _safe_categorical(masked_ptr)
                     ptr_actions[i] = masked_ptr.argmax() if deterministic else p_dist.sample()
@@ -593,7 +661,7 @@ class BGPolicyNetwork(nn.Module):
         values    : [B, 1]
         entropy   : [B]  — H(type) + H(ptr) for pointer types, H(type) otherwise
         """
-        type_logits, ptr_logits, values = self.forward(
+        type_logits, ptr_logits, activate_ptr_logits, values = self.forward(
             board_tokens, shop_tokens, hand_tokens,
             scalar_context, type_mask, pointer_mask, opp_tokens,
         )
@@ -610,11 +678,30 @@ class BGPolicyNetwork(nn.Module):
             needs_ptr = needs_ptr | (type_actions == t_idx)
 
         if needs_ptr.any():
+            # Rows in this batch differ in action type, so the per-row pointer
+            # logits must be assembled BEFORE a single Categorical is built for
+            # the whole batch: an ACTIVATE (type 8) row was sampled from
+            # activate_ptr_logits (see get_action/get_action_batch above), and
+            # every other pointer-type row (BUY/SELL/PLACE/REORDER) was sampled
+            # from ptr_logits. Building one p_dist straight from ptr_logits
+            # alone -- the old behaviour, before activate_ptr_logits existed --
+            # would re-score ACTIVATE transitions under a DIFFERENT distribution
+            # than the one they were sampled under, corrupting PPO's importance
+            # ratio for those rows even when the policy hasn't changed. This is
+            # exactly the class of sampling/evaluation-mismatch bug documented
+            # on get_action's `used_ptr_mask` return value above (88.6% no-op
+            # rate on ACTIVATE, 22.2% of all actions, from a prior instance of
+            # this same failure mode with masks instead of scorers).
+            ptr_logits_sel = torch.where(
+                (type_actions == 8).unsqueeze(-1),
+                activate_ptr_logits,
+                ptr_logits,
+            )
             # _safe_categorical: forward() already sanitises pointer_mask so
-            # ptr_logits shouldn't contain an all -inf row, but this is cheap
+            # neither tensor should contain an all -inf row, but this is cheap
             # defence-in-depth against the NaN failure mode described above
             # forward() (an all -inf row -> Categorical -> NaN log_prob/entropy).
-            p_dist = _safe_categorical(ptr_logits)
+            p_dist = _safe_categorical(ptr_logits_sel)
             # Clamp ptr_actions to [0, POINTER_DIM-1] for rows where ptr == -1;
             # those rows are masked out by needs_ptr anyway.
             safe_ptr = ptr_actions.clamp(min=0)

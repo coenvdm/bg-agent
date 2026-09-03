@@ -738,8 +738,78 @@ class PPOTrainer:
         untouched (at their pre-call values) when this returns False.
         """
         checkpoint = torch.load(path, map_location=self.config.device)
+        model_state = checkpoint["model_state_dict"]
+
+        # ------------------------------------------------------------------
+        # MIGRATION: seed `activate_scorer` from `sell_scorer` for
+        # pre-activate_scorer checkpoints.
+        #
+        # `BGPolicyNetwork` gained a new `self.activate_scorer` head (the
+        # ACTIVATE(board_idx) action, action type 8 — see the Action Space
+        # section of CLAUDE.md) built identically to the pre-existing
+        # `self.sell_scorer`. Every checkpoint saved before that change —
+        # including the live run's `bg_agent_ppo.pt` at ~3167 updates /
+        # 28.8M steps — has a `model_state_dict` with no `activate_scorer.*`
+        # keys at all. Loaded with plain `strict=True`, that raises
+        # RuntimeError for the missing keys, which the `except RuntimeError`
+        # below would treat as "incompatible checkpoint" and discard —
+        # silently restarting training from scratch and losing those 28.8M
+        # steps. That must not happen.
+        #
+        # Instead: if the *current* model has `activate_scorer.*` parameters
+        # that the checkpoint lacks, and the checkpoint has the
+        # corresponding `sell_scorer.*` tensors to seed from, synthesise the
+        # missing keys by cloning sell_scorer's weights into activate_scorer
+        # (derived by string-replacing the prefix, not a hardcoded layer
+        # shape — this keeps the migration correct even if the head's
+        # internal layout changes later). Both heads score the same board
+        # tokens with the same shape by construction, so this makes the
+        # migrated state_dict bit-identical in behaviour to the pre-change
+        # checkpoint: ACTIVATE and SELL logits coincide at the instant of
+        # resume, and the two heads only differentiate as training proceeds
+        # from there. `strict=True` is kept on the actual load below — after
+        # this migration all keys should be present, and strictness is what
+        # catches any OTHER genuine incompatibility.
+        #
+        # This block only fires when there is something safe to seed from;
+        # if `sell_scorer.*` isn't present either, it falls through and lets
+        # the strict load raise, hitting the existing incompatible-checkpoint
+        # path rather than inventing weights from nothing.
+        #
+        # Safe to delete once no pre-activate_scorer checkpoints remain in
+        # use anywhere (i.e. every checkpoint anyone might resume from was
+        # saved after this migration existed).
+        # ------------------------------------------------------------------
+        current_keys = self.policy.state_dict().keys()
+        missing_activate_keys = sorted(
+            k for k in current_keys
+            if k.startswith("activate_scorer.") and k not in model_state
+        )
+        if missing_activate_keys:
+            seeded = {}
+            for key in missing_activate_keys:
+                source_key = key.replace("activate_scorer", "sell_scorer", 1)
+                if source_key in model_state:
+                    seeded[key] = model_state[source_key].clone()
+            if seeded:
+                # Don't mutate checkpoint["model_state_dict"] in place — work
+                # on a shallow copy so `checkpoint` still reflects the file
+                # on disk if anything downstream inspects it.
+                model_state = dict(model_state)
+                model_state.update(seeded)
+                logger.info(
+                    "Checkpoint at '%s' predates the activate_scorer head; "
+                    "seeded %d key(s) from sell_scorer so behaviour is "
+                    "preserved on resume: %s",
+                    path, len(seeded), sorted(seeded.keys()),
+                )
+            # else: nothing to seed from (checkpoint doesn't have
+            # sell_scorer.* either) — fall through to the strict load below,
+            # which will raise and be handled by the incompatible-checkpoint
+            # path rather than us guessing weights.
+
         try:
-            self.policy.load_state_dict(checkpoint["model_state_dict"])
+            self.policy.load_state_dict(model_state, strict=True)
         except RuntimeError as exc:
             logger.warning(
                 "Checkpoint at '%s' is incompatible with the current architecture "
@@ -747,7 +817,29 @@ class PPOTrainer:
             )
             return False
         if "optimizer_state_dict" in checkpoint:
-            self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+            # AdamW is built over policy.parameters(); adding activate_scorer
+            # changes that parameter list's size/shape, so loading an old
+            # optimizer_state_dict here can raise (typically ValueError:
+            # "loaded state dict contains a parameter group that doesn't
+            # match the size of the optimizer's group"). This must never
+            # abort the resume: losing Adam's per-parameter moment estimates
+            # costs at most a few dozen updates of noisier gradient steps
+            # while they re-accumulate from zero, but failing the resume
+            # outright costs the entire 28.8M steps of training this
+            # checkpoint represents. Catch broadly and keep going with
+            # freshly-initialised optimizer state — weights, total_steps,
+            # and update_count below are unaffected either way.
+            try:
+                self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+            except Exception as exc:
+                logger.warning(
+                    "Optimizer state in checkpoint '%s' is incompatible with "
+                    "the current parameter set (%s: %s). Adam moment "
+                    "estimates reset for all parameters; expect a brief "
+                    "transient while they re-accumulate. Model weights, "
+                    "total_steps, and update_count were still loaded "
+                    "successfully.", path, type(exc).__name__, exc,
+                )
         self.total_steps  = checkpoint.get("total_steps", 0)
         self.update_count = checkpoint.get("update_count", 0)
         # FIX 3: restore the running return-scale; tolerate older checkpoints
