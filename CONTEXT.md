@@ -1327,3 +1327,49 @@ cost formula) has been rewritten to describe the fix instead of the gap.
 - No formal test suite exists in this repo to add regression coverage to;
   verification here was a one-off manual script, not a committed test.
 ---
+
+---
+### 2026-09-03 (addendum 4) — Flagged: accurate "choosing" mechanic, deferred to a future Opus session
+**Files changed:** `symbolic/effect_handler.py` (comment only, no logic change)
+**What was done:** User asked for accurate implementation of every "choosing"
+effect (Choose One battlecries, and target selection for buffs/effects that
+are real player decisions in Hearthstone) but explicitly wants it flagged now
+and implemented later in a dedicated session with Opus, not built today.
+Audited the current CARDS.md pool to make the flag concrete rather than
+vague, and recorded it as a module-level comment at the top of
+`symbolic/effect_handler.py`. Three buckets identified:
+- **Choose One battlecries** (pick one of two whole effects): no mechanic
+  exists at all. 7 affected minions (Crater Miner, Intrepid Botanist, Sly
+  Infiltrator, Sprightly Scarab, Fearless Foodie, Snare Trapper, Veteran
+  Brigand) plus Thorned Trailblazer (a meta-card on top of the mechanic) plus
+  two token sources (Bramble Tunneler's Rally, both Glass of Perspective
+  trinkets) that grant "a random Choose One card" needing a real payload.
+- **Real target-choice effects** currently resolved by RNG or a fixed
+  heuristic instead of the agent: Mind Muck (heuristic: highest-ATK Demon),
+  Suspicious Prisonguard and Tyrael (both `_buff_random`/`rng.choice` on
+  "another minion" -- not actually random in the real card text), Clunker
+  Junker (not implemented at all), and 5 Spellcraft spells whose generic
+  `buff_one` handling in `_cast_spell` picks `self._rng.choice(ps.board)`
+  instead of a real target.
+- Confirmed genuinely-random effects ("Get a random X") are correctly RNG
+  already and are explicitly out of scope.
+Also surfaced, separately, while auditing: several on_play name-keyed
+branches (waxridertogwaggle, deflectobot's battlecry, masterofrealities,
+gemsmuggler, murozond, goldgrubber-on-sell) don't match any card in the
+current 275-card CARDS.md pool -- likely drift from a retired/renamed card.
+Harmless dead code, not fixed now, flagged in the same comment for a
+separate pass.
+**Current state:** No behavior changed. The reusable pattern for a real
+agent choice already exists (`ps.discover_pending` + mask-to-BUY-only +
+candidates encoded into shop slots 0-2, see `env/game_loop.py`'s "Discover
+in progress" handling and `agent/policy.py`'s `_discover` masking) and is
+the documented starting point for whoever picks this up.
+**Open questions / next steps:**
+- Implement a generalised "pending choice" mechanism (pause flag + mask
+  override + observation encoding) that extends the discover pattern to
+  also carry a Choose-One's two *effects* as options, not just minion
+  candidates -- this is the actual scoped-out work, intended for a future
+  session using Opus.
+- Separately: confirm and prune the stale on_play dispatch branches noted
+  above once the choosing work is underway (unrelated but adjacent).
+---

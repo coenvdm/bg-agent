@@ -6,6 +6,68 @@ and sell effects (triggered when a minion is sold from the board).
 
 Multiplier awareness: when ps.has_brann is True, battlecry buff effects
 are applied twice (Brann Bronzebeard doubles battlecries).
+
+---------------------------------------------------------------------------
+FLAGGED, NOT YET IMPLEMENTED (2026-09-03): accurate "choosing" for every
+card that gives the player a real decision. Deferred deliberately -- this
+needs a new agent-facing decision point, a materially bigger change than
+this file's usual one-card dispatch additions -- to be scoped and built in
+a future session with Opus. Audited against the current CARDS.md pool so
+the list below is accurate as of this date, not aspirational:
+
+  A) "Choose One" battlecries (pick ONE of two whole effects). No Choose
+     One mechanic exists anywhere in this engine today. Snare Trapper is
+     the only one even approximated (a 50/50 RNG pick between its two
+     branches, see on_play below) -- a stopgap, not a real implementation.
+     Affected minions: Crater Miner (T2), Intrepid Botanist (T3), Sly
+     Infiltrator (T4), Sprightly Scarab (T3), Fearless Foodie (T2), Snare
+     Trapper (T4), Veteran Brigand (T8). Thorned Trailblazer (T4, "one
+     Choose One card each turn has both effects combined") is a meta-card
+     on top of the mechanic and can't be done until the others exist.
+     Bramble Tunneler's Rally and both "Glass of Perspective" trinkets grant
+     "a random Choose One card" to hand -- those tokens need a real choice
+     payload too once played, not just the minions bought normally.
+
+  B) "Choose a target" effects that are real player decisions in Hearthstone
+     (the card text says "a/another minion", not "a random minion") but are
+     currently resolved by RNG or a fixed heuristic instead of the agent:
+       - Mind Muck: "Choose a friendly Demon..." -- currently picks the
+         highest-ATK Demon by a fixed formula (on_play, _bc_ dispatch below).
+       - Suspicious Prisonguard: "Give another minion +3/+3" -- currently
+         `_buff_random` (uniform RNG) in on_activate.
+       - Tyrael: "Set another minion's stats to 50/50" -- currently
+         `self._rng.choice` in on_activate.
+       - Clunker Junker: "Choose a friendly Mech. Discover a Mech to
+         Magnetize to it." -- not implemented at all yet (missing from
+         on_play, not even approximated).
+       - Spellcraft spells with "Choose a minion" text (Private Chef, Sea
+         Witch Zar'jira, Demonblood Gourd, Token of the Old Gods, Double
+         Stitch Needle) -- `_cast_spell`'s generic "buff_one" handling picks
+         `self._rng.choice(ps.board)` instead of a real target.
+     The reusable pattern for wiring real choice already exists in this
+     codebase and should be extended rather than reinvented: `ps.discover_pending`
+     pauses shopping, narrows the action mask to BUY-only, and encodes the
+     candidates into shop slots 0-2 for the agent to pick from (see
+     env/player_state.py's `discover_pending` field, env/game_loop.py's
+     `_step` handling around the "Discover in progress" comment, and
+     agent/policy.py's masking around `_discover`). The trinket-offer flow
+     reuses the identical shape. A generic "pending choice" would need the
+     same three pieces: a pause flag on PlayerState, a mask override, and an
+     observation encoding for the candidates -- generalised to also carry a
+     Choose-One's two *effects* (not just minion candidates) as an option.
+
+  C) NOT in scope for this flag, RNG is already correct: any "Get a random
+     X" battlecry/effect (e.g. Draconic Warden, Hunting Tiger Shark) is
+     genuinely random in real Hearthstone too -- no fix needed there.
+
+  Separately noticed while auditing this (not a choosing-mechanic issue,
+  flagged here only so it isn't lost): a handful of on_play name-keyed
+  branches below (waxridertogwaggle, deflectobot's battlecry, masterofrealities,
+  gemsmuggler, murozond, goldgrubber on sell) don't match any card currently
+  in CARDS.md's 275-card pool -- likely drift from a retired/renamed card
+  across a patch refresh. Harmless dead code today (the name_key just never
+  matches), but worth a separate pass to confirm and prune.
+---------------------------------------------------------------------------
 """
 from __future__ import annotations
 
