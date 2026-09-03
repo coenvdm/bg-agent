@@ -1177,3 +1177,34 @@ tmux `bgsync` + `bggraph` still running.
 - Placement variance (sd 2.50) dominates total return variance ~16:1 over the
   dense terms. The lever there is a better critic, not reward engineering.
 ---
+
+---
+### 2026-09-03 (addendum) — Gauntlet history x-axis was misaligned on resume
+**Files changed:** `run_fresh_training.py`
+**What was done:** Found while reading the first post-restart metrics: the
+gauntlet's two real data points were being charted ~2350 updates too far
+left. `eval_gauntlet_placement`/`eval_gauntlet_elo` were added to the code
+*after* this run had already accumulated 47 eval points, so on resume they
+loaded with length 7 against `eval_updates`' 54, and both the trainer-side PNG
+and `tools/live_graph.py` pair them positionally with
+`zip(eval_updates, series)` — which silently pairs from the LEFT. The 5.22
+measured at update 2400 was drawn at update 50; the 4.19 measured at 2600 was
+drawn at 250. The append path was never wrong (both lists are appended in
+lockstep during a run); only the resume path was. Fixed by left-padding every
+eval-aligned series to `len(eval_updates)` on resume, which also covers any
+future late-added eval series. Verified on restart: "left-padded
+eval_gauntlet_placement with 47 None to align with eval_updates (54)".
+
+**Note on the metric itself:** the gauntlet number was never wrong, only its
+x-position — so the 5.22-at-u2400 anomaly stands as a real measurement, and
+the u2600 reading of **4.19 (elo +79)** is a genuine improvement on it,
+landing inside the ~4.0-4.2 triangulated expectation.
+
+**Current state:** restarted from `bg_agent_ppo.pt` at updates=2731 /
+steps=24,519,279 / games=130,992. 0 exceptions.
+
+**Open questions / next steps:**
+- Next gauntlet fires at update 2800; confirm it charts at the right x.
+- Gauntlet still has only 2 references; a full 7-checkpoint spread is what
+  makes the Elo meaningful.
+---

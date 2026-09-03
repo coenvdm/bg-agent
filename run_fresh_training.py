@@ -338,6 +338,33 @@ if __name__ == "__main__":
             eval_gauntlet_elo        = hist.get('eval_gauntlet_elo', [])
             eval_top1_rate          = hist.get('eval_top1_rate', [])
             eval_top4_rate          = hist.get('eval_top4_rate', [])
+
+            # Left-pad every eval-aligned series to len(eval_updates).
+            # These series are appended in lockstep with eval_updates during a
+            # run, so they stay aligned -- but a series introduced AFTER a run
+            # started (the gauntlet pair, added 2026-09-03) resumes SHORT, and
+            # the charts pair them positionally with
+            # `zip(eval_updates, series)`, which silently pairs from the LEFT.
+            # That put both real gauntlet points ~2350 updates too far left
+            # (placement 5.22 measured at update 2400 was drawn at update 50;
+            # 4.19 measured at 2600 was drawn at 250) -- the metric was not
+            # wrong, its x-axis was. Leading Nones restore the alignment and
+            # plot as gaps. Applies to any future late-added eval series too.
+            _n_ev = len(eval_updates)
+            for _name, _series in (
+                ('eval_mean_placement',      eval_mean_placement),
+                ('eval_heur_mean_placement', eval_heur_mean_placement),
+                ('eval_ref_mean_placement',  eval_ref_mean_placement),
+                ('eval_gauntlet_placement',  eval_gauntlet_placement),
+                ('eval_gauntlet_elo',        eval_gauntlet_elo),
+                ('eval_top1_rate',           eval_top1_rate),
+                ('eval_top4_rate',           eval_top4_rate),
+            ):
+                _missing = _n_ev - len(_series)
+                if _missing > 0:
+                    _series[:0] = [None] * _missing   # in place: same list object
+                    print(f'  [resume] left-padded {_name} with {_missing} None '
+                          f'to align with eval_updates ({_n_ev})', flush=True)
             opponent_mix_updates    = hist.get('opponent_mix_updates', [])
             opponent_mix            = hist.get('opponent_mix', [])
             update_reward_avg       = hist.get('update_reward_avg', [])
