@@ -1439,3 +1439,64 @@ series automatically.
   compatible with it (only new keys added) if that dashboard is extended
   later.
 ---
+
+---
+### 2026-09-03 (addendum 6) — Round-bucket action mix wired into the live localhost dashboard
+**Files changed:** `tools/live_graph.py`
+**What was done:** User asked whether addendum 5's per-round action-mix
+tracking would show up at the local live dashboard (http://127.0.0.1:8420,
+served by `tools/live_graph.py`, fed by `tools/sync_from_vast.sh`) and
+update live. Answer required checking: that script is a SEPARATE, hand-rolled
+inline-SVG dashboard with its own `build_series()` extracting an explicit
+whitelist of history-JSON keys -- it does NOT automatically pick up new keys
+just because they exist in `data/fresh_training_history.json`. It does
+already embed the full `run_fresh_training.py`-generated PNG verbatim
+(`data/training_progress.png`, copied into `data/live/` on every rebuild) in
+a collapsed "Trainer-side PNG" `<details>` section, so the round-bucket
+heatmap panel added to that PNG in addendum 5 was ALREADY going to appear
+there automatically, live, every rebuild -- just tucked inside a
+click-to-expand section, not as a first-class native chart matching the
+page's own theme/tooltips/hover like every other panel.
+Added that native treatment: `build_series()` now also extracts
+`update_round_bucket_rate_avg` into a `round_buckets` list (one entry per
+bucket with data so far, each `{label, x, series}` in the same shape as the
+existing flat `actions` block -- a JSON array rather than a dict specifically
+so bucket order can't be disturbed by JS's numeric-string-key reordering
+quirk). The front-end `render()` function appends one small chart card per
+round bucket right after the existing flat "Action mix" card, reusing the
+existing `card()`/`lineChart()` SVG primitives verbatim (top-3 action types
+by mean share + a folded "other", exactly mirroring the flat panel's own
+folding logic) -- no new charting code, no new CSS, just the same pattern
+looped per bucket. Buckets with no data yet (e.g. R21+ early in a run) are
+omitted rather than rendered empty.
+**Verified:** monkeypatched the module's `HISTORY`/`CHART_PNG`/`LIVE_DIR`
+path constants to a scratch directory (never touched the real, gitignored
+`data/fresh_training_history.json` this machine already has from a prior
+run) and called `build_series()` directly against synthetic history data:
+confirmed all 6 buckets appear with correctly-shaped `{label, x, series}`
+entries when fully populated; confirmed graceful, crash-free degradation
+against an old history file missing the key entirely (`round_buckets: []`);
+confirmed a realistic partial-run shape (early buckets fully populated, a
+late bucket with only some updates, R21+ never reached with all-empty
+per-action lists) correctly omits the untouched bucket and doesn't crash,
+with output JSON-serializable in every case. The inherited x/y length-
+mismatch behaviour when different action types within one bucket have
+different real series lengths (same simplification the pre-existing flat
+`actions` block already has -- one shared `x` sized to the longest series)
+was confirmed non-fatal but not fixed, since fixing it would mean changing
+the existing flat panel's behaviour too and wasn't asked for. The JS side
+was reviewed by hand against the working flat-panel block it mirrors
+(no `node` available in this sandbox to actually execute/lint it).
+**Current state:** `tools/live_graph.py --build` (or `--serve`) run against a
+real synced history file will now render up to 6 additional native "Action
+mix — round RX-Y" cards on the grid, alongside the pre-existing embedded-PNG
+copy of the same data. Not yet observed against a live run from this session.
+**Open questions / next steps:**
+- Watch the page against a real live run to confirm the 6 extra cards read
+  well in the existing grid layout (`grid-template-columns:
+  repeat(auto-fit,minmax(400px,1fr))` should just reflow them in, but this
+  wasn't visually confirmed).
+- `tools/build_dashboard.py` (the separate untracked web-artifact dashboard)
+  still hasn't been touched -- same reasoning as addendum 5: not asked for,
+  and it's the user's own in-progress work.
+---

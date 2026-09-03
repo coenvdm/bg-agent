@@ -154,6 +154,31 @@ def build_series() -> dict:
     actions_x = _xaxis(max((len(v) for v in raw_actions.values()), default=0),
                        max((len(v) for v in actions.values()), default=0))
 
+    # Same action-mix breakdown as above, but one block per game-round bucket
+    # (added 2026-09-03 alongside Transition.round_num in agent/ppo.py -- see
+    # run_fresh_training.py's ROUND_BUCKET_LABELS, mirrored here since this
+    # script only reads the history JSON and has no import on that module).
+    # A list, not a dict, so bucket order survives JSON round-tripping exactly
+    # (dict key order is normally preserved too, but only a list is immune to
+    # JS's numeric-key-reordering quirk if a label ever looked like an index).
+    round_bucket_labels = ["R1-4", "R5-8", "R9-12", "R13-16", "R17-20", "R21+"]
+    raw_round_buckets = h.get("update_round_bucket_rate_avg") or {}
+    round_buckets = []
+    for b, label in enumerate(round_bucket_labels):
+        raw_bucket_actions = raw_round_buckets.get(str(b)) or {}
+        bucket_actions = {}
+        for k, v in raw_bucket_actions.items():
+            try:
+                name = action_names[int(k)]
+            except (ValueError, IndexError):
+                name = str(k)
+            bucket_actions[name] = _downsample(v)
+        if not any(bucket_actions.values()):
+            continue  # this bucket has no data yet (e.g. R21+ early in a run)
+        bucket_x = _xaxis(max((len(v) for v in raw_bucket_actions.values()), default=0),
+                          max((len(v) for v in bucket_actions.values()), default=0))
+        round_buckets.append({"label": label, "x": bucket_x, "series": bucket_actions})
+
     stamp = datetime.now(timezone.utc).astimezone()
     hist_mtime = datetime.fromtimestamp(HISTORY.stat().st_mtime).astimezone()
 
@@ -186,6 +211,7 @@ def build_series() -> dict:
         "series": out_series,
         "eval": eval_block,
         "actions": {"x": actions_x, "series": actions},
+        "round_buckets": round_buckets,
         "png": CHART_PNG.exists(),
     }
 
@@ -494,6 +520,25 @@ async function render(){
     }
     g.appendChild(card('Action mix','Share of actions per game. Lower-frequency types folded into "other".', ser, {nd:3, y0:0}));
   }
+
+  // Same breakdown, split by which round of the game the actions happened in
+  // -- e.g. does the policy front-load REROLL early and shift to SELL/PLACE
+  // churn late. One card per bucket, only for buckets with data so far.
+  (d.round_buckets||[]).forEach(rb=>{
+    const rnames=Object.keys(rb.series||{}).filter(k=>(rb.series[k]||[]).length);
+    if(!rnames.length) return;
+    const rmean=k=>{const v=(rb.series[k]||[]).filter(x=>x!==null); return v.length?v.reduce((a,b)=>a+b,0)/v.length:0;};
+    const rtop=rnames.sort((a,b)=>rmean(b)-rmean(a)).slice(0,3);
+    const rrest=rnames.filter(k=>!rtop.includes(k));
+    const rser=rtop.map((k,i)=>({name:k,x:rb.x,y:rb.series[k],color:S[i]}));
+    if(rrest.length){
+      const n=rb.x.length, other=[];
+      for(let i=0;i<n;i++){ let s=0,any=false; rrest.forEach(k=>{const v=(rb.series[k]||[])[i]; if(v!==null&&v!==undefined){s+=v;any=true;}}); other.push(any?s:null); }
+      rser.push({name:`other (${rrest.length})`,x:rb.x,y:other,color:'var(--text-muted)'});
+    }
+    g.appendChild(card(`Action mix — round ${rb.label}`,
+      'Share of actions per game, this round bucket only.', rser, {nd:3, y0:0}));
+  });
 
   // Table view -- required relief for the low-contrast slot, and useful anyway.
   const _e=v=>(v===null||v===undefined)?'--':(v>0?'+':'')+Math.round(v);
