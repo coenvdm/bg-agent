@@ -28,6 +28,58 @@ class OpponentSnapshot:
 
 
 @dataclass
+class PendingChoice:
+    """A real, agent-facing decision that pauses the shopping phase.
+
+    Hearthstone gives the player a genuine choice in two distinct shapes, and
+    this one dataclass carries both so the game loop, the action mask and the
+    observation encoder each need exactly one code path:
+
+      kind="target"  -- "Choose a friendly Demon", "Give another minion +3/+3",
+                        "Set another minion's stats to 50/50".  The options are
+                        minions already on the board, so ``targets`` holds the
+                        legal BOARD indices and the agent points at one of them
+                        directly.  Nothing extra needs encoding: the board zone
+                        of the observation already describes every candidate in
+                        full.
+      kind="option"  -- "Choose One" battlecries, where the two branches are
+                        whole *effects*, not minions.  ``options`` holds one
+                        descriptor per branch and the observation renders them
+                        as pseudo-cards in the shop zone (see
+                        BattlegroundsGame._choice_option_tokens), which lets the
+                        existing 44-dim card encoder describe an option's stat
+                        deltas and granted keywords without a new encoder path.
+
+    Before this existed, every one of these was resolved by ``rng.choice`` or a
+    fixed heuristic inside symbolic/effect_handler.py -- the agent never saw the
+    decision at all.  See CLAUDE.md "Choice Mechanics".
+
+    Attributes
+    ----------
+    kind      : "target" | "option"
+    source    : originating card name (tracing/debugging only)
+    effect    : resolver tag, dispatched by EffectHandler.resolve_choice
+    params    : resolver arguments (buff amounts, tribe filters, ...)
+    targets   : kind="target" only -- legal indices into ps.board
+    options   : kind="option" only -- list of option descriptor dicts, each
+                {"label": str, "effect": str, "params": dict, "token": dict}
+                where "token" describes the pseudo-card shown to the agent.
+    source_id : entity_id of the minion that raised the choice, when the
+                resolver needs to refer back to it (e.g. "another minion"
+                exclusions survive a board reorder this way, whereas a raw
+                index would not).
+    """
+
+    kind:      str = "target"
+    source:    str = ""
+    effect:    str = ""
+    params:    dict = field(default_factory=dict)
+    targets:   List[int] = field(default_factory=list)
+    options:   List[dict] = field(default_factory=list)
+    source_id: int = 0
+
+
+@dataclass
 class MinionState:
     """Represents a single minion on the board, in hand, or in the shop."""
 
@@ -173,6 +225,17 @@ class PlayerState:
     # Pending discover choices: non-empty = discover in progress, shopping paused.
     # Contains up to 3 MinionState options; cleared when agent picks one via BUY.
     discover_pending: List[MinionState] = field(default_factory=list)
+    # Pending REAL choice (Choose One branch, or "choose a target" minion).
+    # Non-None = shopping is paused until the agent resolves it with a
+    # CHOOSE_TARGET / CHOOSE_OPTION action.  Distinct from discover_pending,
+    # which is specifically "pick 1 of 3 offered minions to add to hand";
+    # see PendingChoice for why the two are not merged.
+    choice_pending: Optional["PendingChoice"] = None
+    # FIFO of choices raised while another was already pending.  A single
+    # battlecry can legitimately raise two (Brann doubles battlecries), and
+    # Thorned Trailblazer combines a Choose One's branches rather than
+    # choosing -- both need a queue rather than silently dropping the second.
+    choice_queue: List["PendingChoice"] = field(default_factory=list)
     has_brann: bool = False
     has_titus: bool = False
     has_drakkari: bool = False

@@ -82,8 +82,34 @@ Raw game state
                         ▼
                Neural network (PPO)
                learns: when to level, pivot tribes,
-                       freeze, scout, manage economy
+                       freeze, scout, manage economy,
+                       and every real card CHOICE
 ```
+
+**Policy network shape lives in exactly one place**: `agent/policy.py`'s
+`POLICY_ARCH` / `make_policy()`. Never construct `BGPolicyNetwork(...)` with
+inline kwargs — seven call sites used to do that, and a single disagreeing
+number does not raise: `PPOTrainer.load_checkpoint` catches the mismatch, logs
+a warning, returns False, and training silently restarts from zero.
+
+Current architecture (2026-09-04): `d_model=256`, `nhead=8`, **`num_layers=6`**
+(was 4), 32 tokens, ~5M params. Pointer scoring is a **pointer network**: each
+of six scorer ROLES (buy / sell / place / activate / choose_target /
+choose_option — see `_TYPE_ROLE`) is a fixed linear probe on the token *plus* a
+scaled dot-product against a per-role query emitted from the global
+`[CLS ‖ scalar]` state. The query is **zero-initialised**, so it starts as an
+exact no-op and the scorers reduce to the fixed probes they replaced. It exists
+because a fixed probe asks the *same* question of a token regardless of context:
+"is this Beast worth buying?" has a different answer at 3 gold on round 4 than at
+10 gold on round 12 with a full Murloc board.
+
+`forward()` returns pointer logits as a single **`[B, N_ACTION_TYPES, 24]`**
+stack indexed by action type, not as parallel tensors each call site picks
+between with its own `if type == 8` branch. That shape makes the
+sample/evaluate-mismatch bug class unrepresentable — it has bitten this project
+twice (see `CONTEXT.md` 2026-08-31/09-01 and the ACTIVATE scorer fix), because
+three call sites had to agree and a disagreement corrupts PPO's importance ratio
+while every loss curve still looks healthy.
 
 ---
 
@@ -119,7 +145,7 @@ When computing features, always follow these conventions:
 
 Each buy-phase turn is a sequence of atomic actions until END_TURN:
 
-The implemented space is 10 action types, each optionally carrying ONE pointer
+The implemented space is 12 action types, each optionally carrying ONE pointer
 into a 24-slot zone layout (shop 0-6, board 7-13, hand 14-23). Source of truth
 is `agent/policy.py` (`N_ACTION_TYPES`, `ACTION_TYPE_NAMES`, `TYPES_WITH_POINTER`).
 
@@ -136,7 +162,14 @@ is `agent/policy.py` (`N_ACTION_TYPES`, `ACTION_TYPE_NAMES`, `TYPES_WITH_POINTER
 8 ACTIVATE(board_idx)  # pointer: board slot -- the minion's own Activate (N)
 9 REORDER(board_idx)   # pointer: board slot 1-6 -- moves that minion to the
                        #   FRONT of the board
+10 CHOOSE_TARGET(board_idx)   # pointer: board slot -- resolves a pending
+                       #   "choose a minion" effect (see Choice Mechanics)
+11 CHOOSE_OPTION(opt_idx)     # pointer: shop slot 0..n-1 -- resolves a pending
+                       #   "Choose One" battlecry branch
 ```
+
+Types 10 and 11 are legal **only** while `ps.choice_pending` is set, and then
+they are the *only* legal type -- see Choice Mechanics below.
 
 `REORDER` is move-to-front rather than an explicit `(from, to)` pair: that
 needs only one pointer yet still reaches **every** permutation of n minions in
@@ -216,7 +249,12 @@ anywhere, they are stale — `env/game_loop.py` is the only source of truth.
    (`+0.1` unconditionally) but was removed 2026-08-31: it was passive income
    that fired merely for being alive and diluted the placement signal
    without rewarding any actual decision (see `CONTEXT.md`).
-2. **`_end_of_turn_reward`** — fired on END_TURN/FREEZE: `-HAND_PENALTY_COEF`
+2. **`_end_of_turn_reward`** — fired on END_TURN, and on the forced turn-end
+   when a player exhausts the 30-action budget without ending its turn (that
+   forced path exists so burning the budget cannot be used to *dodge* the
+   penalties below). **No longer fired on FREEZE**: as of 2026-09-04 FREEZE is
+   a plain shop toggle that does not end the turn, matching Hearthstone — see
+   Game Dynamics below. `-HAND_PENALTY_COEF`
    (`0.024`) per card left in hand, and `-GOLD_PENALTY_COEF * gold *
    GOLD_PENALTY_SCALE` for unspent gold, `GOLD_PENALTY_COEF = 0.015`.
    `GOLD_PENALTY_SCALE` is **flat** (`0.5`), replacing a round-indexed
@@ -272,8 +310,8 @@ anywhere, they are stale — `env/game_loop.py` is the only source of truth.
 3. **Unified potential-based shaping** (`_apply_potential_shaping`) — a
    single potential Φ(s) ∈ [0, 1] (Ng, Harada & Russell 1999), paid out at
    **every** shopping action (BUY/SELL/PLACE/REROLL/FREEZE/LEVEL_UP/
-   HERO_POWER/END_TURN/ACTIVATE/REORDER) plus once per round right after
-   combat resolves:
+   HERO_POWER/END_TURN/ACTIVATE/REORDER/CHOOSE_TARGET/CHOOSE_OPTION) plus
+   once per round right after combat resolves:
    ```python
    r_shaped = SHAPE_ALPHA * (SHAPE_GAMMA * Φ(s') − Φ(s))   # SHAPE_ALPHA=1.5, SHAPE_GAMMA=0.997
    Φ(s) = 0.67 * board_potential(s) + 0.33 * tier_potential(s)   # BOARD_/TIER_POTENTIAL_WEIGHT
@@ -348,6 +386,78 @@ placement together (not `level_rate` alone) — a naive leveling incentive can
 reproduce the same kind of degenerate policy a flat `board_size` reward
 caused historically (agent chases the proxy metric at the expense of what it
 actually stands for).
+
+---
+
+## Choice Mechanics
+
+Every card effect where the real Hearthstone client gives the player a genuine
+decision is resolved by the **agent**, not by RNG. Before 2026-09-04 none of
+this existed: "Choose One" had no mechanic at all (six of the seven cards did
+nothing when played), and every "choose a minion" effect called `rng.choice`.
+
+`PlayerState.choice_pending` (an `env/player_state.py:PendingChoice`) pauses the
+shopping phase until it is resolved. Two kinds:
+
+- **`kind="target"`** — "Choose a friendly Demon", "Give another minion +3/+3",
+  "Set another minion's stats to 50/50". `targets` holds legal **board indices**
+  and the agent points at one with `CHOOSE_TARGET`. Needs no extra encoding: the
+  board zone of the observation already describes every candidate.
+- **`kind="option"`** — a Choose One battlecry, whose branches are whole
+  *effects*. Each branch is rendered as a **pseudo-card** in the shop zone by
+  `game_loop._choice_option_tokens`, so the existing 44-dim card encoder
+  describes it: "+4 Attack and Windfury" becomes a token with `attack=4` and the
+  windfury bit set. Resolved with `CHOOSE_OPTION`.
+
+Rules that matter:
+
+- **A choice with one legal target is applied immediately, never raised.**
+  Pausing to offer a single option would burn one of the turn's 30 actions on a
+  non-decision.
+- **Choices queue** (`ps.choice_queue`). Brann doubles a Choose One battlecry
+  into *two independent* choices, and a branch can itself raise a target choice
+  (Sprightly Scarab: pick "Beast +1/+1 and Reborn", then pick which Beast).
+- **A choice can never be dropped.** If the 30-action budget runs out mid-
+  decision, `_force_resolve_choices` applies the resolver's own default. Letting
+  it lapse would make "waste the action budget" a way to cancel an effect.
+- Branch/target effects are dispatched by tag through
+  `EffectHandler._apply_choice_effect`, so a Choose One branch and a plain
+  targeted effect share the same small set of composable effects.
+- **Still random, correctly:** "Get a random X" and Discover are random in real
+  Hearthstone too. Mind Muck chooses *which friendly Demon* consumes, but *which
+  Tavern minion* is consumed stays random.
+
+Triple rewards are a real Discover as well (`env/triple_system.py`): three
+Tier+1 cards into `ps.discover_pending`, agent picks. It used to take
+`candidates[0]` unconditionally.
+
+---
+
+## Game Dynamics — Hearthstone Fidelity
+
+Fixed 2026-09-04 after an audit against the real game. Each was a silent
+divergence, not a known approximation:
+
+| Rule | Was | Now |
+|---|---|---|
+| Tavern upgrade | Rerolled the shop (free refresh every level) and cleared `frozen` | Shop and freeze are untouched; new-tier minions appear on the next refresh |
+| Upgrade cost | New tier started at `base - 1`, then round-start decay took another 1 | Starts at full `base`; only the round-start decay reduces it |
+| FREEZE | Ended the turn immediately | A shop toggle; play continues (once per turn via the mask) |
+| Combat first attacker | 50/50 coin flip | Side with **more minions** attacks first; coin flip only on an exact tie |
+| Start-of-combat order | Rolled independently of attack order | Same precedence, decided once from pre-combat minion counts |
+| Loss-damage fallback | `ps.tavern_tier + len(opp.board)` — the *loser's* tier and a minion *count* | `opp.tavern_tier + sum(opponent's surviving minion tiers)`, matching `CombatSide.win_damage` |
+| `round_history` combats | Recorded only one side of each pairing | Records both |
+| Triple-reward minion | Built without card_defs, so it arrived with no Taunt/Divine Shield/Activate | Keywords and `activate_cost` looked up, same as a shop purchase |
+
+The first-attacker rule is the largest behavioural change: board **width** is
+valuable in Battlegrounds partly *because* it buys the first attack, and a coin
+flip gave a 4-minion board the same expected tempo as a 7-minion one — so
+nothing in the environment ever taught the policy to go wide.
+
+The upgrade fixes cut the other way: levelling is now strictly more expensive
+(one gold more from the turn after every upgrade) and no longer comes with a
+free shop refresh, so `level_rate` is expected to *fall* relative to pre-2026-09-04
+runs. That is the intended correction, not a regression.
 
 ---
 

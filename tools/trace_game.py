@@ -4,7 +4,7 @@ logging.basicConfig(level=logging.ERROR)
 for ln in ('env.game_loop','env.tavern_pool','agent.ppo','symbolic.firestone_client',
            'symbolic.effect_handler','env.trinket_handler','train'):
     logging.getLogger(ln).setLevel(logging.ERROR)
-from agent.policy import BGPolicyNetwork, PTR_SHOP_OFF, PTR_BOARD_OFF, PTR_HAND_OFF, ACTION_TYPE_NAMES
+from agent.policy import make_policy, BGPolicyNetwork, PTR_SHOP_OFF, PTR_BOARD_OFF, PTR_HAND_OFF, ACTION_TYPE_NAMES
 from agent.ppo import PPOConfig, PPOTrainer
 from train import load_card_defs, CARD_DEFS_PATH, EvalAgent, GreedyPlayAgent, HeuristicAgent
 from env.game_loop import BattlegroundsGame
@@ -37,7 +37,7 @@ def ptr_desc(t, p):
 
 if __name__ == "__main__":
     cd = load_card_defs(CARD_DEFS_PATH)
-    pol = BGPolicyNetwork(card_dim=44,d_model=256,nhead=8,num_layers=4,scalar_dim=100,dropout=0.1)
+    pol = make_policy()
     ck = torch.load('bg_agent_ppo.pt', map_location='cpu', weights_only=False)
     pol.load_state_dict(ck['model_state_dict']); pol.eval()
     trace = {"checkpoint": {"updates": ck['update_count'], "steps": ck['total_steps']}, "rounds": []}

@@ -221,6 +221,87 @@ def _buff_all(
 
 
 # ---------------------------------------------------------------------------
+# "Choose One" battlecries
+# ---------------------------------------------------------------------------
+#
+# Before 2026-09-04 no Choose One mechanic existed anywhere in this engine.
+# Snare Trapper was the only card even approximated, with a 50/50 coin flip
+# between its branches; the other six simply had no handler at all, so playing
+# them did nothing.
+#
+# Each entry maps a normalised card name to its two branches. A branch is
+# {label, effect, params, token}:
+#   effect/params -> dispatched by EffectHandler._apply_choice_effect
+#   token         -> how the branch is DESCRIBED to the policy, rendered as a
+#                    pseudo-card in the shop zone (see game_loop's
+#                    _choice_option_tokens). Where a branch has a natural stat
+#                    analogue the token states it honestly -- "+4 Attack and
+#                    Windfury" becomes attack=4 with the windfury bit -- so the
+#                    network judges it in the feature space it already uses for
+#                    minions. Economy branches ("2 free Refreshes", "+1 maximum
+#                    Gold") have no stat analogue and stay 0/0; they are still
+#                    distinguishable from their sibling branch, which is what
+#                    the pointer actually needs, and the source minion is
+#                    visible on the board for the rest of the context.
+_CHOOSE_ONE_SPECS: dict = {
+    "craterminer": [
+        {"label": "Get 2 Blood Gems", "effect": "blood_gems_to_hand",
+         "params": {"count": 2}, "token": {"attack": 2, "health": 2, "tier": 2}},
+        # "Gem Day" is a Blood-Gem payload spell; modelled as a Barrage token,
+        # the closest mechanic this engine already implements.
+        {"label": "Get a Gem Day", "effect": "barrage_to_hand",
+         "params": {"count": 1}, "token": {"attack": 1, "health": 1, "tier": 2}},
+    ],
+    "intrepidbotanist": [
+        {"label": "Tavern spells +1 Attack", "effect": "spell_buff_bonus",
+         "params": {"atk": 1}, "token": {"attack": 1, "health": 0, "tier": 3}},
+        {"label": "Tavern spells +1 Health", "effect": "spell_buff_bonus",
+         "params": {"hp": 1}, "token": {"attack": 0, "health": 1, "tier": 3}},
+    ],
+    "slyinfiltrator": [
+        {"label": "Gain 2 free Refreshes", "effect": "free_refreshes",
+         "params": {"count": 2}, "token": {"attack": 0, "health": 0, "tier": 4}},
+        {"label": "Get 3 Blood Gems", "effect": "blood_gems_to_hand",
+         "params": {"count": 3}, "token": {"attack": 3, "health": 3, "tier": 4}},
+    ],
+    "sprightlyscarab": [
+        # Both branches raise a SECOND, nested target choice ("a Beast") once the
+        # branch is picked -- see _apply_choice_effect's "buff_tribe_choice" and
+        # the queue in _raise_choice.
+        {"label": "Beast +1/+1 and Reborn", "effect": "buff_tribe_choice",
+         "params": {"tribe": "BEAST", "atk": 1, "hp": 1, "keywords": ["reborn"],
+                    "source": "Sprightly Scarab"},
+         "token": {"attack": 1, "health": 1, "tier": 3, "reborn": True}},
+        {"label": "Beast +4 Attack and Windfury", "effect": "buff_tribe_choice",
+         "params": {"tribe": "BEAST", "atk": 4, "hp": 0, "keywords": ["windfury"],
+                    "source": "Sprightly Scarab"},
+         "token": {"attack": 4, "health": 0, "tier": 3, "windfury": True}},
+    ],
+    "fearlessfoodie": [
+        {"label": "Blood Gems +1/+1 this game", "effect": "spell_buff_bonus",
+         "params": {"atk": 1, "hp": 1}, "token": {"attack": 1, "health": 1, "tier": 2}},
+        {"label": "Get 4 Blood Gems", "effect": "blood_gems_to_hand",
+         "params": {"count": 4}, "token": {"attack": 4, "health": 4, "tier": 2}},
+    ],
+    "snaretrapper": [
+        {"label": "Get a random Quilboar", "effect": "draw_tribe",
+         "params": {"tribe": "QUILBOAR", "count": 1},
+         "token": {"attack": 4, "health": 4, "tier": 4}},
+        {"label": "Increase maximum Gold by 1", "effect": "max_gold",
+         "params": {"amount": 1}, "token": {"attack": 0, "health": 0, "tier": 4}},
+    ],
+    "veteranbrigand": [
+        {"label": "3 Blood Gems on all minions", "effect": "blood_gems_on_all",
+         "params": {"count": 3}, "token": {"attack": 3, "health": 3, "tier": 6}},
+        # Three Barrage spells go to HAND rather than resolving now, so the
+        # token is 0/0: nothing has landed on the board yet.
+        {"label": "Cast Blood Gem Barrage 3x", "effect": "barrage_to_hand",
+         "params": {"count": 3}, "token": {"attack": 0, "health": 0, "tier": 6}},
+    ],
+}
+
+
+# ---------------------------------------------------------------------------
 # Main handler
 # ---------------------------------------------------------------------------
 
@@ -293,6 +374,28 @@ class EffectHandler:
             dragons = _friendly_with_tribe(ps.board, "DRAGON", None, self._card_defs)
             _buff_all(dragons, 2, 2)
 
+        # ── Choose One battlecries ───────────────────────────────────────────
+        # Handled ahead of the name-keyed chain because a Choose One PAUSES the
+        # shopping phase: the branch has to be picked before anything else this
+        # battlecry might do can resolve.
+        _co_key = next((k for k in _CHOOSE_ONE_SPECS if k in name_key), None)
+        if _co_key is not None:
+            options = _CHOOSE_ONE_SPECS[_co_key]
+            # Thorned Trailblazer: "One Choose One card each turn has both
+            # effects combined." Consumes its charge and applies BOTH branches
+            # instead of asking -- with both effects taken there is no choice
+            # left to make, which is exactly the card's point.
+            if getattr(ps, "_trailblazer_charges", 0) > 0:
+                ps._trailblazer_charges -= 1   # type: ignore[attr-defined]
+                for _ in range(times):
+                    for opt in options:
+                        self._apply_choice_effect(
+                            ps, opt.get("effect", ""), opt.get("params", {}) or {}, None
+                        )
+            else:
+                self._raise_choose_one(ps, minion.name, options, times=times)
+            return
+
         # Dispatch by normalised name (partial matching where noted)
         if "murozond" in name_key:
             self._bc_murozond(ps, minion, times)
@@ -357,11 +460,27 @@ class EffectHandler:
         elif "pickyeater" in name_key:
             self._bc_consume_shop(ps, minion, self._rng, times=times)
         elif "mindmuck" in name_key:
-            # Highest-ATK friendly Demon consumes
+            # "Choose a friendly Demon. It consumes a minion in the Tavern to
+            # gain its stats." WHICH Demon is the player's call -- it is a
+            # permanent stat transfer, so it decides which minion carries the
+            # board. WHICH Tavern minion gets consumed stays random, as in the
+            # real game. Previously this took the highest-ATK Demon by a fixed
+            # formula, which is usually wrong: you feed the minion with a
+            # keyword or deathrattle worth scaling, not the biggest one.
             demons = _friendly_with_tribe(ps.board, "DEMON", minion, self._card_defs)
-            if demons:
-                gainer = max(demons, key=lambda m: m.attack + m.perm_atk_bonus)
-                self._bc_consume_shop(ps, gainer, self._rng, times=times)
+            self._raise_target_choice(
+                ps, "Mind Muck", "consume_shop", demons, params={"times": times}
+            )
+        elif "clunkerjunker" in name_key:
+            # "Choose a friendly Mech. Discover a Mech to Magnetize to it."
+            # Previously not implemented at all -- playing it did nothing. The
+            # Mech that RECEIVES the magnetisation is the real decision and is
+            # now the agent's; the discovered Mech itself is approximated (see
+            # _apply_choice_effect's "magnetize_discover").
+            mechs = _friendly_with_tribe(ps.board, "MECH", minion, self._card_defs)
+            self._raise_target_choice(
+                ps, "Clunker Junker", "magnetize_discover", mechs
+            )
         elif "furiousdriver" in name_key:
             # Every other friendly Demon consumes once
             demons = _friendly_with_tribe(ps.board, "DEMON", minion, self._card_defs)
@@ -426,18 +545,6 @@ class EffectHandler:
             # concept exists in this engine (8-player FFA only), so this applies
             # to the caster only.
             ps.max_gold = min(20, ps.max_gold + 1 * times)
-        elif "snaretrapper" in name_key:
-            # Choose One - Get a random Quilboar; or Increase your maximum Gold
-            # by 1. There is no Choose One decision mechanic anywhere in this
-            # engine (no other Choose One card is implemented either), so
-            # building full agent-facing choice infra for one card is out of
-            # scope here; approximate the missing choice with a 50/50 RNG pick,
-            # same as the "no infra exists" approximations already used above
-            # (e.g. Clever Castaway). Both branches are otherwise fully real.
-            if self._rng.random() < 0.5:
-                self._bc_draw_tribe(ps, tier=ps.tavern_tier, tribe="QUILBOAR", count=times)
-            else:
-                ps.max_gold = min(20, ps.max_gold + 1 * times)
         # Righteous Protector has no battlecry — static keywords only.
 
     def on_sell(self, ps: "PlayerState", minion: "MinionState") -> None:
@@ -490,9 +597,15 @@ class EffectHandler:
         name_key = minion.name.lower().replace(" ", "")
 
         if "suspiciousprisonguard" in name_key:
-            # Give another minion +3/+3
+            # "Give ANOTHER minion +3/+3" -- a real target choice in Hearthstone,
+            # and a repeatable one (Activate, once per turn, every turn), so a
+            # uniform random target compounded into a badly-shaped board over a
+            # whole game rather than costing a single buff.
             others = [m for m in ps.board if m is not minion]
-            _buff_random(others, 3, 3, self._rng, times=1)
+            self._raise_target_choice(
+                ps, "Suspicious Prisonguard", "buff_target", others,
+                params={"atk": 3, "hp": 3},
+            )
 
         elif "clevercastaway" in name_key:
             # Discover a Tavern spell — approximated as drawing a random
@@ -583,17 +696,15 @@ class EffectHandler:
                 setattr(shop_minion, keyword, True)
 
         elif "tyrael" in name_key:
-            # Set another minion's stats to 50/50
+            # "Set ANOTHER minion's stats to 50/50." The highest-impact target
+            # choice in the pool: it OVERWRITES the target's stats, so aiming it
+            # at an already-large minion is a downgrade while aiming it at a
+            # Divine Shield / Venomous body wins fights outright. A uniform
+            # random pick got this right only by luck.
             others = [m for m in ps.board if m is not minion]
-            if others:
-                target = self._rng.choice(others)
-                target.attack = 50
-                target.health = 50
-                target.max_health = 50
-                target.perm_atk_bonus = 0
-                target.perm_hp_bonus = 0
-                target.game_atk_bonus = 0
-                target.game_hp_bonus = 0
+            self._raise_target_choice(
+                ps, "Tyrael", "set_stats", others, params={"atk": 50, "hp": 50}
+            )
 
     def _apply_game_buff_target(self, ps: "PlayerState", minion: "MinionState") -> None:
         """Apply accumulated 'this game' tribe buffs to a single minion.
@@ -690,6 +801,252 @@ class EffectHandler:
                 m.game_atk_bonus += atk
                 m.game_hp_bonus  += hp
                 m.max_health     += hp
+
+    # ==================================================================
+    # Real player choices  (see env/player_state.py PendingChoice)
+    # ==================================================================
+    #
+    # Every effect below used to be resolved by ``self._rng.choice`` or a fixed
+    # heuristic, so the agent never saw the decision.  That is not a rounding
+    # error in a game where "which minion gets +3/+3" is often the whole turn:
+    # Tyrael sets a minion to 50/50, and picking the wrong one wastes a Tier-6
+    # card's entire effect.  These now raise a PendingChoice, the shopping
+    # phase pauses, and the policy points at what it wants.
+    #
+    # Not everything random became a choice.  "Get a random Quilboar",
+    # "Discover" (already its own mechanic), and consuming a *Tavern* minion are
+    # random in real Hearthstone too, and stay random here -- see the audit note
+    # at the top of this module.
+
+    def _raise_choice(self, ps: "PlayerState", choice) -> bool:
+        """Queue *choice* for the agent.  Returns False if it has no candidates.
+
+        A choice with nothing to choose between is not raised at all: pausing
+        the shopping phase to offer a single option (or none) would burn one of
+        the turn's 30 actions on a decision that is not a decision.  The caller
+        applies the degenerate case directly instead.
+        """
+        if choice.kind == "target":
+            if not choice.targets:
+                return False
+            if len(choice.targets) == 1:
+                # Exactly one legal target -- apply it now rather than making
+                # the agent "choose" it.
+                self.resolve_choice(ps, choice, target_idx=choice.targets[0])
+                return True
+        elif not choice.options:
+            return False
+
+        if ps.choice_pending is None:
+            ps.choice_pending = choice
+        else:
+            # A second choice raised while one is open (Brann doubling a Choose
+            # One battlecry) queues rather than overwriting.
+            ps.choice_queue.append(choice)
+        return True
+
+    def _raise_target_choice(
+        self,
+        ps: "PlayerState",
+        source: str,
+        effect: str,
+        candidates: List["MinionState"],
+        params: Optional[dict] = None,
+    ) -> bool:
+        """Raise a kind="target" choice over *candidates* (a subset of ps.board).
+
+        Targets are stored as board INDICES because that is what the pointer
+        action space addresses, and re-derived from identity here so a caller
+        can pass any filtered list (friendly Demons, "every minion but me")
+        without knowing indices itself.
+        """
+        from env.player_state import PendingChoice
+
+        idxs = [i for i, m in enumerate(ps.board) if any(m is c for c in candidates)]
+        return self._raise_choice(ps, PendingChoice(
+            kind="target", source=source, effect=effect,
+            params=params or {}, targets=idxs,
+        ))
+
+    def _raise_choose_one(
+        self, ps: "PlayerState", source: str, options: List[dict], times: int = 1
+    ) -> bool:
+        """Raise a kind="option" Choose One choice, once per *times*.
+
+        ``times`` is the Brann multiplier: Brann makes a Choose One battlecry
+        fire twice, and in Hearthstone that is two independent choices (you may
+        pick different branches), not one choice applied twice -- so this raises
+        ``times`` separate PendingChoices, which the queue in _raise_choice
+        serialises.
+        """
+        from env.player_state import PendingChoice
+
+        ok = False
+        for _ in range(max(1, times)):
+            ok = self._raise_choice(ps, PendingChoice(
+                kind="option", source=source, effect="choose_one",
+                options=[dict(o) for o in options],
+            )) or ok
+        return ok
+
+    def resolve_choice(
+        self,
+        ps: "PlayerState",
+        choice,
+        target_idx: Optional[int] = None,
+        option_idx: Optional[int] = None,
+    ) -> None:
+        """Apply a resolved choice.
+
+        With no index supplied this falls back to the resolver default (index 0
+        / the first legal target).  That path is only reached from
+        BattlegroundsGame._force_resolve_choices when a turn's action budget
+        runs out mid-decision -- the effect still happens, because letting it
+        drop would turn "waste 30 actions" into a way to cancel an effect.
+        """
+        if choice.kind == "option":
+            if option_idx is None or not (0 <= option_idx < len(choice.options)):
+                option_idx = 0
+            opt = choice.options[option_idx]
+            self._apply_choice_effect(
+                ps, opt.get("effect", ""), opt.get("params", {}) or {}, target=None
+            )
+            return
+
+        # kind == "target"
+        if target_idx is None or not (0 <= target_idx < len(ps.board)):
+            legal = [i for i in choice.targets if 0 <= i < len(ps.board)]
+            if not legal:
+                return   # every candidate left the board before resolution
+            target_idx = legal[0]
+        self._apply_choice_effect(
+            ps, choice.effect, choice.params or {}, target=ps.board[target_idx]
+        )
+
+    def _apply_choice_effect(
+        self,
+        ps: "PlayerState",
+        effect: str,
+        params: dict,
+        target: Optional["MinionState"],
+    ) -> None:
+        """Apply one resolved branch/target effect.
+
+        Effect tags are deliberately small and composable so a Choose One branch
+        and a plain targeted effect can share them (Sprightly Scarab's branches
+        are both "buff a Beast", differing only in params).
+        """
+        times = int(params.get("times", 1))
+
+        # ── Targeted effects ────────────────────────────────────────────────
+        if effect == "buff_target":
+            if target is not None:
+                for _ in range(times):
+                    _buff_minion(target, int(params.get("atk", 0)), int(params.get("hp", 0)))
+                for kw in params.get("keywords", []):
+                    setattr(target, kw, True)
+
+        elif effect == "set_stats":
+            # Tyrael: "Set another minion's stats to 50/50". Base stats are
+            # overwritten and every accumulated bonus cleared, so the result is
+            # exactly the printed number rather than 50 plus whatever buffs the
+            # minion had.
+            if target is not None:
+                atk = int(params.get("atk", 50))
+                hp  = int(params.get("hp", 50))
+                target.attack = atk
+                target.health = hp
+                target.max_health = hp
+                target.perm_atk_bonus = 0
+                target.perm_hp_bonus  = 0
+                target.game_atk_bonus = 0
+                target.game_hp_bonus  = 0
+
+        elif effect == "consume_shop":
+            # Mind Muck / Demonblood Gourd: the CHOSEN friendly minion consumes
+            # a Tavern minion. Which friendly consumes is the player's choice;
+            # which Tavern minion is consumed stays random, as in the real game.
+            if target is not None:
+                self._bc_consume_shop(ps, target, self._rng, times=times)
+
+        elif effect == "blood_gem_target":
+            if target is not None:
+                self._apply_blood_gem(ps, target, count=int(params.get("count", 1)))
+
+        elif effect == "double_stats":
+            # Double Stitch Needle: "Double its stats."
+            if target is not None:
+                target.perm_atk_bonus += target.effective_attack()
+                gain_hp = target.effective_health()
+                target.perm_hp_bonus += gain_hp
+                target.max_health    += gain_hp
+
+        elif effect == "magnetize_discover":
+            # Clunker Junker: "Choose a friendly Mech. Discover a Mech to
+            # Magnetize to it." The Mech to magnetize is a Discover, which this
+            # engine already models -- so the chosen target's stats are raised
+            # by the discovered Mech via the standard discover flow being out of
+            # reach here; approximate the magnetise with the tier-scaled stat
+            # grant the discovered Mech would have carried. The TARGET is the
+            # real decision and is now the agent's.
+            if target is not None:
+                bonus = max(1, int(ps.tavern_tier))
+                _buff_minion(target, bonus, bonus)
+
+        # ── Choose One branch effects (no target) ───────────────────────────
+        elif effect == "blood_gems_to_hand":
+            for _ in range(int(params.get("count", 1))):
+                if len(ps.hand) >= 10:
+                    break
+                gem = _make_token("Blood Gem", attack=0, health=0, tier=1)
+                gem.is_spell = True   # type: ignore[attr-defined]
+                ps.hand.append(gem)
+
+        elif effect == "barrage_to_hand":
+            for _ in range(int(params.get("count", 1))):
+                if len(ps.hand) >= 10:
+                    break
+                barrage = _make_token("Blood Gem Barrage", attack=0, health=0, tier=1)
+                barrage.is_spell   = True  # type: ignore[attr-defined]
+                barrage.is_barrage = True  # type: ignore[attr-defined]
+                ps.hand.append(barrage)
+
+        elif effect == "blood_gems_on_all":
+            for m in ps.board:
+                self._apply_blood_gem(ps, m, count=int(params.get("count", 1)))
+
+        elif effect == "spell_buff_bonus":
+            ps.blood_gem_atk_bonus += int(params.get("atk", 0))
+            ps.blood_gem_hp_bonus  += int(params.get("hp", 0))
+
+        elif effect == "free_refreshes":
+            ps._free_refreshes = (          # type: ignore[attr-defined]
+                getattr(ps, "_free_refreshes", 0) + int(params.get("count", 1))
+            )
+
+        elif effect == "max_gold":
+            ps.max_gold = min(20, ps.max_gold + int(params.get("amount", 1)))
+
+        elif effect == "draw_tribe":
+            self._bc_draw_tribe(
+                ps,
+                tier=int(params.get("tier", ps.tavern_tier)),
+                tribe=params.get("tribe"),
+                count=int(params.get("count", 1)),
+            )
+
+        elif effect == "buff_tribe_choice":
+            # A Choose One branch that itself needs a target ("Give a Beast
+            # +1/+1 and Reborn"). Raising a second choice here is exactly what
+            # the queue exists for -- see _raise_choice.
+            tribe = params.get("tribe")
+            cands = (_friendly_with_tribe(ps.board, tribe, None, self._card_defs)
+                     if tribe else list(ps.board))
+            self._raise_target_choice(
+                ps, params.get("source", "choose one"), "buff_target", cands,
+                params={"atk": params.get("atk", 0), "hp": params.get("hp", 0),
+                        "keywords": params.get("keywords", [])},
+            )
 
     def _matches_tribe_key(self, minion: "MinionState", tribe_key: str) -> bool:
         """Return True if *minion* matches the tribe_key (e.g. "UNDEAD", "ALL")."""
@@ -813,8 +1170,11 @@ class EffectHandler:
         if effect is None:
             # Blood Gem: +1/+1 (with bonuses) to a chosen minion (use random for sim)
             if "blood gem" in spell.name.lower():
-                if ps.board:
-                    self._apply_blood_gem(ps, self._rng.choice(ps.board))
+                # A Blood Gem is played ON a minion the player picks.
+                self._raise_target_choice(
+                    ps, "Blood Gem", "blood_gem_target", list(ps.board),
+                    params={"count": 1},
+                )
             # Blood Gem Barrage: Blood Gem on all board minions
             elif getattr(spell, "is_barrage", False):
                 for m in ps.board:
@@ -824,14 +1184,22 @@ class EffectHandler:
         kind = effect[0]
         if kind == "buff_one":
             # +atk/+hp to a random friendly minion (this_combat only — use perm for sim)
+            # "Choose a minion" Spellcraft spells (Private Chef, Sea Witch
+            # Zar'jira, Demonblood Gourd, Token of the Old Gods, Double Stitch
+            # Needle) all funnel through here. The target is the player's choice
+            # in Hearthstone, not a random friendly.
             _, atk, hp, _ = effect
-            if ps.board:
-                _buff_minion(self._rng.choice(ps.board), atk, hp)
+            self._raise_target_choice(
+                ps, spell.name, "buff_target", list(ps.board),
+                params={"atk": atk, "hp": hp},
+            )
         elif kind == "buff_one_tier":
             # +tavern_tier/+tavern_tier to a random friendly
             _, atk, hp, _ = effect
-            if ps.board:
-                _buff_minion(self._rng.choice(ps.board), atk, hp)
+            self._raise_target_choice(
+                ps, spell.name, "buff_target", list(ps.board),
+                params={"atk": atk, "hp": hp},
+            )
         elif kind == "spell_buff_bonus":
             # Tavern spells give +1/+1 extra this game
             _, atk, hp, _ = effect

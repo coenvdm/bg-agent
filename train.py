@@ -36,7 +36,8 @@ logger = logging.getLogger(__name__)
 # Import project components
 # -------------------------------------------------------------------------
 from agent.card_encoder import CardEncoder
-from agent.policy import (BGPolicyNetwork, N_ACTION_TYPES, POINTER_DIM,
+from agent.policy import (make_policy,
+                          BGPolicyNetwork, N_ACTION_TYPES, POINTER_DIM,
                           build_type_mask, build_pointer_mask,
                           PTR_SHOP_OFF, PTR_BOARD_OFF, PTR_HAND_OFF)
 from agent.ppo import PPOConfig, PPOTrainer
@@ -626,6 +627,49 @@ def _effective_power(m) -> int:
     return atk + hp
 
 
+def _scripted_choice_action(ps):
+    """Resolve a pending PendingChoice for a scripted (non-learning) agent.
+
+    Returns ``(type, pointer)`` when ps.choice_pending is set, else None.
+
+    Scripted agents exist to be a stable, beatable baseline, so these rules are
+    deliberately simple but not deliberately bad -- a baseline that throws away
+    every Tyrael and every Blood Gem would flatter the learned policy's
+    win rate for the wrong reason.
+
+    Target rules:
+      set_stats ("set another minion's stats to 50/50") targets the WEAKEST
+      minion, because it OVERWRITES stats -- pointing it at the biggest minion
+      is a downgrade. Everything else (buffs, Blood Gems, consume, magnetise)
+      targets the STRONGEST, concentrating stats the way scripted play should.
+
+    Option rule: always branch 0. The Choose One branches are close enough in
+    value that a fixed pick is an honest baseline, and it keeps these agents
+    deterministic.
+    """
+    choice = getattr(ps, "choice_pending", None)
+    if choice is None:
+        return None
+
+    if getattr(choice, "kind", "target") == "option":
+        return 11, PTR_SHOP_OFF + 0
+
+    targets = [i for i in getattr(choice, "targets", []) if 0 <= i < len(ps.board)]
+    if not targets:
+        # No legal target left. Point at slot 0 anyway: step_shopping leaves the
+        # choice pending, and _force_resolve_choices clears it at turn end --
+        # much better than returning None and having the caller fall through to
+        # an action the mask forbids.
+        return 10, PTR_BOARD_OFF + 0
+
+    def _power(i):
+        m = ps.board[i]
+        return m.effective_attack() + m.effective_health()
+
+    pick = min(targets, key=_power) if choice.effect == "set_stats" else max(targets, key=_power)
+    return 10, PTR_BOARD_OFF + pick
+
+
 def _scripted_should_level(ps) -> bool:
     """Shared LEVEL_UP guard for the scripted baselines.
 
@@ -745,6 +789,12 @@ class HeuristicAgent:
         # rest of the turn (capped at max_actions=30) since neither state clears
         # itself and END_TURN doesn't escape a pending discover. Index 0 is
         # always valid here when pending (both are non-empty by construction).
+        # A pending choice pauses shopping and is the ONLY legal action; see
+        # _scripted_choice_action.
+        _ca = _scripted_choice_action(ps)
+        if _ca is not None:
+            return _ca
+
         if ps.trinket_offer_pending or ps.discover_pending:
             return 0, PTR_SHOP_OFF + 0
 
@@ -863,6 +913,12 @@ class GreedyPlayAgent:
 
         # Trinket offer / discover in progress -- see HeuristicAgent.get_action
         # for why this must be handled before the normal ps.shop-based logic.
+        # A pending choice pauses shopping and is the ONLY legal action; see
+        # _scripted_choice_action.
+        _ca = _scripted_choice_action(ps)
+        if _ca is not None:
+            return _ca
+
         if ps.trinket_offer_pending or ps.discover_pending:
             return 0, PTR_SHOP_OFF + 0
 
@@ -1044,14 +1100,7 @@ def build_components(
     )
     encoder = CardEncoder(card_defs)
 
-    policy = BGPolicyNetwork(
-        card_dim=44,
-        d_model=256,
-        nhead=8,
-        num_layers=4,
-        scalar_dim=100,
-        dropout=0.1,
-    ).to(device)
+    policy = make_policy().to(device)
 
     ppo_config = PPOConfig(device=device)
     ppo_trainer = PPOTrainer(policy, ppo_config)
@@ -1165,10 +1214,7 @@ def _load_snapshot_policy(path_str: str, snapshot_id: int, device: str):
         raise RuntimeError(
             f"worker could not load snapshot {snapshot_id} from {path_str}: {exc}"
         ) from exc
-    pol = BGPolicyNetwork(
-        card_dim=44, d_model=256, nhead=8, num_layers=4,
-        scalar_dim=100, dropout=0.1,
-    ).to(device)
+    pol = make_policy().to(device)
     pol.load_state_dict(sd)
     pol.eval()
     _W_SNAP_CACHE[snapshot_id] = pol
@@ -1205,10 +1251,7 @@ def _load_eval_policy(path_str: str, device: str):
         sd = _torch.load(path_str, map_location="cpu")
     except (FileNotFoundError, OSError, RuntimeError, EOFError) as exc:
         raise RuntimeError(f"eval worker could not load weights {path_str}: {exc}") from exc
-    pol = BGPolicyNetwork(
-        card_dim=44, d_model=256, nhead=8, num_layers=4,
-        scalar_dim=100, dropout=0.1,
-    ).to(device)
+    pol = make_policy().to(device)
     pol.load_state_dict(sd)
     pol.eval()
     _W_EVAL_CACHE[path_str] = pol
@@ -1324,10 +1367,7 @@ def _worker_run_game(task: tuple) -> tuple:
     firestone   = FirestoneClient(firestone_path=None, mock_mode=True)
 
     # Current policy — used by training agents, records transitions
-    current_policy = BGPolicyNetwork(
-        card_dim=44, d_model=256, nhead=8, num_layers=4,
-        scalar_dim=100, dropout=0.1,
-    ).to(device)
+    current_policy = make_policy().to(device)
     current_policy.load_state_dict(current_sd)
 
     ppo_config  = PPOConfig(device=device)
@@ -1388,11 +1428,34 @@ def _worker_run_game(task: tuple) -> tuple:
     )
     result = game.run_game()
 
+    # ── Combat diagnostics for the training seats ────────────────────────────
+    # Placement is the objective, but it is a coarse, end-of-game number: a
+    # policy can improve its board a lot and still place 5th because of one bad
+    # matchup. Combat win rate and damage taken are the per-round signal that
+    # moves first, so they show a change several hundred updates before mean
+    # placement does. Aggregated here, in the worker, because result.round_history
+    # is large and should not cross the process boundary.
+    _train_pids = {pid for pid, lbl in agent_labels.items() if lbl == "train_current"}
+    _cs = {"n": 0, "wins": 0, "ties": 0, "dmg_taken": 0.0, "win_prob": 0.0, "ghosts": 0}
+    for _rs in result.round_history:
+        for _c in _rs.get("combats", []):
+            if _c.get("player_id") not in _train_pids:
+                continue
+            _cs["n"] += 1
+            if _c.get("result") == "win":
+                _cs["wins"] += 1
+            elif _c.get("result") == "tie":
+                _cs["ties"] += 1
+            _cs["dmg_taken"] += float(_c.get("damage_taken", 0) or 0)
+            _cs["win_prob"]  += float(_c.get("win_prob", 0.0) or 0.0)
+            _cs["ghosts"]    += 1 if _c.get("is_ghost") else 0
+
     summary = {
         "placements":    result.placements,
         "final_rewards": result.final_rewards,
         "n_rounds":      result.n_rounds,
         "agent_labels":  agent_labels,
+        "combat":        _cs,
     }
     return ppo_trainer.buffer.transitions, summary
 

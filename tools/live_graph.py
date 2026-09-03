@@ -114,6 +114,10 @@ def build_series() -> dict:
         "update_sellplace_avg", "update_levelrate_avg",
         "update_train_plc_avg", "update_heuristic_plc_avg", "update_greedy_plc_avg",
         "entropies", "clip_fracs", "approx_kls", "explained_vars", "ppo_values",
+        # Added 2026-09-04. Absent from older runs; _series returns [] for a
+        # missing key and every chart tolerates an empty series.
+        "update_gold_avg", "update_tier_avg", "update_cwin_avg",
+        "update_cdmg_avg", "update_choice_avg", "update_branch0_avg",
     ]
     out_series = {k: _series(h, k) for k in upd_keys}
     # One x-axis per length class (per-update series can differ by one element).
@@ -140,8 +144,13 @@ def build_series() -> dict:
         "elo":      h.get("eval_gauntlet_elo") or [],
     }
 
+    # Mirrors agent/policy.py ACTION_TYPE_NAMES. CHOOSE_TGT / CHOOSE_OPT were
+    # added 2026-09-04 with the real choosing mechanic; older history files have
+    # no entries for them, which is fine -- the loop below only emits names for
+    # indices actually present in the JSON.
     action_names = ["BUY", "SELL", "PLACE", "REROLL", "FREEZE", "LEVEL",
-                    "HERO_PWR", "END_TURN", "ACTIVATE", "REORDER"]
+                    "HERO_PWR", "END_TURN", "ACTIVATE", "REORDER",
+                    "CHOOSE_TGT", "CHOOSE_OPT"]
     raw_actions = h.get("update_action_rate_avg") or {}
     actions = {}
     for k, v in raw_actions.items():
@@ -206,6 +215,9 @@ def build_series() -> dict:
             "entropy": _last(h, "entropies", 25),
             "explained_var": _last(h, "explained_vars", 25),
             "clip_frac": _last(h, "clip_fracs", 25),
+            "gold": _last(h, "update_gold_avg", 25),
+            "combat_win": _last(h, "update_cwin_avg", 25),
+            "tier": _last(h, "update_tier_avg", 25),
         },
         "x": out_x,
         "series": out_series,
@@ -352,8 +364,10 @@ const S8 = ['var(--s1)','var(--s2)','var(--s3)','var(--s4)','var(--s5)','var(--s
 // the entity, not its rank, so a given action keeps the same look across every
 // render and every panel. Indices 8-9 (ACTIVATE, REORDER) reuse slots 1-2 with
 // a dash, since only 8 hues are validated -- see the palette comment above.
-const ACTION_STYLE = [0,1,2,3,4,5,6,7,0,1].map((slot,i)=>(
-  {color:S8[slot], dash: i>=8 ? '6 3' : null}));
+/* 12 action types over an 8-colour ramp: the four beyond the ramp reuse a hue
+   but take a dash pattern, so identity is never colour-alone. */
+const ACTION_STYLE = [0,1,2,3,4,5,6,7,0,1,2,3].map((slot,i)=>(
+  {color:S8[slot], dash: i>=8 ? (i>=10 ? '2 3' : '6 3') : null}));
 const tip = document.getElementById('tip');
 const fmt = (v,n=2)=> (v===null||v===undefined||Number.isNaN(v)) ? '--' : (+v).toFixed(n);
 const kfmt = v => v>=1000 ? (v/1000).toFixed(v>=10000?0:1)+'k' : String(v);
@@ -520,6 +534,48 @@ async function render(){
     'Minions held. The scripted baselines sit at 6.8-7.0; a low value means the policy is hoarding stats over bodies.',
     [{name:'board size',x:X.update_board_avg,y:SER.update_board_avg}], {refs:[{v:7,label:'full'}], y1:7.2}));
 
+  // ── Economy / combat panels (added 2026-09-04) ────────────────────────────
+  // These sit high in the grid on purpose: they are the leading indicators.
+  // Placement is the objective but it is a coarse end-of-game number, and a
+  // regression in how the policy spends gold or how often it wins fights shows
+  // up here hundreds of updates before mean placement moves.
+  if((SER.update_gold_avg||[]).length){
+    g.appendChild(card('Unspent gold at END_TURN',
+      'Gold carried into combat, where it does nothing. Gold never carries over between rounds in Battlegrounds, so anything above ~1 is waste — this is the direct read on whether the flat gold penalty is working. The failure it exists to prevent was 7.5 gold banked on 93% of late turns.',
+      [{name:'unspent gold',x:X.update_gold_avg,y:SER.update_gold_avg,color:'var(--s2)'}],
+      {nd:2, y0:0, refs:[{v:1,label:'1g'}]}));
+  }
+
+  if((SER.update_cwin_avg||[]).length){
+    g.appendChild(card('Combat win rate',
+      'Share of fights won, training seats. The most direct measure of board strength, and it moves long before placement does.',
+      [{name:'win rate',x:X.update_cwin_avg,y:SER.update_cwin_avg,color:'var(--s1)'}],
+      {nd:3, y0:0, y1:1, refs:[{v:0.5,label:'even'}]}));
+  }
+
+  if((SER.update_cdmg_avg||[]).length){
+    g.appendChild(card('Damage taken per combat',
+      'Mean hero damage per fight. 40 health means roughly 8-10 bad fights end the run, so this sets how long the policy survives.',
+      [{name:'damage',x:X.update_cdmg_avg,y:SER.update_cdmg_avg,color:'var(--s4)'}],
+      {nd:2, y0:0}));
+  }
+
+  if((SER.update_tier_avg||[]).length){
+    g.appendChild(card('Tavern tier at END_TURN',
+      'Read together with board size, never alone: a rising tier over a shrinking board is the classic proxy-chasing failure, where the policy levels instead of building a warband.',
+      [{name:'tavern tier',x:X.update_tier_avg,y:SER.update_tier_avg,color:'var(--s3)'},
+       {name:'board size',x:X.update_board_avg,y:SER.update_board_avg,color:'var(--s5)'}],
+      {nd:2, y0:1, y1:7}));
+  }
+
+  if((SER.update_branch0_avg||[]).length){
+    g.appendChild(card('Choose One — branch 0 share',
+      'Collapse detector for the new choice head. Pinned at 0.00 or 1.00 means the policy picks the same branch no matter the board — exactly the pathology ACTIVATE showed while it shared SELL\'s scorer. Anything in between means it is actually discriminating.',
+      [{name:'branch 0',x:X.update_branch0_avg,y:SER.update_branch0_avg,color:'var(--s6)'},
+       {name:'choices/game',x:X.update_choice_avg,y:SER.update_choice_avg,color:'var(--s7)'}],
+      {nd:3, y0:0, refs:[{v:0.5,label:'even'}]}));
+  }
+
   g.appendChild(card('Game length','Rounds before the lobby resolves. Real Battlegrounds is 12-18.',
     [{name:'rounds',x:X.update_length_avg,y:SER.update_length_avg}], {nd:1, refs:[{v:18,label:'18'}]}));
 
@@ -546,14 +602,14 @@ async function render(){
   // never re-ranked by current value: color follows the entity, not its
   // rank, so a given action keeps the same look across every render and
   // every panel (including the per-round-bucket cards below).
-  const ACTION_NAMES = ['BUY','SELL','PLACE','REROLL','FREEZE','LEVEL','HERO_PWR','END_TURN','ACTIVATE','REORDER'];
+  const ACTION_NAMES = ['BUY','SELL','PLACE','REROLL','FREEZE','LEVEL','HERO_PWR','END_TURN','ACTIVATE','REORDER','CHOOSE_TGT','CHOOSE_OPT'];
   const actionSeries = (seriesDict, x) => ACTION_NAMES
     .map((name,i)=>({name, x, y:(seriesDict[name]||[]), color:ACTION_STYLE[i].color, dash:ACTION_STYLE[i].dash}))
     .filter(s=>s.y.length);
 
   const A=d.actions&&d.actions.series||{};
   if(Object.keys(A).length){
-    g.appendChild(card('Action mix','Share of actions per game — all 10 action types.',
+    g.appendChild(card('Action mix','Share of actions per game — all 12 action types.',
       actionSeries(A, d.actions.x), {nd:3, y0:0}));
   }
 

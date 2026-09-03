@@ -603,6 +603,47 @@ def _board_dominant_tribe(board) -> Tuple[Optional[str], int]:
     return top, cnt
 
 
+def _choice_option_tokens(choice) -> list:
+    """Render a kind="option" PendingChoice's branches as pseudo-card minions.
+
+    A "Choose One" battlecry offers two whole EFFECTS, not two minions, so
+    there is nothing in the game state for the agent to point at.  Rather than
+    add a second observation encoder for effects, each branch is described as a
+    synthetic MinionState and shown in the shop zone -- the one zone that
+    already means "things on offer right now" (discover and trinket offers
+    reuse it the same way).
+
+    This is not a hack for its own sake: the 44-dim card encoder already has
+    exactly the fields a Choose One branch needs to describe itself.  A branch
+    that grants +4 Attack and Windfury becomes a token with attack=4 and the
+    windfury bit set; one that grants +1/+1 and Reborn becomes attack=1,
+    health=1, reborn=True.  So "which branch is better here?" is presented to
+    the network in the same feature space it already uses to judge minions,
+    instead of an opaque one-hot it would have to learn from scratch.
+
+    Branches with no stat/keyword analogue (Snare Trapper's "+1 maximum Gold",
+    Sly Infiltrator's "2 free Refreshes") carry the descriptor's explicit
+    ``token`` hint instead, so they are still distinguishable from one another.
+    """
+    from env.player_state import MinionState
+
+    out = []
+    for opt in choice.options:
+        hint = dict(opt.get("token", {}))
+        m = MinionState(
+            name=opt.get("label", "option"),
+            attack=int(hint.get("attack", 0)),
+            health=int(hint.get("health", 0)),
+            max_health=int(hint.get("health", 0)),
+            tier=int(hint.get("tier", 1)),
+        )
+        for kw in ("taunt", "divine_shield", "reborn", "windfury", "venomous", "golden"):
+            if hint.get(kw):
+                setattr(m, kw, True)
+        out.append(m)
+    return out
+
+
 def _pad_list(lst: list, length: int, fill=None) -> list:
     """Pad or truncate list to exactly *length* elements."""
     return list(lst[:length]) + [fill] * max(0, length - len(lst))
@@ -1114,6 +1155,39 @@ class BattlegroundsGame:
         reward = 0.0
         done = False
 
+        # ── A real choice is pending: only CHOOSE_TARGET/CHOOSE_OPTION apply ──
+        # Checked first, because a PendingChoice is always raised by an action
+        # the agent just took and must be closed before anything else can
+        # happen (build_type_mask enforces the same ordering).
+        if ps.choice_pending is not None:
+            choice = ps.choice_pending
+            resolved = False
+            if choice.kind == "option" and type_action == 11:
+                opt_idx = ptr_action - PTR_SHOP_OFF
+                if 0 <= opt_idx < len(choice.options):
+                    self.effect_handler.resolve_choice(ps, choice, option_idx=opt_idx)
+                    resolved = True
+            elif choice.kind == "target" and type_action == 10:
+                board_idx = ptr_action - PTR_BOARD_OFF
+                if board_idx in choice.targets and 0 <= board_idx < len(ps.board):
+                    self.effect_handler.resolve_choice(ps, choice, target_idx=board_idx)
+                    resolved = True
+            if resolved:
+                self._advance_choice_queue(ps)
+            # An unresolved choice is left pending on purpose: the masks make
+            # the wrong action unsamplable, so reaching here means a state
+            # inconsistency, and silently DISCARDING the choice would hand the
+            # agent a way to skip effects it dislikes. It cannot deadlock --
+            # _force_resolve_choices() clears anything still pending at the end
+            # of the shopping phase.
+            #
+            # Shaping fires here for the same reason it fires on every other
+            # reward-emitting transition: the telescoping identity in
+            # _apply_potential_shaping requires Φ to be evaluated at EVERY step,
+            # and a resolved choice can change board strength a lot (Tyrael
+            # sets a minion to 50/50).
+            return self._get_observation(player_id), self._apply_potential_shaping(ps), False
+
         # ── Trinket offer in progress: BUY(0/1/2) picks, END_TURN declines ─────
         if ps.trinket_offer_pending:
             if type_action == 0:  # BUY → pick trinket by shop slot index
@@ -1178,7 +1252,7 @@ class BattlegroundsGame:
                         living_prison_src.perm_hp_bonus  += minion.health
                         living_prison_src.max_health     += minion.health
                 from env.triple_system import check_and_process_triple
-                check_and_process_triple(ps, self.tavern_pool)
+                check_and_process_triple(ps, self.tavern_pool, self.card_defs)
 
         elif type_action == 1:
             # sell: ptr_action is board slot index (ptr 7-13 → slot 0-6)
@@ -1267,7 +1341,7 @@ class BattlegroundsGame:
                                     minion.perm_hp_bonus  += 1 * mult
                                     minion.max_health     += 1 * mult
                         from env.triple_system import check_and_process_triple
-                        check_and_process_triple(ps, self.tavern_pool)
+                        check_and_process_triple(ps, self.tavern_pool, self.card_defs)
                     # Potential shaping (see the single call at the end of this
                     # method) now fires for BOTH branches above (spell cast or
                     # minion placement) -- the old code only paid it for the
@@ -1302,14 +1376,25 @@ class BattlegroundsGame:
                         ps.shop.append(self._dict_to_minion(card))
 
         elif type_action == 4:
-            # freeze — semantically "I'm done shopping; save this shop for next turn".
-            # Immediately ends the turn so the agent can't freeze then keep buying.
-            # Applies the same end-of-turn effects as END_TURN.
+            # freeze -- marks the shop to carry over to next turn.  In
+            # Hearthstone this is a toggle on the shop and does NOT end your
+            # turn: freezing and then continuing to buy, sell, level or
+            # rearrange is ordinary play.
+            #
+            # It used to end the turn immediately, "so the agent can't freeze
+            # then keep buying".  That was nearly harmless while levelling
+            # refreshed the shop, because freeze-then-anything could be
+            # rewritten as anything-then-freeze.  It is not harmless now that
+            # upgrading leaves the shop intact (see LEVEL_UP above): "freeze
+            # this shop, then level up so next turn's carried-over shop is
+            # judged at my new tier" is a real Battlegrounds line that the
+            # turn-ending version made unreachable.
+            #
+            # No stalling exploit: build_type_mask only offers FREEZE while
+            # ps.frozen is False, so it is once per turn, and the only things
+            # that clear the flag (REROLL, and the round boundary) cost real
+            # gold or end the turn anyway.
             ps.frozen = True
-            reward += self._end_of_turn_reward(ps)
-            self.hero_handler.on_end_turn(ps)
-            self.trinket_handler.apply_on_round_end(ps)
-            done = True
 
         elif type_action == 5:
             # level_up (Millhouse adds 1 to cost)
@@ -1318,9 +1403,22 @@ class BattlegroundsGame:
             if ps.tavern_tier < 6 and ps.gold >= effective_level_cost:
                 ps.gold = max(0, ps.gold - effective_level_cost)
                 ps.tavern_tier = min(6, ps.tavern_tier + 1)
-                ps.level_cost = max(0, self._level_cost_for_tier(ps.tavern_tier) - 1)
-                ps.frozen = False
-                ps.shop = self._draw_shop(ps)
+                # The NEW tier's upgrade cost starts at its full base price.
+                # It used to start at base-1, and the round-start decay in
+                # _play_round then took another 1 off, so from the turn after
+                # every upgrade onward levelling was permanently one gold
+                # cheaper than Hearthstone -- worth roughly a full turn of
+                # tempo per upgrade, compounding across a game.  The initial
+                # tier-1 cost was never discounted this way, so the two
+                # disagreed with each other as well.
+                ps.level_cost = self._level_cost_for_tier(ps.tavern_tier)
+                # Upgrading does NOT refresh the shop in Hearthstone, and does
+                # not unfreeze it either: the cards in front of you stay exactly
+                # as they were, and the new tier's minions only start appearing
+                # on the NEXT refresh.  Rerolling the shop here handed out a
+                # free refresh with every upgrade AND destroyed the real
+                # "level on a shop I don't want" tempo decision, since there was
+                # never a cost to levelling into a board you liked.
                 self.hero_handler.on_tavern_upgrade(ps)
 
         elif type_action == 6:
@@ -1593,11 +1691,27 @@ class BattlegroundsGame:
             "exp_damage_dealt": 0.0 if is_ghost else p_win * float(sim.expected_damage_dealt),
         }
 
-        # Damage calculation (simplified: tier + board size when player loses)
+        # Damage taken on a loss.  Normally the simulator's own figure, which
+        # already implements the Hearthstone rule (winner's tavern tier + the
+        # summed TIERS of the winner's surviving minions -- see
+        # CombatSide.win_damage).
+        #
+        # The fallback fires when the sampled outcome is a loss but no simulated
+        # trial lost, so there is no conditional damage figure to average: the
+        # roll and the trials are independent by design (only the REWARD is
+        # Rao-Blackwellised; the dynamics stay sampled so risk stays real).
+        # It now mirrors win_damage's actual formula against the OPPONENT's
+        # board.  It used to read `ps.tavern_tier + len(opp.board)` -- the
+        # LOSER's tier, and a plain minion COUNT rather than a tier sum -- which
+        # both under-reported a strong opponent and made the agent's own
+        # levelling raise the damage it took when it lost.
         if outcome == "loss":
             damage_taken = int(round(sim.expected_damage_taken))
             if damage_taken == 0:
-                damage_taken = max(1, ps.tavern_tier + len(opp.board))
+                damage_taken = max(
+                    1,
+                    opp.tavern_tier + sum(max(1, m.tier) for m in opp.board),
+                )
             damage_taken = max(0, damage_taken)
         else:
             damage_taken = 0
@@ -1768,6 +1882,15 @@ class BattlegroundsGame:
                 ps._rerolls_this_turn = 0  # type: ignore[attr-defined]
                 for m in ps.board:
                     m.activated_this_turn = False
+                # Thorned Trailblazer: "One Choose One card each turn has both
+                # effects combined." The charge is a per-turn resource granted
+                # by the minion sitting on the board, so it refreshes here
+                # rather than on play (see EffectHandler.on_play's Choose One
+                # branch, which spends it).
+                ps._trailblazer_charges = sum(          # type: ignore[attr-defined]
+                    1 for m in ps.board
+                    if "thornedtrailblazer" in m.name.lower().replace(" ", "")
+                )
                 # NOTE: ps.phi is intentionally NOT reset here. The old code
                 # re-baselined phi_board/phi_tier every round, discarding any
                 # potential drop since the last evaluation (e.g. falling behind
@@ -1824,6 +1947,34 @@ class BattlegroundsGame:
                                 reward=step_reward, done=False,
                             )
 
+            # Any choice still open here means the 30-action budget ran out
+            # mid-decision. Resolve it with the resolver's default rather than
+            # carrying it into combat (or into next round's mask).
+            for ps in alive_players:
+                if ps.choice_pending is not None:
+                    self._force_resolve_choices(ps)
+
+            # A player who never chose END_TURN ran the 30-action budget out.
+            # Charge the end-of-turn costs anyway and fire the round-end hooks.
+            #
+            # Without this, burning the action budget is a way to DODGE the
+            # unspent-gold and cards-in-hand penalties entirely -- the exact
+            # shape of exploit this codebase has been bitten by twice (see
+            # REORDER_BUDGET_PER_TURN and the ACTIVATE mask fix). The hole
+            # predates the FREEZE change below but was hard to reach while
+            # FREEZE also ended the turn; with FREEZE now a plain shop toggle,
+            # END_TURN is the only terminating action, so it is worth closing
+            # properly rather than relying on it staying unreachable.
+            #
+            # Keyed off end_turn_buffers because that dict is populated exactly
+            # when step_shopping returned done=True, on both the batched and
+            # the sequential path.
+            for ps in alive_players:
+                if ps.player_id not in end_turn_buffers:
+                    cumulative_rewards[ps.player_id] += self._end_of_turn_reward(ps)
+                    self.hero_handler.on_end_turn(ps)
+                    self.trinket_handler.apply_on_round_end(ps)
+
             # ---- Combat phase (uses same pairings already announced) ----
             # Snapshot ranks BEFORE combat so the delta includes any kills.
             pre_ranks = {ps.player_id: ps.get_rank(self.players)
@@ -1848,7 +1999,13 @@ class BattlegroundsGame:
 
                 result_a = self.step_combat(pid_a, pid_b)
                 result_b = self.step_combat(pid_b, pid_a)
+                # BOTH sides go into the round history. It used to record only
+                # result_a, so half of every round's combats were missing from
+                # GameResult.round_history -- invisible while nothing read it,
+                # but any win-rate or damage statistic computed from it was
+                # silently sampled from one seat per pairing rather than both.
                 round_summary["combats"].append(result_a)
+                round_summary["combats"].append(result_b)
                 combat_results.append((pid_a, pid_b, result_a, result_b))
 
             # ---- Elimination check (before rewards so rank delta includes kills)
@@ -2187,6 +2344,46 @@ class BattlegroundsGame:
             active = next_active
 
     # ------------------------------------------------------------------
+    # Pending-choice plumbing
+    # ------------------------------------------------------------------
+
+    def _advance_choice_queue(self, ps: PlayerState) -> None:
+        """Promote the next queued PendingChoice, or clear the pending slot.
+
+        A single played card can legitimately raise more than one choice --
+        Brann doubles a battlecry, so a Choose One minion played under Brann
+        asks twice -- so choices form a FIFO rather than a single slot that a
+        second raise would silently overwrite.
+        """
+        if ps.choice_queue:
+            ps.choice_pending = ps.choice_queue.pop(0)
+        else:
+            ps.choice_pending = None
+
+    def _force_resolve_choices(self, ps: PlayerState) -> None:
+        """Resolve any still-pending choices without the agent, at turn end.
+
+        Only reachable when the shopping phase's action budget runs out with a
+        choice still open (the masks otherwise make it impossible to end a turn
+        without closing one).  The effect still happens -- it is a real game
+        effect the player already paid for -- but the branch/target is picked by
+        the resolver's own default rather than being dropped, because dropping
+        it would make "run out the action budget" a way to cancel an effect the
+        agent dislikes.
+        """
+        guard = 0
+        while ps.choice_pending is not None and guard < 16:
+            guard += 1
+            choice = ps.choice_pending
+            self.effect_handler.resolve_choice(ps, choice)   # resolver default
+            self._advance_choice_queue(ps)
+        if guard >= 16:
+            # Runaway queue: a resolver that re-raises its own choice would spin
+            # here forever. Drop the rest rather than hang a training worker.
+            ps.choice_pending = None
+            ps.choice_queue.clear()
+
+    # ------------------------------------------------------------------
     # Observation builder
     # ------------------------------------------------------------------
 
@@ -2226,6 +2423,11 @@ class BattlegroundsGame:
             shop_source = [self._trinket_id_to_minion_dict(cid) for cid in offered]
         elif ps.discover_pending:
             shop_source = ps.discover_pending
+        elif ps.choice_pending is not None and ps.choice_pending.kind == "option":
+            # Choose One: the branches are effects, not minions, so each is
+            # rendered as a pseudo-card whose stats and keyword bits describe
+            # what it does (see _choice_option_tokens).
+            shop_source = _choice_option_tokens(ps.choice_pending)
         else:
             shop_source = ps.shop
         shop_tokens  = _encode_zone(shop_source, self.encoder, 7,  **ctx)

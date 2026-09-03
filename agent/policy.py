@@ -38,6 +38,20 @@ Action types (10; 0-7 match the original BGPolicyV2 BC model, 8-9 added later):
                  minions is reachable in at most n-1 of these, so a single
                  board-slot pointer is fully expressive and no second
                  ("to where?") pointer head is needed.
+ 10 choose_target → pointer: board slot [PTR_BOARD_OFF + i]. Resolves a pending
+                 "choose a minion" effect (Suspicious Prisonguard's +3/+3,
+                 Tyrael's 50/50, Mind Muck's Demon, targeted Spellcraft
+                 spells). Legal ONLY while ps.choice_pending is a kind="target"
+                 PendingChoice, and then it is the only legal type. Every one
+                 of these was an rng.choice() before 2026-09-04 -- the agent
+                 never saw the decision at all.
+ 11 choose_option → pointer: shop slot [PTR_SHOP_OFF + i], i in 0..n_options-1.
+                 Resolves a "Choose One" battlecry. The branches are whole
+                 effects rather than minions, so the observation renders them
+                 as pseudo-cards in the shop zone (game_loop's
+                 _choice_option_tokens) whose stats and keyword bits describe
+                 what each branch does. Legal ONLY while ps.choice_pending is a
+                 kind="option" PendingChoice.
 
 Pointer layout (24, matching BGPolicyV2 BC model):
   [0-6]   shop  slots
@@ -68,13 +82,14 @@ logger = logging.getLogger(__name__)
 CARD_DIM   = 44
 SCALAR_DIM = 100  # 24 own-board + 64 all-opponents (8×8, own slot zeroed) + 6 lobby + 6 economy
 
-# ── Action type space (0-7 match BGPolicyV2; 8=activate, 9=reorder added later) ──
-N_ACTION_TYPES    = 10
+# ── Action type space (0-7 match BGPolicyV2; 8=activate, 9=reorder, 10/11=choice) ──
+N_ACTION_TYPES    = 12
 ACTION_TYPE_NAMES = ["buy", "sell", "place", "reroll", "freeze",
-                     "level_up", "hero_power", "end_turn", "activate", "reorder"]
+                     "level_up", "hero_power", "end_turn", "activate", "reorder",
+                     "choose_target", "choose_option"]
 
 # Types that require a card pointer; all others use ptr_idx = -1
-TYPES_WITH_POINTER = frozenset({0, 1, 2, 8, 9})  # buy, sell, place, activate, reorder
+TYPES_WITH_POINTER = frozenset({0, 1, 2, 8, 9, 10, 11})
 
 # Max REORDER actions per shopping turn. 6 is exactly what a full 7-minion
 # board needs to reach ANY permutation via move-to-front (n-1), so the budget
@@ -100,7 +115,78 @@ _ZONE_SLICE = {
     8: (PTR_BOARD_OFF, BOARD_ZONE_SIZE),  # activate → board zone (same ZONE as sell,
                                            # but scored by activate_scorer -- see forward())
     9: (PTR_BOARD_OFF, BOARD_ZONE_SIZE),  # reorder  → board zone (minion to move)
+    # ── Real player choices (see env/player_state.py PendingChoice) ──────────
+    10: (PTR_BOARD_OFF, BOARD_ZONE_SIZE),  # choose_target → board zone: "give
+                                           #   ANOTHER minion +3/+3", "choose a
+                                           #   friendly Demon", ... The board
+                                           #   zone already describes every
+                                           #   candidate, so no extra encoding
+                                           #   is needed -- the agent points at
+                                           #   the minion it means.
+    11: (PTR_SHOP_OFF,  SHOP_ZONE_SIZE),   # choose_option → shop zone: a Choose
+                                           #   One card's branches, rendered as
+                                           #   pseudo-cards in shop slots 0..n-1
+                                           #   (game_loop._choice_option_tokens).
+                                           #   Reuses the shop zone for the same
+                                           #   reason discover and trinket offers
+                                           #   do: it is the one zone whose
+                                           #   contents are already "things on
+                                           #   offer this instant".
 }
+
+# ── Pointer scorer roles ──────────────────────────────────────────────────────
+# A "role" is a distinct QUESTION asked about a token, not a zone. Two action
+# types share a role only when they genuinely ask the same question of the same
+# token. Getting this wrong is not a cosmetic issue: ACTIVATE shared SELL's
+# scorer until 2026-09-03 and the network, unable to express an
+# activate-specific preference, collapsed to ~1.000 probability on one fixed
+# board slot regardless of game state (see CONTEXT.md).
+N_PTR_ROLES = 6
+(_ROLE_BUY, _ROLE_SELL, _ROLE_PLACE,
+ _ROLE_ACTIVATE, _ROLE_CHOOSE_TARGET, _ROLE_CHOOSE_OPTION) = range(N_PTR_ROLES)
+
+# Which role scores a given action type's OWN zone. Types absent from this map
+# take no pointer at all.
+_TYPE_ROLE = {
+    0:  _ROLE_BUY,            # "is this shop card worth buying?"
+    1:  _ROLE_SELL,           # "is this board minion worth selling?"
+    2:  _ROLE_PLACE,          # "is this hand card worth playing now?"
+    8:  _ROLE_ACTIVATE,       # "is this minion's Activate worth its gold?"
+    9:  _ROLE_SELL,           # REORDER deliberately shares SELL's board score
+                              #   (see the note on _ZONE_SLICE[9] above)
+    10: _ROLE_CHOOSE_TARGET,  # "should THIS minion receive the effect?" -- the
+                              #   near-inverse of SELL, hence its own role
+    11: _ROLE_CHOOSE_OPTION,  # "which branch of this Choose One do I want?"
+}
+
+
+# ── Canonical architecture ────────────────────────────────────────────────────
+# The ONE place the network's shape is defined.  Every construction site in the
+# project (trainer, workers, evaluators, gauntlet reference loaders, tracing
+# tools) must build through make_policy() rather than passing its own kwargs.
+#
+# Why this is a factory and not just defaults: seven call sites each spelled out
+# `card_dim=44, d_model=256, nhead=8, num_layers=4, scalar_dim=100, dropout=0.1`
+# by hand.  A checkpoint saved by one and loaded by another that disagreed on a
+# single number does not raise -- PPOTrainer.load_checkpoint catches the
+# RuntimeError, logs a warning, returns False, and training silently restarts
+# from scratch.  A run can burn hours before anyone notices the step counter
+# reset.  With one factory there is nothing to disagree about.
+POLICY_ARCH = dict(
+    card_dim=CARD_DIM,
+    d_model=256,
+    nhead=8,
+    num_layers=6,
+    scalar_dim=SCALAR_DIM,
+    dropout=0.1,
+)
+
+
+def make_policy(**overrides) -> "BGPolicyNetwork":
+    """Build the canonical policy network.  Pass overrides only in experiments."""
+    kwargs = dict(POLICY_ARCH)
+    kwargs.update(overrides)
+    return BGPolicyNetwork(**kwargs)
 
 
 # ── Mask/logit sanitisation helpers ────────────────────────────────────────────
@@ -177,7 +263,7 @@ class BGPolicyNetwork(nn.Module):
         card_dim:   int = CARD_DIM,
         d_model:    int = 256,
         nhead:      int = 8,
-        num_layers: int = 4,
+        num_layers: int = 6,
         scalar_dim: int = SCALAR_DIM,
         dropout:    float = 0.1,
     ) -> None:
@@ -243,6 +329,46 @@ class BGPolicyNetwork(nn.Module):
         # here; only ACTIVATE gets a dedicated scorer.
         self.activate_scorer = nn.Linear(d_model, 1)  # scores board tokens → activate logits
 
+        # Scorers for the two real-choice action types. Both are genuinely new
+        # questions, so neither shares an existing scorer:
+        #   choose_target ("which minion should RECEIVE this effect?") is close
+        #     to the inverse of sell ("which minion is worth the least?"), so
+        #     sharing sell_scorer would have started it at an actively wrong
+        #     prior, not merely an uninformative one.
+        #   choose_option scores Choose-One branch pseudo-cards in the shop
+        #     zone; those tokens are not purchasable minions at all, so
+        #     buy_scorer's question ("worth 3 gold?") does not apply to them.
+        self.choose_target_scorer = nn.Linear(d_model, 1)  # board tokens → target logits
+        self.choose_option_scorer = nn.Linear(d_model, 1)  # shop  tokens → option logits
+
+        # ── State-conditioned pointer query (pointer-network attention term) ──
+        # Each scorer above is a FIXED linear probe: it asks the same question
+        # of a token no matter what the rest of the game looks like. The token
+        # embedding has attended over the whole board through the Transformer,
+        # but the *question* could not vary with global state -- "is this Beast
+        # worth buying?" has a different answer at 3 gold on round 4 than at 10
+        # gold on round 12 with a full Murloc board, and a single fixed weight
+        # vector must average over both.
+        #
+        # ptr_query emits one query vector per ROLE from the same fused
+        # [CLS ‖ scalar] representation the type and value heads read, and the
+        # role's score gains a scaled dot-product term against it:
+        #
+        #     score_i = w_role · token_i  +  (q_role · token_i) / sqrt(d)
+        #
+        # This is the standard pointer-network/attention formulation and costs
+        # one d_model×(2·d_model) matmul per forward plus a dot product per
+        # token -- negligible next to the Transformer trunk, which matters
+        # because self-play inference runs single-sample on CPU workers.
+        #
+        # ZERO-INITIALISED on purpose (see _init_weights): at init the query
+        # term contributes exactly 0, so a freshly built network -- and any
+        # checkpoint migrated into this architecture -- scores pointers
+        # identically to the fixed-probe version it replaces. The added
+        # expressivity is learned from that exact starting point rather than
+        # perturbing a trained policy on load.
+        self.ptr_query = nn.Linear(d_model * 2, d_model * N_PTR_ROLES)
+
         # Value head: [CLS ‖ scalar] → scalar value
         self.value_head = nn.Sequential(
             nn.Linear(d_model * 2, d_model),
@@ -267,6 +393,11 @@ class BGPolicyNetwork(nn.Module):
         # clipped return targets ([-10, 10]) and make value_loss >> 50 from step 1.
         nn.init.zeros_(self.value_head[-1].weight)
         nn.init.zeros_(self.value_head[-1].bias)
+        # Zero-init the pointer query so the attention term starts as an exact
+        # no-op and every scorer reduces to its fixed linear probe (see the
+        # ptr_query comment in __init__).
+        nn.init.zeros_(self.ptr_query.weight)
+        nn.init.zeros_(self.ptr_query.bias)
 
     # ── Forward ───────────────────────────────────────────────────────────────
 
@@ -279,25 +410,38 @@ class BGPolicyNetwork(nn.Module):
         type_mask:    Optional[torch.Tensor] = None,     # [B, 8]  True=valid
         pointer_mask: Optional[torch.Tensor] = None,     # [B, 24] True=valid
         opp_tokens:   Optional[torch.Tensor] = None,     # [B, 7,  44]
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Returns
         -------
-        type_logits             : [B, 8]
-        pointer_logits          : [B, 24] -- buy/sell/place scores (REORDER, type 9,
-                                   reads this tensor too: it intentionally shares
-                                   sell_scorer's board slice, see _ZONE_SLICE)
-        activate_pointer_logits : [B, 24] -- identical to pointer_logits EXCEPT the
-                                   board slice (PTR_BOARD_OFF : PTR_BOARD_OFF +
-                                   BOARD_ZONE_SIZE) holds activate_scorer's output
-                                   instead of sell_logits. Callers must read the
-                                   pointer for an ACTIVATE (type 8) action from
-                                   THIS tensor, and from `pointer_logits` for every
-                                   other pointer type -- never mix the two for a
-                                   single transition (see get_action's used_ptr_mask
-                                   docstring for why sampling- and evaluation-time
-                                   distributions must match exactly).
-        value                   : [B, 1]
+        type_logits        : [B, N_ACTION_TYPES]
+        ptr_logits_by_type : [B, N_ACTION_TYPES, POINTER_DIM] -- row t holds the
+                             pointer distribution to use when the sampled action
+                             type is t.  Callers index it by the action type and
+                             never choose between parallel tensors.
+
+                             This shape exists specifically to make a whole bug
+                             CLASS unrepresentable.  Different action types ask
+                             different questions about the same slot ("worth
+                             selling?" vs "worth activating?" vs "should this
+                             minion receive the buff?"), so they must be scored
+                             by different heads -- but the previous design
+                             returned those heads as separate parallel [B, 24]
+                             tensors and left every call site to pick the right
+                             one with its own `if type == 8` branch.  Three call
+                             sites had to agree, and when they did not, PPO
+                             re-scored a transition under a different
+                             distribution than the one it was sampled from,
+                             corrupting the importance ratio while looking
+                             perfectly healthy (see CONTEXT.md 2026-08-31/09-01,
+                             and get_action's `used_ptr_mask` docstring for the
+                             mask-shaped version of the same failure).  Indexing
+                             one tensor by action type cannot disagree with
+                             itself.
+
+                             Rows for non-pointer types are still populated (with
+                             the buy/sell/place default) and simply never read.
+        value              : [B, 1]
         """
         B      = board_tokens.shape[0]
         device = board_tokens.device
@@ -353,19 +497,50 @@ class BGPolicyNetwork(nn.Module):
         # Per-token pointer scoring: each scorer acts directly on the token's
         # Transformer output, which has already attended to all other tokens.
         # Indices: 1-7=board, 8-14=shop, 15-24=hand  (0=CLS, 25-31=opp unused for pointers)
-        sell_logits     = self.sell_scorer(tokens[:, 1:8, :]).squeeze(-1)     # [B, 7]  board→sell
-        buy_logits      = self.buy_scorer(tokens[:, 8:15, :]).squeeze(-1)     # [B, 7]  shop→buy
-        place_logits    = self.place_scorer(tokens[:, 15:25, :]).squeeze(-1)  # [B, 10] hand→place
-        activate_logits = self.activate_scorer(tokens[:, 1:8, :]).squeeze(-1) # [B, 7]  board→activate
-        pointer_logits = torch.cat([buy_logits, sell_logits, place_logits], dim=-1)  # [B, 24]
-        # activate_pointer_logits mirrors pointer_logits layout-for-layout, with
-        # only the board slice swapped for activate_logits. Built via a fresh
-        # torch.cat (never by mutating pointer_logits in place) so the two
-        # tensors are fully independent -- neither aliases the other's storage
-        # or autograd graph.
-        activate_pointer_logits = torch.cat(
-            [buy_logits, activate_logits, place_logits], dim=-1
-        )  # [B, 24]
+        board_tok = tokens[:, 1:8,   :]   # [B, 7,  d]
+        shop_tok  = tokens[:, 8:15,  :]   # [B, 7,  d]
+        hand_tok  = tokens[:, 15:25, :]   # [B, 10, d]
+
+        # State-conditioned query, one vector per scorer role (see ptr_query in
+        # __init__).  Zero at init, so `_role_score` starts out returning
+        # exactly the fixed linear probe.
+        queries = self.ptr_query(fused).view(B, N_PTR_ROLES, self.d_model)
+        inv_sqrt_d = self.d_model ** -0.5
+
+        def _role_score(scorer: nn.Module, toks: torch.Tensor, role: int) -> torch.Tensor:
+            """score_i = w_role · token_i + (q_role · token_i)/sqrt(d)  → [B, n]"""
+            base = scorer(toks).squeeze(-1)                                  # [B, n]
+            ctx  = torch.einsum("bnd,bd->bn", toks, queries[:, role, :])     # [B, n]
+            return base + ctx * inv_sqrt_d
+
+        sell_logits     = _role_score(self.sell_scorer,          board_tok, _ROLE_SELL)
+        buy_logits      = _role_score(self.buy_scorer,           shop_tok,  _ROLE_BUY)
+        place_logits    = _role_score(self.place_scorer,         hand_tok,  _ROLE_PLACE)
+        activate_logits = _role_score(self.activate_scorer,      board_tok, _ROLE_ACTIVATE)
+        target_logits   = _role_score(self.choose_target_scorer, board_tok, _ROLE_CHOOSE_TARGET)
+        option_logits   = _role_score(self.choose_option_scorer, shop_tok,  _ROLE_CHOOSE_OPTION)
+
+        # Assemble one [B, 24] pointer row per action type.  Only the type's own
+        # zone is ever read (every caller intersects with _ZONE_SLICE before
+        # sampling), so the other two zones carry the buy/sell/place default.
+        # Built with torch.stack over fresh cats -- no in-place writes into a
+        # broadcast/expanded tensor, so each row owns its storage and autograd
+        # graph independently.
+        default_row = torch.cat([buy_logits, sell_logits, place_logits], dim=-1)  # [B, 24]
+        rows = []
+        for _t in range(N_ACTION_TYPES):
+            _role = _TYPE_ROLE.get(_t)
+            if _role == _ROLE_ACTIVATE:
+                rows.append(torch.cat([buy_logits, activate_logits, place_logits], dim=-1))
+            elif _role == _ROLE_CHOOSE_TARGET:
+                rows.append(torch.cat([buy_logits, target_logits, place_logits], dim=-1))
+            elif _role == _ROLE_CHOOSE_OPTION:
+                rows.append(torch.cat([option_logits, sell_logits, place_logits], dim=-1))
+            else:
+                # buy / sell / place / reorder (shares sell) and every
+                # non-pointer type
+                rows.append(default_row)
+        ptr_logits_by_type = torch.stack(rows, dim=1)   # [B, N_ACTION_TYPES, 24]
 
         if type_mask is not None:
             # Sanitise before masked_fill: an all-False row here would fill to
@@ -375,19 +550,17 @@ class BGPolicyNetwork(nn.Module):
         if pointer_mask is not None:
             # Same guard for the pointer head — a non-pointer-type row or a
             # state-inconsistent occupancy mask must never reach Categorical
-            # as an all -inf row. Both pointer_logits and activate_pointer_logits
-            # get the IDENTICAL mask and treatment: whichever one a given
-            # transition's action type ends up reading from must be equally
-            # NaN-safe, and a pointer slot that's invalid for SELL/BUY/PLACE is
-            # invalid for ACTIVATE too (both key off the same board/shop/hand
-            # occupancy).
+            # as an all -inf row. The mask applies IDENTICALLY to every type's
+            # row: a pointer slot that's invalid for SELL/BUY/PLACE is invalid
+            # for ACTIVATE and for either choice type too (all of them key off
+            # the same board/shop/hand occupancy), and whichever row a given
+            # transition ends up reading must be equally NaN-safe.
             pointer_mask = _sanitize_mask(pointer_mask)
-            pointer_logits = pointer_logits.masked_fill(~pointer_mask, float("-inf"))
-            activate_pointer_logits = activate_pointer_logits.masked_fill(
-                ~pointer_mask, float("-inf")
+            ptr_logits_by_type = ptr_logits_by_type.masked_fill(
+                ~pointer_mask.unsqueeze(1), float("-inf")
             )
 
-        return type_logits, pointer_logits, activate_pointer_logits, value
+        return type_logits, ptr_logits_by_type, value
 
     # ── Action sampling ───────────────────────────────────────────────────────
 
@@ -462,12 +635,12 @@ class BGPolicyNetwork(nn.Module):
         """
         self.eval()
         with torch.no_grad():
-            type_logits, ptr_logits, activate_ptr_logits, value = self.forward(
+            type_logits, ptr_logits_by_type, value = self.forward(
                 board_tokens, shop_tokens, hand_tokens,
                 scalar_context, type_mask, None, opp_tokens,
                 # pass pointer_mask=None here; zone restriction applied below
             )
-            t_logits_1d = type_logits.squeeze(0)   # [8]
+            t_logits_1d = type_logits.squeeze(0)   # [N_ACTION_TYPES]
             dev = t_logits_1d.device
 
             # _safe_categorical: defensive fallback in case an all -inf row
@@ -480,13 +653,11 @@ class BGPolicyNetwork(nn.Module):
             ptr_idx = -1
             used_ptr_mask = torch.ones(POINTER_DIM, dtype=torch.bool, device=dev)
             if type_idx in TYPES_WITH_POINTER:
-                # ACTIVATE (type 8) reads its pointer score from
-                # activate_pointer_logits, not ptr_logits -- they are two
-                # different distributions (see forward()'s docstring on why
-                # "worth selling" and "worth activating" need separate scores
-                # for the same board slot). REORDER (type 9) intentionally
-                # keeps reading ptr_logits/sell_scorer's score, unchanged.
-                p_logits_1d = (activate_ptr_logits if type_idx == 8 else ptr_logits).squeeze(0)  # [24]
+                # Index the per-type pointer stack by the sampled type. Which
+                # scorer that selects is decided once, in forward(), by
+                # _TYPE_ROLE -- there is no per-call-site branch to keep in
+                # sync (see forward()'s docstring).
+                p_logits_1d = ptr_logits_by_type[0, type_idx]   # [24]
 
                 # Restrict pointer to this type's zone
                 start, size = _ZONE_SLICE[type_idx]
@@ -584,11 +755,11 @@ class BGPolicyNetwork(nn.Module):
         """
         self.eval()
         with torch.no_grad():
-            type_logits, ptr_logits, activate_ptr_logits, values = self.forward(
+            type_logits, ptr_logits_by_type, values = self.forward(
                 board_tokens, shop_tokens, hand_tokens,
                 scalar_context, type_mask, None, opp_tokens,
             )
-            # type_logits: [B, 8], ptr_logits: [B, 24], activate_ptr_logits: [B, 24], values: [B, 1]
+            # type_logits: [B, T], ptr_logits_by_type: [B, T, 24], values: [B, 1]
             # _safe_categorical: defensive fallback for any all -inf row (see
             # module note above forward()).
             t_dist = _safe_categorical(type_logits)
@@ -618,12 +789,10 @@ class BGPolicyNetwork(nn.Module):
                     else:
                         combined = zone_bits
 
-                    # ACTIVATE (type 8) rows score their pointer from
-                    # activate_ptr_logits; every other pointer type (including
-                    # REORDER, which intentionally still shares sell_scorer's
-                    # score) reads ptr_logits, matching get_action()'s
-                    # single-row logic and forward()'s docstring.
-                    row_ptr_logits = activate_ptr_logits[i] if t_idx == 8 else ptr_logits[i]
+                    # Same single indexing rule as get_action(): the per-type
+                    # stack is addressed by the sampled type, so this path
+                    # cannot drift out of sync with the sequential one.
+                    row_ptr_logits = ptr_logits_by_type[i, t_idx]
                     masked_ptr = row_ptr_logits.masked_fill(~combined, float("-inf"))
                     # Defensive fallback, same reasoning as get_action() above.
                     p_dist     = _safe_categorical(masked_ptr)
@@ -661,7 +830,7 @@ class BGPolicyNetwork(nn.Module):
         values    : [B, 1]
         entropy   : [B]  — H(type) + H(ptr) for pointer types, H(type) otherwise
         """
-        type_logits, ptr_logits, activate_ptr_logits, values = self.forward(
+        type_logits, ptr_logits_by_type, values = self.forward(
             board_tokens, shop_tokens, hand_tokens,
             scalar_context, type_mask, pointer_mask, opp_tokens,
         )
@@ -678,25 +847,22 @@ class BGPolicyNetwork(nn.Module):
             needs_ptr = needs_ptr | (type_actions == t_idx)
 
         if needs_ptr.any():
-            # Rows in this batch differ in action type, so the per-row pointer
-            # logits must be assembled BEFORE a single Categorical is built for
-            # the whole batch: an ACTIVATE (type 8) row was sampled from
-            # activate_ptr_logits (see get_action/get_action_batch above), and
-            # every other pointer-type row (BUY/SELL/PLACE/REORDER) was sampled
-            # from ptr_logits. Building one p_dist straight from ptr_logits
-            # alone -- the old behaviour, before activate_ptr_logits existed --
-            # would re-score ACTIVATE transitions under a DIFFERENT distribution
-            # than the one they were sampled under, corrupting PPO's importance
-            # ratio for those rows even when the policy hasn't changed. This is
-            # exactly the class of sampling/evaluation-mismatch bug documented
-            # on get_action's `used_ptr_mask` return value above (88.6% no-op
-            # rate on ACTIVATE, 22.2% of all actions, from a prior instance of
-            # this same failure mode with masks instead of scorers).
-            ptr_logits_sel = torch.where(
-                (type_actions == 8).unsqueeze(-1),
-                activate_ptr_logits,
-                ptr_logits,
-            )
+            # Rows in this batch differ in action type, and each was SAMPLED
+            # from its own type's scorer.  Gathering the matching row per
+            # transition re-scores each one under exactly the distribution it
+            # came from; scoring the whole batch from a single shared row would
+            # corrupt PPO's importance ratio for every type whose scorer
+            # differs, while looking perfectly healthy in the loss (see
+            # forward()'s docstring and CONTEXT.md 2026-08-31/09-01).
+            #
+            # type_actions is clamped only to keep gather in range for rows that
+            # are about to be discarded by `needs_ptr` anyway (a non-pointer
+            # type still has a valid row here, so no clamp is strictly needed --
+            # this is defence against a future negative sentinel).
+            _t_idx = type_actions.clamp(min=0, max=N_ACTION_TYPES - 1)
+            ptr_logits_sel = ptr_logits_by_type.gather(
+                1, _t_idx.view(-1, 1, 1).expand(-1, 1, POINTER_DIM)
+            ).squeeze(1)   # [B, 24]
             # _safe_categorical: forward() already sanitises pointer_mask so
             # neither tensor should contain an all -inf row, but this is cheap
             # defence-in-depth against the NaN failure mode described above
@@ -848,6 +1014,22 @@ def build_type_mask(player_state) -> torch.Tensor:
     _first_free  = getattr(player_state, "first_buy_free", False)
     _eff_buy_cost = 0 if _first_free else max(0, _buy_cost - _buy_discount)
 
+    # ── A real choice is pending: it is the ONLY thing the agent may do ──────
+    # Checked before every other branch. A PendingChoice is always raised by an
+    # action the agent just took (playing a Choose One minion, activating
+    # Suspicious Prisonguard, casting a targeted Spellcraft spell), so it is the
+    # most recently opened decision and must be closed before anything else --
+    # exactly like discover below, but with the target/option split described in
+    # env/player_state.py's PendingChoice.
+    _choice = getattr(player_state, "choice_pending", None)
+    if _choice is not None:
+        mask = torch.zeros(N_ACTION_TYPES, dtype=torch.bool)
+        if getattr(_choice, "kind", "target") == "option":
+            mask[11] = True   # CHOOSE_OPTION → pointer picks a branch
+        else:
+            mask[10] = True   # CHOOSE_TARGET → pointer picks a board minion
+        return mask
+
     # Trinket offer pending: only BUY (select) or END_TURN (decline) are valid
     _trinket_pending = getattr(player_state, "trinket_offer_pending", False)
     if _trinket_pending:
@@ -919,8 +1101,31 @@ def build_pointer_mask(player_state, type_idx: int) -> torch.Tensor:
 
     _trinket_pending = getattr(player_state, "trinket_offer_pending", False)
     _discover        = getattr(player_state, "discover_pending", [])
+    _choice          = getattr(player_state, "choice_pending", None)
 
     mask = torch.zeros(POINTER_DIM, dtype=torch.bool)
+
+    # A pending choice overrides zone occupancy entirely: the legal pointers are
+    # the choice's own candidates, not "whatever is in that zone".  Applied for
+    # the choice types AND for type_idx == -1 (get_action's type-agnostic first
+    # pass), because a mask that is right for one and wrong for the other is how
+    # the sample/evaluate mismatch documented on get_action's `used_ptr_mask`
+    # got in last time.
+    if _choice is not None and type_idx in (-1, 10, 11):
+        if getattr(_choice, "kind", "target") == "option":
+            n_opts = len(getattr(_choice, "options", []))
+            for i in range(min(max(n_opts, 1), SHOP_ZONE_SIZE)):
+                mask[PTR_SHOP_OFF + i] = True
+        else:
+            for i in getattr(_choice, "targets", []):
+                if 0 <= i < BOARD_ZONE_SIZE:
+                    mask[PTR_BOARD_OFF + i] = True
+            if not mask.any():
+                # No legal target. The game loop cancels such a choice rather
+                # than raising it (see _raise_choice), so this is a guard
+                # against an all-False row reaching softmax, never a live path.
+                mask[PTR_BOARD_OFF:PTR_BOARD_OFF + BOARD_ZONE_SIZE] = True
+        return mask
 
     if type_idx == 0:          # buy → shop zone (trinket offer / discover / normal)
         if _trinket_pending:
@@ -957,6 +1162,12 @@ def build_pointer_mask(player_state, type_idx: int) -> torch.Tensor:
                 mask[PTR_BOARD_OFF + i] = True
         if not mask.any():
             mask[PTR_BOARD_OFF:PTR_BOARD_OFF + BOARD_ZONE_SIZE] = True
+    elif type_idx in (10, 11):
+        # CHOOSE_* with no choice pending: unreachable via build_type_mask
+        # (which only enables 10/11 when choice_pending is set), so this is
+        # purely an all-False guard for a state-inconsistency.
+        start, size = _ZONE_SLICE[type_idx]
+        mask[start:start + size] = True
     elif type_idx == 9:        # reorder → board zone, EXCLUDING slot 0
         # Slot 0 is excluded on purpose: moving the front minion to the front
         # is a no-op, and a costless no-op is a discount-stalling exploit.

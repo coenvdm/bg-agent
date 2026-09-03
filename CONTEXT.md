@@ -1561,3 +1561,87 @@ colors/dash per action, no "other" bucket anywhere in this file.
   the 10-series chart reads well at a glance and the dash pattern is visible
   at the line's stroke-width — this was verified structurally, not visually.
 ---
+
+---
+### 2026-09-04 — Real choosing mechanics, Hearthstone-fidelity dynamics fixes, pointer-network policy
+**Files changed:** `agent/policy.py`, `env/player_state.py`, `env/game_loop.py`, `env/triple_system.py`, `symbolic/effect_handler.py`, `symbolic/combat_sim.py`, `train.py`, `run_fresh_training.py`, `tools/live_graph.py`, `tools/trace_game.py`, `CLAUDE.md`
+
+**What was done:**
+
+*1. Real choices (the deferred `choosing_mechanic` work).* Added `PendingChoice`
+to `PlayerState` plus two action types — `10 CHOOSE_TARGET` (board pointer) and
+`11 CHOOSE_OPTION` (shop pointer) — each with its own scorer head. Legal only
+while `ps.choice_pending` is set, and then the only legal type. All seven
+"Choose One" minions now work (six previously did *nothing* when played; Snare
+Trapper was a 50/50 coin flip); Choose-One branches are rendered as pseudo-cards
+in the shop zone so the existing 44-dim encoder describes them ("+4 Attack and
+Windfury" -> attack=4 + windfury bit). Every "choose a minion" effect (Mind Muck,
+Suspicious Prisonguard, Tyrael, targeted Spellcraft, Blood Gem) now asks the
+agent instead of calling `rng.choice`; Clunker Junker went from unimplemented to
+working. Thorned Trailblazer implemented as a per-turn charge that applies BOTH
+branches. Choices QUEUE (Brann doubles a Choose One into two independent
+choices; Sprightly Scarab's branch raises a nested target choice). A choice with
+one legal target is applied immediately rather than burning an action, and
+`_force_resolve_choices` guarantees a choice can never be dropped by exhausting
+the action budget. Triple rewards became a real Discover (they used to take
+`candidates[0]` unconditionally) and their minion now gets keywords/activate_cost
+from card_defs (it arrived with no Taunt/Divine Shield/Activate before).
+
+*2. Model.* `forward()` now returns pointer logits as ONE `[B, N_ACTION_TYPES, 24]`
+stack indexed by action type instead of parallel tensors that three call sites
+each had to select between with their own `if type == 8` — that shape makes the
+sample/evaluate-mismatch bug class (hit twice, see 2026-08-31/09-01) structurally
+unrepresentable. Added a **pointer-network query term**: each of six scorer roles
+gains a scaled dot-product against a per-role query emitted from `[CLS || scalar]`,
+zero-initialised so it is an exact no-op at init. `num_layers` 4 -> 6. Added
+`POLICY_ARCH`/`make_policy()` because seven call sites spelled the architecture
+out by hand and a single disagreeing number does NOT raise — `load_checkpoint`
+catches it, warns, returns False, and training silently restarts from zero.
+
+*3. Hearthstone fidelity (audited, all silent divergences).* Tavern upgrade no
+longer rerolls the shop or clears `frozen`, and the new tier's cost starts at
+full base (it started at `base-1`, and round-start decay took another 1, so
+levelling was permanently a gold cheap from the turn after every upgrade).
+FREEZE is a shop toggle that no longer ends the turn. Combat first-attacker is
+now the side with MORE minions (was a coin flip) — the largest behavioural
+change, since board width is valuable in BG partly *because* it buys the first
+attack, and the coin flip meant nothing ever taught the policy to go wide.
+Start-of-combat order follows the same precedence. Loss-damage fallback fixed
+(was the LOSER's tier + a minion COUNT; now the opponent's tier + summed
+surviving minion tiers, matching `win_damage`). `round_history` now records both
+sides of each pairing (it recorded one, so any statistic from it sampled half
+the fights). End-of-turn costs are now charged on the forced turn-end when the
+30-action budget runs out — otherwise burning the budget dodges the gold/hand
+penalties entirely.
+
+*4. Metrics/dashboard.* Added unspent gold at END_TURN, combat win rate, damage
+taken per combat, tavern tier (plotted against board size), choice events/game,
+and a Choose-One branch-0 share **collapse detector** — pinned at 0.00/1.00
+means the choice head is not discriminating, which is exactly the pathology
+ACTIVATE showed while sharing SELL's scorer. Dashboard extended to 12 action
+types.
+
+**Current state:** All gates pass — log-prob sampling/evaluation consistency
+(worst 1.4e-05 over 1256 real transitions with every scorer deliberately
+randomised to a different scale), choice-resolution unit tests (effect lands on
+the pointed slot, Tyrael overwrites rather than adds, nested Choose One -> target
+works, single-target shortcut does not pause), dynamics gates (upgrade keeps the
+shop, cost curve 5/4/3/2/1 then 7/6, freeze does not end the turn, wider board
+always first, equal boards 0.52 coin flip), a full PPO update, and a complete
+shrunken training run end-to-end including the resume path. Rented vast.ai
+instance 49799906 (i9-14900KF, 24 physical cores, RTX 4060 Ti, $0.1347/hr).
+
+**Open questions / next steps:**
+- This is a FRESH run, not a resume: the 29.5M-step checkpoint was trained on a
+  materially different MDP (free shop refresh on level, coin-flip attack order,
+  no choices) and a different architecture. Old checkpoints will not load.
+- Expect `level_rate` to FALL vs pre-2026-09-04 runs — levelling is now a gold
+  more expensive and no longer comes with a free refresh. That is the intended
+  correction, not a regression.
+- Watch the branch-0 collapse detector once `choice_events` accumulates;
+  CHOOSE_* are rare actions (~0.3/game) so they need many games to show signal.
+- Frozen shops still top up to `shop_size(tier)` next round. Left as-is
+  deliberately — real-BG behaviour here was not confirmed with enough certainty
+  to justify changing it.
+- Account credit was $9.96 at rental time (~74h at this instance's rate).
+---

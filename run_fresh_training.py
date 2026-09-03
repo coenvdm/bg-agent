@@ -18,7 +18,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from agent.policy import BGPolicyNetwork, N_ACTION_TYPES, ACTION_TYPE_NAMES
+from agent.policy import (make_policy, BGPolicyNetwork, N_ACTION_TYPES,
+                          ACTION_TYPE_NAMES, PTR_SHOP_OFF)
 from agent.ppo import PPOConfig, PPOTrainer
 from train import (
     _train_parallel, N_PLAYERS, evaluate_policy,
@@ -202,9 +203,7 @@ if __name__ == "__main__":
 
 
     def _make_fresh_policy():
-        return BGPolicyNetwork(
-            card_dim=44, d_model=256, nhead=8, num_layers=4, scalar_dim=100, dropout=0.1
-        ).to(DEVICE)
+        return make_policy().to(DEVICE)
 
 
     def _make_ppo_trainer(policy):
@@ -266,6 +265,12 @@ if __name__ == "__main__":
     game_lengths          = []
     action_counts          = {}
     board_sizes            = []   # avg board size at END_TURN
+    endturn_golds          = []   # avg UNSPENT gold at END_TURN (see GOLD_SCALAR_IDX)
+    endturn_tiers          = []   # avg tavern tier at END_TURN
+    combat_winrates        = []   # per-game combat win rate, training seats
+    combat_damage          = []   # per-game mean damage taken per combat
+    choice_events          = []   # per-game count of real choice actions (types 10/11)
+    choice_branch0_rates   = []   # share of CHOOSE_OPTION picks that took branch 0
     sell_counts            = []   # SELL actions this game
     place_counts           = []   # PLACE actions this game
     level_counts           = []   # LEVEL_UP actions this game
@@ -322,6 +327,12 @@ if __name__ == "__main__":
     update_reward_avg,     update_reward_std     = [], []
     update_length_avg,     update_length_std     = [], []
     update_board_avg,      update_board_std      = [], []
+    update_gold_avg,       update_gold_std       = [], []
+    update_tier_avg,       update_tier_std       = [], []
+    update_cwin_avg,       update_cwin_std       = [], []
+    update_cdmg_avg,       update_cdmg_std       = [], []
+    update_choice_avg,     update_choice_std     = [], []
+    update_branch0_avg,    update_branch0_std    = [], []
     update_sellplace_avg,  update_sellplace_std  = [], []
     update_levelrate_avg,  update_levelrate_std  = [], []
     update_action_rate_avg = {k: [] for k in range(N_ACTION_TYPES)}   # per-update, % of actions of each type
@@ -340,6 +351,12 @@ if __name__ == "__main__":
             game_lengths         = hist.get('game_lengths', [])
             action_counts        = {int(k): v for k, v in hist.get('action_counts', {}).items()}
             board_sizes           = hist.get('board_sizes', [])
+            endturn_golds         = hist.get('endturn_golds', [])
+            endturn_tiers         = hist.get('endturn_tiers', [])
+            combat_winrates       = hist.get('combat_winrates', [])
+            combat_damage         = hist.get('combat_damage', [])
+            choice_events         = hist.get('choice_events', [])
+            choice_branch0_rates  = hist.get('choice_branch0_rates', [])
             sell_counts            = hist.get('sell_counts', [])
             place_counts           = hist.get('place_counts', [])
             level_counts           = hist.get('level_counts', [])
@@ -413,6 +430,18 @@ if __name__ == "__main__":
             update_length_avg       = hist.get('update_length_avg', [])
             update_length_std       = hist.get('update_length_std', [])
             update_board_avg        = hist.get('update_board_avg', [])
+            update_gold_avg         = hist.get('update_gold_avg', [])
+            update_gold_std         = hist.get('update_gold_std', [])
+            update_tier_avg         = hist.get('update_tier_avg', [])
+            update_tier_std         = hist.get('update_tier_std', [])
+            update_cwin_avg         = hist.get('update_cwin_avg', [])
+            update_cwin_std         = hist.get('update_cwin_std', [])
+            update_cdmg_avg         = hist.get('update_cdmg_avg', [])
+            update_cdmg_std         = hist.get('update_cdmg_std', [])
+            update_choice_avg       = hist.get('update_choice_avg', [])
+            update_choice_std       = hist.get('update_choice_std', [])
+            update_branch0_avg      = hist.get('update_branch0_avg', [])
+            update_branch0_std      = hist.get('update_branch0_std', [])
             update_board_std        = hist.get('update_board_std', [])
             update_sellplace_avg    = hist.get('update_sellplace_avg', [])
             update_sellplace_std    = hist.get('update_sellplace_std', [])
@@ -686,6 +715,26 @@ if __name__ == "__main__":
     # order) -- and directly verified against ground-truth len(ps.board) this session.
     BOARD_SIZE_SCALAR_IDX = 19
 
+    # scalar_context[94] = ps.gold / 10.0 -- first dim of the 6-dim economy block
+    # (own_scalar 24 + all_opponents 64 + lobby 6 = 94), per game_loop.py's
+    # _get_observation concatenate order.
+    #
+    # Unspent gold at END_TURN is the single most direct read on whether the flat
+    # gold penalty is doing its job. The whole point of GOLD_PENALTY_SCALE being
+    # flat is "in Battlegrounds you almost never want unspent gold" -- and the
+    # failure it was introduced to fix (93% of round-13+ turns banking >=5 gold,
+    # mean 7.47) was only ever found by instrumenting a checkpoint by hand after
+    # the fact. Tracked live, that regression is visible within a few updates.
+    #
+    # NOTE the /10.0 scaling is nominal, not a cap: ps.max_gold rises above 10
+    # via trinkets and Snare Trapper, so this feature can legitimately exceed 1.0
+    # and the decoded value below can exceed 10 gold.
+    GOLD_SCALAR_IDX = 94
+
+    # card_encoder dim 43 = tavern_tier/7.0 (board context, identical across every
+    # token in an encoding call), so any token of a transition carries the tier.
+    TIER_TOKEN_IDX = 43
+
     # rolling-window sizes for the ratio/rate panels (games for per-game series,
     # updates for per-update series) -- wide enough to smooth game-to-game noise,
     # narrow enough to stay responsive to real trend shifts.
@@ -700,6 +749,12 @@ if __name__ == "__main__":
             'action_counts': action_counts,
             'best_avg10': best_avg10,
             'board_sizes': board_sizes,
+            'endturn_golds': endturn_golds,
+            'endturn_tiers': endturn_tiers,
+            'combat_winrates': combat_winrates,
+            'combat_damage': combat_damage,
+            'choice_events': choice_events,
+            'choice_branch0_rates': choice_branch0_rates,
             'sell_counts': sell_counts,
             'place_counts': place_counts,
             'level_counts': level_counts,
@@ -735,6 +790,18 @@ if __name__ == "__main__":
             'update_length_avg': update_length_avg,
             'update_length_std': update_length_std,
             'update_board_avg': update_board_avg,
+            'update_gold_avg': update_gold_avg,
+            'update_gold_std': update_gold_std,
+            'update_tier_avg': update_tier_avg,
+            'update_tier_std': update_tier_std,
+            'update_cwin_avg': update_cwin_avg,
+            'update_cwin_std': update_cwin_std,
+            'update_cdmg_avg': update_cdmg_avg,
+            'update_cdmg_std': update_cdmg_std,
+            'update_choice_avg': update_choice_avg,
+            'update_choice_std': update_choice_std,
+            'update_branch0_avg': update_branch0_avg,
+            'update_branch0_std': update_branch0_std,
             'update_board_std': update_board_std,
             'update_sellplace_avg': update_sellplace_avg,
             'update_sellplace_std': update_sellplace_std,
@@ -1021,10 +1088,63 @@ if __name__ == "__main__":
             # seats -- the same "board size going into combat" diagnostic used
             # manually all session, now tracked live instead of needing a separate
             # instrumented script each time.
-            endturn_sizes = [t.scalar_context[BOARD_SIZE_SCALAR_IDX] * 7.0
-                              for t in game_trans if t.type_action == 7]
+            _endturn = [t for t in game_trans if t.type_action == 7]
+            endturn_sizes = [t.scalar_context[BOARD_SIZE_SCALAR_IDX] * 7.0 for t in _endturn]
             if endturn_sizes:
                 board_sizes.append(float(np.mean(endturn_sizes)))
+
+            # Unspent gold carried into combat -- see GOLD_SCALAR_IDX for why
+            # this is the metric that would have caught the gold-hoarding
+            # regression live instead of after the fact.
+            _gold = [t.scalar_context[GOLD_SCALAR_IDX] * 10.0 for t in _endturn]
+            if _gold:
+                endturn_golds.append(float(np.mean(_gold)))
+
+            # Tavern tier at end of turn. Read alongside board size, never
+            # alone: CLAUDE.md's standing warning is that a naive levelling
+            # incentive produces a high-tier, empty-board policy that chases
+            # the proxy instead of the objective.
+            # Tier lives in the per-card board-context block, so it is only set
+            # on tokens for cards that are actually PRESENT -- padding slots are
+            # all zero. Reading slot 0 directly returned ~0 whenever the board
+            # was empty (common in early rounds), which dragged the average far
+            # below the real tier. Max over board AND shop tokens instead: the
+            # value is identical across every present token in an encoding call,
+            # and the shop is non-empty whenever the board is not.
+            _tiers = []
+            for t in _endturn:
+                _bt = getattr(t, "board_tokens", None)
+                _st = getattr(t, "shop_tokens", None)
+                _v = 0.0
+                if _bt is not None and len(_bt):
+                    _v = max(_v, float(np.max(np.asarray(_bt)[:, TIER_TOKEN_IDX])))
+                if _st is not None and len(_st):
+                    _v = max(_v, float(np.max(np.asarray(_st)[:, TIER_TOKEN_IDX])))
+                if _v > 0:
+                    _tiers.append(_v * 7.0)
+            if _tiers:
+                endturn_tiers.append(float(np.mean(_tiers)))
+
+            # Combat outcomes, aggregated in the worker (see train.py's summary).
+            _cs = summary.get('combat') or {}
+            if _cs.get('n'):
+                combat_winrates.append(_cs['wins'] / _cs['n'])
+                combat_damage.append(_cs['dmg_taken'] / _cs['n'])
+
+            # Real-choice usage. choice_branch0_rates is a COLLAPSE DETECTOR:
+            # if the policy always takes the same Choose One branch regardless
+            # of state, this pins at 0.0 or 1.0. That is exactly the pathology
+            # ACTIVATE showed when it shared SELL's scorer (~1.000 probability
+            # on one fixed slot across wildly different states), and it was only
+            # caught by hand-instrumenting a checkpoint. A flat line here means
+            # the choose_option head is not discriminating.
+            _n_choice = sum(1 for t in game_trans if t.type_action in (10, 11))
+            choice_events.append(_n_choice)
+            _opts = [t.ptr_action for t in game_trans if t.type_action == 11]
+            if _opts:
+                choice_branch0_rates.append(
+                    sum(1 for p in _opts if p == PTR_SHOP_OFF) / len(_opts)
+                )
 
             # Per-game action tallies for the sell:place, level-up, and action-mix panels.
             type_counts_this_game = [0] * N_ACTION_TYPES
@@ -1132,6 +1252,12 @@ if __name__ == "__main__":
         _append_update_stat(game_rewards, update_reward_avg, update_reward_std)
         _append_update_stat(game_lengths, update_length_avg, update_length_std)
         _append_update_stat(board_sizes, update_board_avg, update_board_std)
+        _append_update_stat(endturn_golds, update_gold_avg, update_gold_std)
+        _append_update_stat(endturn_tiers, update_tier_avg, update_tier_std)
+        _append_update_stat(combat_winrates, update_cwin_avg, update_cwin_std)
+        _append_update_stat(combat_damage, update_cdmg_avg, update_cdmg_std)
+        _append_update_stat(choice_events, update_choice_avg, update_choice_std)
+        _append_update_stat(choice_branch0_rates, update_branch0_avg, update_branch0_std)
         _append_update_stat(sell_place_ratios, update_sellplace_avg, update_sellplace_std)
         _append_update_stat(level_rates, update_levelrate_avg, update_levelrate_std)
         for k in range(N_ACTION_TYPES):

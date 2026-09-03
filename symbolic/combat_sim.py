@@ -1192,8 +1192,25 @@ def _combat(
     opp_tier:    int,
 ) -> Tuple[str, int, int]:
     """Run one combat given two already-cloned CombatSide objects."""
+    # ── Who acts first ───────────────────────────────────────────────────────
+    # Hearthstone rule: the side with MORE minions goes first; a coin flip only
+    # breaks an exact tie.  This was an unconditional 50/50 before 2026-09-04,
+    # which quietly deleted one of Battlegrounds' core strategic pressures --
+    # board WIDTH is valuable partly because it buys the first attack, and the
+    # first attack decides a large share of close fights (it is why players
+    # hold a 7th minion rather than a stronger 6-minion board).  With a coin
+    # flip the agent got the same expected tempo from a 4-minion board as from
+    # a 7-minion one, so nothing in the reward ever taught it to go wide.
+    #
+    # The same precedence governs start-of-combat triggers, so both are decided
+    # here from one variable rather than rolled independently.
+    if len(side_p.minions) != len(side_o.minions):
+        player_first = len(side_p.minions) > len(side_o.minions)
+    else:
+        player_first = rng.random() < 0.5
+
     # ── Start-of-combat triggers ─────────────────────────────────────────────
-    if rng.random() < 0.5:
+    if player_first:
         _apply_soc(side_p, side_o, rng, player_tier)
         _apply_soc(side_o, side_p, rng, opp_tier)
     else:
@@ -1207,8 +1224,10 @@ def _combat(
     _apply_passive_auras(side_o)
 
     # ── Combat loop ──────────────────────────────────────────────────────────
-    player_first = rng.random() < 0.5
-
+    # player_first was decided above from the pre-combat minion counts, and is
+    # deliberately NOT re-rolled here: start-of-combat effects can kill minions
+    # (Stitched Salvager destroys its neighbour, Soulsplitter trades stats),
+    # and in Hearthstone the first-attack right is settled before those resolve.
     for turn in range(MAX_TURNS):
         if not side_p.alive() or not side_o.alive():
             break

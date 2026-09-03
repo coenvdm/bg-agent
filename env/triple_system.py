@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from env.player_state import MinionState, PlayerState
@@ -23,7 +23,11 @@ def make_golden(minion: "MinionState") -> None:
     minion.golden = True
 
 
-def check_and_process_triple(ps: "PlayerState", tavern_pool: "TavernPool") -> bool:
+def check_and_process_triple(
+    ps: "PlayerState",
+    tavern_pool: "TavernPool",
+    card_defs: Optional[dict] = None,
+) -> bool:
     """Check if player ps just formed a triple. If so, create the golden and grant discover.
 
     A triple is three non-golden copies of the same card_id across hand + board
@@ -33,8 +37,10 @@ def check_and_process_triple(ps: "PlayerState", tavern_pool: "TavernPool") -> bo
     - The three source minions are merged into one golden copy (make_golden on
       the first copy found, the other two are returned to the pool).
     - The golden card is placed in hand (not board).
-    - The player receives a discover: 3 cards are drawn from tier+1 (capped at
-      tier 6). The first candidate is added to hand; the other 2 are returned.
+    - The player receives a REAL discover: 3 cards are drawn from tier+1
+      (capped at tier 6) into ps.discover_pending, which pauses shopping until
+      the agent picks one. The two rejects are returned to the pool by the
+      discover handler in game_loop.step_shopping.
 
     Modifies ps.hand and ps.board in place, calls tavern_pool.return_cards and
     tavern_pool.draw. Returns True if a triple was processed.
@@ -117,27 +123,56 @@ def check_and_process_triple(ps: "PlayerState", tavern_pool: "TavernPool") -> bo
     candidates = tavern_pool.draw(discover_tier, 3)
 
     if candidates:
-        # Auto-select the first candidate.
-        chosen = candidates[0]
-        rest = candidates[1:]
-
-        # Convert chosen card to MinionState and add to hand.
-        # chosen is a raw TavernPool draw ("base_atk"/"base_hp", not
-        # "attack"/"health") -- minion_stats() resolves either shape.
-        from env.player_state import MinionState, minion_stats
-        atk, hp = minion_stats(chosen)
-        chosen_minion = MinionState(
-            card_id=chosen.get("card_id", chosen.get("id", "")),
-            name=chosen.get("name", ""),
-            attack=atk,
-            health=hp,
-            max_health=hp,
-            tier=chosen.get("tier", 1),
-        )
-        ps.hand.append(chosen_minion)
-
-        # Return unchosen candidates to the pool.
-        if rest:
-            tavern_pool.return_cards(rest)
+        # A Triple Reward is a REAL Discover in Hearthstone: three cards from
+        # one Tier up, and the player picks. This used to take candidates[0]
+        # unconditionally -- so the single most valuable reward in the game
+        # (a Tier+1 card, often the pivot that defines the rest of the run) was
+        # decided by pool-draw order, and the agent never saw the decision.
+        #
+        # Handing it to ps.discover_pending pauses shopping and routes it
+        # through the discover flow the engine already has (game_loop's
+        # step_shopping, masked to BUY over shop slots 0-2), which is also what
+        # returns the two rejected cards to the shared pool.
+        ps.discover_pending = [_card_to_minion(c, card_defs) for c in candidates]
 
     return True
+
+
+def _card_to_minion(card: dict, card_defs: Optional[dict] = None) -> "MinionState":
+    """Convert a raw TavernPool draw into a MinionState, keywords included.
+
+    ``card`` uses the TavernPool convention ("base_atk"/"base_hp"), which
+    minion_stats() resolves -- see env.player_state.minion_stats for why
+    reading "attack"/"health" off one of these silently yields 0/0.
+
+    Keywords and activate_cost are looked up from card_defs rather than left at
+    their defaults. The previous inline construction omitted them, so a minion
+    acquired through a triple reward arrived on the board with no Taunt, no
+    Divine Shield and no Activate ability regardless of what the card actually
+    printed -- the same card bought from the shop (via game_loop's
+    _dict_to_minion, which does read card_defs) behaved differently.
+    """
+    from env.player_state import MinionState, minion_stats
+
+    cdef = (card_defs or {}).get(card.get("card_id", card.get("id", "")), {})
+    mechanics = [m.upper() for m in cdef.get("mechanics", [])]
+    keywords  = cdef.get("keywords", {}) or {}
+
+    def _kw(name: str) -> bool:
+        return bool(keywords.get(name)) or name.upper() in mechanics
+
+    atk, hp = minion_stats(card)
+    return MinionState(
+        card_id=card.get("card_id", card.get("id", "")),
+        name=card.get("name", ""),
+        attack=atk,
+        health=hp,
+        max_health=hp,
+        tier=card.get("tier", 1),
+        taunt=_kw("taunt"),
+        divine_shield=_kw("divine_shield"),
+        reborn=_kw("reborn"),
+        windfury=_kw("windfury"),
+        venomous=_kw("venomous") or _kw("poisonous"),
+        activate_cost=int(cdef.get("activate_cost") or 0),
+    )
