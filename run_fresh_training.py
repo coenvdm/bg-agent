@@ -236,6 +236,31 @@ if __name__ == "__main__":
     # since the pre-fix checkpoints were moved aside to checkpoint_backups/ before
     # this run's very first launch -- so "resume" here never means "resume the old
     # pre-fix training," only "continue this fresh run."
+
+    # Round-number buckets for the "action mix by game round" breakdown below.
+    # Width-4 buckets with a catch-all top bucket, not raw round numbers --
+    # median game length is ~15-21 rounds (see CLAUDE.md's Reward Shaping
+    # section), so a per-exact-round breakdown would get sparse and noisy
+    # past round ~20 while most of the interesting strategy shift (forced
+    # early buys -> mid-game economy management -> late-game board-locking)
+    # is already visible at this resolution. Defined here, before the series
+    # declarations and resume-load block right below, since both need it.
+    ROUND_BUCKET_LABELS = ['R1-4', 'R5-8', 'R9-12', 'R13-16', 'R17-20', 'R21+']
+    N_ROUND_BUCKETS = len(ROUND_BUCKET_LABELS)
+
+    def _round_bucket(round_num):
+        """Map a 1-indexed round number to a bucket index, or None if unknown.
+
+        round_num is None for any transition recorded before this field
+        existed (old resumed history) or for a caller that never had a
+        player_state to read it from -- always drop those rather than
+        guessing, so the per-bucket rates stay exact instead of silently
+        diluted.
+        """
+        if round_num is None:
+            return None
+        return min((int(round_num) - 1) // 4, N_ROUND_BUCKETS - 1)
+
     # Per-game series
     game_rewards         = []
     game_lengths          = []
@@ -248,6 +273,12 @@ if __name__ == "__main__":
     sell_place_ratios      = []   # SELL/PLACE this game (nan if no PLACE actions)
     level_rates            = []   # LEVEL_UP / total actions this game
     action_type_game_rates = {k: [] for k in range(N_ACTION_TYPES)}  # per-game % of actions of each type
+    # Per-game action-mix rate, broken down by round bucket too -- same shape as
+    # action_type_game_rates, indexed [bucket][action_type] -> list of per-game
+    # rates (nan for a game with 0 actions in that bucket, e.g. a game that never
+    # reached R21+). Needs round_num on each Transition (added 2026-09-03).
+    round_bucket_action_game_rates = {b: {k: [] for k in range(N_ACTION_TYPES)}
+                                       for b in range(N_ROUND_BUCKETS)}
     train_placements       = []   # avg placement (1=best..8=worst) of train_current seats
     heuristic_placements   = []   # avg placement of heuristic seats
     greedy_placements      = []   # avg placement of greedy seats
@@ -294,6 +325,8 @@ if __name__ == "__main__":
     update_sellplace_avg,  update_sellplace_std  = [], []
     update_levelrate_avg,  update_levelrate_std  = [], []
     update_action_rate_avg = {k: [] for k in range(N_ACTION_TYPES)}   # per-update, % of actions of each type
+    update_round_bucket_rate_avg = {b: {k: [] for k in range(N_ACTION_TYPES)}
+                                     for b in range(N_ROUND_BUCKETS)}  # per-update, % of actions of each type, by round bucket
     update_train_plc_avg,      update_train_plc_std      = [], []
     update_heuristic_plc_avg,  update_heuristic_plc_std  = [], []
     update_greedy_plc_avg,     update_greedy_plc_std     = [], []
@@ -315,6 +348,14 @@ if __name__ == "__main__":
             level_rates              = hist.get('level_rates', [])
             _loaded_atgr = hist.get('action_type_game_rates', {})
             action_type_game_rates = {k: _loaded_atgr.get(str(k), []) for k in range(N_ACTION_TYPES)}
+            # New key (2026-09-03): .get(..., {}) so an older history file
+            # written before round_num existed on Transition just resumes with
+            # empty per-bucket series here instead of crashing.
+            _loaded_rbagr = hist.get('round_bucket_action_game_rates', {})
+            round_bucket_action_game_rates = {
+                b: {k: _loaded_rbagr.get(str(b), {}).get(str(k), []) for k in range(N_ACTION_TYPES)}
+                for b in range(N_ROUND_BUCKETS)
+            }
             train_placements       = hist.get('train_placements', [])
             heuristic_placements   = hist.get('heuristic_placements', [])
             greedy_placements       = hist.get('greedy_placements', [])
@@ -379,6 +420,11 @@ if __name__ == "__main__":
             update_levelrate_std    = hist.get('update_levelrate_std', [])
             _loaded_uara = hist.get('update_action_rate_avg', {})
             update_action_rate_avg = {k: _loaded_uara.get(str(k), []) for k in range(N_ACTION_TYPES)}
+            _loaded_urbra = hist.get('update_round_bucket_rate_avg', {})
+            update_round_bucket_rate_avg = {
+                b: {k: _loaded_urbra.get(str(b), {}).get(str(k), []) for k in range(N_ACTION_TYPES)}
+                for b in range(N_ROUND_BUCKETS)
+            }
             update_train_plc_avg      = hist.get('update_train_plc_avg', [])
             update_train_plc_std      = hist.get('update_train_plc_std', [])
             update_heuristic_plc_avg  = hist.get('update_heuristic_plc_avg', [])
@@ -661,6 +707,7 @@ if __name__ == "__main__":
             'sell_place_ratios': sell_place_ratios,
             'level_rates': level_rates,
             'action_type_game_rates': action_type_game_rates,
+            'round_bucket_action_game_rates': round_bucket_action_game_rates,
             'train_placements': train_placements,
             'heuristic_placements': heuristic_placements,
             'greedy_placements': greedy_placements,
@@ -694,6 +741,7 @@ if __name__ == "__main__":
             'update_levelrate_avg': update_levelrate_avg,
             'update_levelrate_std': update_levelrate_std,
             'update_action_rate_avg': update_action_rate_avg,
+            'update_round_bucket_rate_avg': update_round_bucket_rate_avg,
             'update_train_plc_avg': update_train_plc_avg,
             'update_train_plc_std': update_train_plc_std,
             'update_heuristic_plc_avg': update_heuristic_plc_avg,
@@ -920,7 +968,32 @@ if __name__ == "__main__":
             ax.set_title(f'Gauntlet rating (last={_e_xy[-1][1]:+.0f})')
         else:
             ax.set_title('Gauntlet rating (no data yet)')
-        axes[1][6].axis('off')
+
+        # Action mix by round bucket, most recent update -- the "what is the
+        # policy doing at round X" view that the flat Action Mix panel above
+        # can't show (that one only has a PPO-update x-axis, not a round one).
+        # A heatmap over (round bucket x action type) fits both axes without
+        # needing yet another 7th row.
+        ax = axes[1][6]
+        _hm_lens = [len(update_round_bucket_rate_avg[b][k])
+                    for b in range(N_ROUND_BUCKETS) for k in range(N_ACTION_TYPES)]
+        if _hm_lens and min(_hm_lens) > 0:
+            heat = np.array([[100 * update_round_bucket_rate_avg[b][k][-1] for k in range(N_ACTION_TYPES)]
+                              for b in range(N_ROUND_BUCKETS)])
+            ax.imshow(heat, cmap='viridis', aspect='auto', vmin=0,
+                      vmax=max(1.0, float(heat.max())))
+            ax.set_xticks(range(N_ACTION_TYPES))
+            ax.set_xticklabels(ACTION_NAMES, rotation=90, fontsize=6)
+            ax.set_yticks(range(N_ROUND_BUCKETS))
+            ax.set_yticklabels(ROUND_BUCKET_LABELS, fontsize=7)
+            _hi = float(heat.max())
+            for b in range(N_ROUND_BUCKETS):
+                for k in range(N_ACTION_TYPES):
+                    ax.text(k, b, f'{heat[b, k]:.0f}', ha='center', va='center', fontsize=5,
+                            color='white' if heat[b, k] < 0.6 * _hi else 'black')
+            ax.set_title(f'Action Mix by Round (% of round-bucket actions, update {ppo_trainer.update_count})')
+        else:
+            ax.axis('off')
 
         plt.tight_layout()
         fig.savefig(CHART_PATH, dpi=100)
@@ -969,6 +1042,21 @@ if __name__ == "__main__":
                     type_counts_this_game[k] / len(game_trans) if game_trans else float('nan')
                 )
 
+            # Same action-mix tally, but split by which round-bucket each action
+            # was taken in -- e.g. does the policy front-load REROLL early and
+            # shift to SELL/PLACE churn late, independent of the flat mix above.
+            bucket_counts_this_game = [[0] * N_ACTION_TYPES for _ in range(N_ROUND_BUCKETS)]
+            for t in game_trans:
+                b = _round_bucket(getattr(t, 'round_num', None))
+                if b is not None:
+                    bucket_counts_this_game[b][t.type_action] += 1
+            for b in range(N_ROUND_BUCKETS):
+                bucket_total = sum(bucket_counts_this_game[b])
+                for k in range(N_ACTION_TYPES):
+                    round_bucket_action_game_rates[b][k].append(
+                        bucket_counts_this_game[b][k] / bucket_total if bucket_total else float('nan')
+                    )
+
             # Avg placement (1=best..8=worst) for train_current vs. the fixed-quality
             # scripted baselines, per seat-type present this game -- the most direct
             # "is it actually getting good" signal, more interpretable than raw reward.
@@ -999,6 +1087,25 @@ if __name__ == "__main__":
               f'reward={game_rewards[-1]:+.3f}  avg10={np.mean(game_rewards[-10:]):+.3f}  '
               f'steps={ppo_trainer.total_steps:,}', flush=True)
         print(f'  cumulative: {_ac_str}', flush=True)
+        # Top-3 actions per round bucket, averaged over the last 30 games --
+        # narrower window than the cumulative/recent~200 lines above since this
+        # is meant to answer "what's the policy doing RIGHT NOW at round X",
+        # not track a long-run trend (that's what the dashboard heatmap is for).
+        _rb_window = 30
+        _rb_parts = []
+        for b in range(N_ROUND_BUCKETS):
+            _rates = []
+            for k in range(N_ACTION_TYPES):
+                vals = [v for v in round_bucket_action_game_rates[b][k][-_rb_window:]
+                        if v is not None and not np.isnan(v)]
+                _rates.append(float(np.mean(vals)) if vals else float('nan'))
+            _top = sorted(range(N_ACTION_TYPES), key=lambda k: -_rates[k] if not np.isnan(_rates[k]) else 1)[:3]
+            _seg = ' '.join(f'{ACTION_NAMES[k]}={100*_rates[k]:.0f}%'
+                             for k in _top if not np.isnan(_rates[k]))
+            if _seg:
+                _rb_parts.append(f'{ROUND_BUCKET_LABELS[b]}[{_seg}]')
+        if _rb_parts:
+            print(f'  by-round (top3, last{_rb_window}g): ' + ' '.join(_rb_parts), flush=True)
         print(f'  recent~200: {_rc_str}', flush=True)
 
 
@@ -1029,6 +1136,9 @@ if __name__ == "__main__":
         _append_update_stat(level_rates, update_levelrate_avg, update_levelrate_std)
         for k in range(N_ACTION_TYPES):
             _append_update_avg(action_type_game_rates[k], update_action_rate_avg[k])
+        for b in range(N_ROUND_BUCKETS):
+            for k in range(N_ACTION_TYPES):
+                _append_update_avg(round_bucket_action_game_rates[b][k], update_round_bucket_rate_avg[b][k])
         _append_update_stat(train_placements, update_train_plc_avg, update_train_plc_std)
         _append_update_stat(heuristic_placements, update_heuristic_plc_avg, update_heuristic_plc_std)
         _append_update_stat(greedy_placements, update_greedy_plc_avg, update_greedy_plc_std)

@@ -1373,3 +1373,69 @@ the documented starting point for whoever picks this up.
 - Separately: confirm and prune the stale on_play dispatch branches noted
   above once the choosing work is underway (unrelated but adjacent).
 ---
+
+---
+### 2026-09-03 (addendum 5) — Per-round action-mix tracking (round-bucket breakdown)
+**Files changed:** `agent/ppo.py`, `train.py`, `run_fresh_training.py`
+**What was done:** User asked how to track which actions are chosen during
+training, specifically a per-turn breakdown of the most common actions.
+Existing infra already tracked the FLAT action mix (per-game and per-update,
+`action_type_game_rates` / `update_action_rate_avg`, plotted as a stacked
+panel and printed each batch) — what was missing was breaking that mix down
+by round number, since no code path carried round number onto a stored
+transition at all.
+- `agent/ppo.py`: added `Transition.round_num: Optional[int] = None`, a
+  metadata-only field following the exact precedent `traj_id` already set
+  (not consumed by the network). Threaded through both `collect_transition`
+  and `store_transition`.
+- `train.py`: `PPOAgent.record_transition` / `record_transition_precomputed`
+  now read `round_num` off `obs["player_state"].round_num` (the observation
+  dict already carries the live `PlayerState` — see `game_loop.py`'s
+  `_get_observation`) and pass it through. No observation/network shape
+  change; round_num was deliberately NOT added to `scalar_context`, since
+  that would touch the policy network's input and needs no new information
+  the network doesn't already have room for use of round_num elsewhere.
+- `run_fresh_training.py`: added `_round_bucket()` (width-4 buckets:
+  R1-4/R5-8/R9-12/R13-16/R17-20/R21+, catch-all top bucket -- median game
+  length ~15-21 rounds per CLAUDE.md, so raw per-round tracking would be
+  sparse/noisy late-game). Added `round_bucket_action_game_rates` (per-game,
+  mirrors `action_type_game_rates` with an extra bucket dimension) and
+  `update_round_bucket_rate_avg` (per-update aggregate, same rolling-window
+  pattern as every other `_avg`/`_std` pair here), both persisted to history
+  JSON with the same string-keyed nested-dict convention already used for
+  `action_type_game_rates`/`update_action_rate_avg`, and resumable from an
+  older history file that predates this key (`.get(..., {})` throughout).
+  Added a compact console line (`by-round (top3, last30g): ...`) printed
+  alongside the existing cumulative/recent~200 action-mix lines, and a
+  heatmap panel (round bucket x action type, most recent update) in the
+  previously-empty `axes[1][6]` slot of the training dashboard PNG.
+**Verified:** matplotlib isn't installed in this sandbox (training runs on
+vast.ai, per the vast-ai-training skill) so the heatmap panel wasn't
+rendered end-to-end here. Everything else was: a standalone script built a
+tiny real `BGPolicyNetwork`+`PPOTrainer` and confirmed `round_num` survives
+`collect_transition`/`store_transition` into the buffer; a stub trainer
+confirmed `PPOAgent.record_transition`/`record_transition_precomputed`
+correctly extract `round_num` from `obs["player_state"]` (and degrade to
+`None` without crashing when `player_state` is absent, e.g. terminal
+transitions for eliminated players); the bucket-edge-case math
+(`_round_bucket` at 1/4/5/8/9/.../40/None) and the per-game/per-update
+NaN-safe aggregation logic were both re-verified against expected values in
+isolation; and the history JSON's nested-dict round-trip (including
+resuming from an old history file missing the new key entirely) was
+confirmed to restore exactly. The matplotlib panel itself is straightforward
+`imshow`/`text` usage matching this file's existing chart idioms, but has
+not been visually inspected.
+**Current state:** Fully wired but not yet exercised by an actual training
+run (this session doesn't have a live run to attach to). The next
+`run_fresh_training.py` run (fresh or resumed) will start populating the new
+series automatically.
+**Open questions / next steps:**
+- Watch the first live run's console `by-round` line and the dashboard
+  heatmap to confirm the panel renders sensibly (font sizes / cell count
+  were chosen by eye, not measured against the actual saved PNG).
+- Not done, out of scope for this ask: no changes to `tools/build_dashboard.py`
+  (the separate untracked web-artifact dashboard) -- it wasn't asked for, and
+  it's the user's own in-progress work; the history JSON schema stays
+  compatible with it (only new keys added) if that dashboard is extended
+  later.
+---

@@ -463,6 +463,7 @@ class PPOAgent:
             self._cached_ptr_mask = build_pointer_mask(ps, type_action).numpy() if ps is not None else np.ones(POINTER_DIM, dtype=bool)
         type_mask = self._cached_type_mask
         ptr_mask  = self._cached_ptr_mask
+        _ps = obs.get("player_state")
         self.trainer.collect_transition(
             board_tokens   = obs["board_tokens"],
             shop_tokens    = obs["shop_tokens"],
@@ -476,6 +477,7 @@ class PPOAgent:
             done           = done,
             opp_tokens     = obs.get("opp_tokens"),
             traj_id        = self.traj_id,
+            round_num      = getattr(_ps, "round_num", None),
         )
 
     def record_transition_precomputed(
@@ -497,6 +499,7 @@ class PPOAgent:
         """
         if obs is None:
             return
+        _ps = obs.get("player_state")
         self.trainer.store_transition(
             board_tokens   = obs["board_tokens"],
             shop_tokens    = obs["shop_tokens"],
@@ -512,6 +515,7 @@ class PPOAgent:
             value          = value,
             opp_tokens     = obs.get("opp_tokens"),
             traj_id        = self.traj_id,
+            round_num      = getattr(_ps, "round_num", None),
         )
 
 

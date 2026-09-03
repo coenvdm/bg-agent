@@ -72,6 +72,10 @@ class Transition:
                                   # transition belongs to — see compute_advantages.
                                   # None means "caller didn't tag it", which is only
                                   # safe when the whole buffer really is one trajectory.
+    round_num:      Optional[int] = None  # ps.round_num at the time of this action —
+                                  # metadata only, like traj_id: not consumed by the
+                                  # network, just carried along so training scripts can
+                                  # break the action mix down by game round.
 
 
 # ------------------------------------------------------------------
@@ -323,6 +327,7 @@ class PPOTrainer:
         done:           bool,
         opp_tokens:     Optional[np.ndarray] = None,
         traj_id:        Any = None,
+        round_num:      Optional[int] = None,
     ) -> None:
         """Build a Transition (computing value/log_prob from policy) and add it.
 
@@ -378,6 +383,7 @@ class PPOTrainer:
             value=value_f,
             log_prob=log_prob_f,
             traj_id=traj_id,
+            round_num=round_num,
         )
         self.buffer.add(t)
         self.total_steps += 1
@@ -398,6 +404,7 @@ class PPOTrainer:
         value:          float,
         opp_tokens:     Optional[np.ndarray] = None,
         traj_id:        Any = None,
+        round_num:      Optional[int] = None,
     ) -> None:
         """Store a transition with pre-computed log_prob and value.
 
@@ -429,6 +436,7 @@ class PPOTrainer:
             value=value * self.ret_std,
             log_prob=log_prob,
             traj_id=traj_id,
+            round_num=round_num,
         )
         self.buffer.add(t)
         self.total_steps += 1
