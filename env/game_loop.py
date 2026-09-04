@@ -241,12 +241,68 @@ BOARD_SHAPE_STATS_SATURATION = 60.0
 # Per-instance bonus for a "punches above its raw stats" keyword -- Divine Shield,
 # Taunt, Reborn, and Windfury all add real combat value a plain atk+hp sum misses.
 # Untuned initial guess, same as BOARD_SHAPE_STATS_SATURATION.
-BOARD_STATS_KEYWORD_BONUS = 3.0
+# Rescaled 3.0 -> 5.0 on 2026-09-05 purely to hold its RELATIVE weight constant
+# under the concavity change below, which raised the median board `value` by
+# 1.76x (34.0 -> 59.8). 3.0 * 1.76 = 5.3; likewise the synergy bonus 5.0 -> 9.0.
+# Neither is a retune -- they keep the same share of `value` they already had.
+BOARD_STATS_KEYWORD_BONUS = 5.0
+
+# Per-minion concavity for the board-stats potential (added 2026-09-05).
+#
+# The potential used to be a FLAT sum of attack+health over the board, which
+# made it blind to board WIDTH: measured on the live u1806 checkpoint, a board
+# of one 40/40 scored phi=0.571 and a board of seven 6/6s scored phi=0.562 --
+# indistinguishable, when in Battlegrounds the wide board wins that fight
+# overwhelmingly. It has seven bodies and seven attacks against one, and since
+# the 2026-09-04 first-attacker fix (CLAUDE.md "Game Dynamics") it also strikes
+# first. The old docstring defended the flat sum as "quality-weighted, not
+# count-weighted", guarding against hoarding 1/1s to fill slots -- but it left
+# the OPPOSITE degenerate board completely unguarded, and that is the one the
+# policy actually found.
+#
+# Measured cost of leaving it flat (6 games, live u1806 checkpoint, PPO seat):
+#   - 135 of 150 total choices (90%) were Suspicious Prisonguard's "+3/+3 to
+#     another minion", 22.5 per game, funnelling stats into one body
+#   - 24.0% of ALL gold went to ACTIVATE (the pump), 39.9% to REROLL, and only
+#     13.6% to actually buying minions
+#   - board size sat at 4.42/7 and NEVER filled (p90 = 5.05, max 5.96)
+# Per gold, the pump paid 0.0129 dPhi vs BUY's 0.0098 -- so the agent was
+# correct to pump; the potential was wrong. Combat win rate fell 0.558 -> 0.486
+# and gauntlet Elo peaked at update 800 (+299) and fell to +144 by update 1800.
+#
+# The fix makes each MINION's contribution concave in its own stats:
+#     value = MINION_SCALE * sum_i (atk_i + hp_i) ** MINION_EXPONENT
+# so stats spread across bodies beat the same stats stacked in one. This is not
+# a penalty bolted on -- it is the correct shape: a 50/50 does not beat a 25/25
+# twice as reliably, because it still makes one attack and still dies to one
+# Venomous or one Zapp. The 1/1-hoarding case the flat sum worried about stays
+# handled, because seven 1/1s have a tiny stat sum to begin with (verified
+# below: they still score far under two 20/20s).
+#
+# EXPONENT/SCALE were fitted on 624 real end-of-turn boards from live play so
+# that phi's MEDIAN is unchanged -- the point is to change the SHAPE of the
+# potential, not its overall magnitude, so the dense/placement balance
+# CLAUDE.md requires re-measuring stays where it was validated:
+#     flat sum:        value p50 = 34.0  -> phi p50 = 0.362 at SAT=60
+#     EXP=0.7 SCALE=3: value p50 = 59.8  -> phi p50 = 0.499 at SAT=60
+# and BOARD_SHAPE_STATS_SATURATION is therefore left at 60.0, still landing
+# phi=0.5 at the median board exactly as its own comment describes.
+#
+# Ordering it now produces on equal-total-stat boards (SAT=60):
+#     1x 40/40 (the pumped board)  phi = 0.518
+#     2x 20/20                     phi = 0.569
+#     4x 10/10                     phi = 0.620
+#     7x  6/6  (the wide board)    phi = 0.652
+# and the marginal incentive flips the right way: BUY-and-place a 5/5 now pays
+# 3.17x a +3/+3 pump (was 1.62x), which per gold is 1.5x in BUY's favour where
+# it used to be 1.3x in the pump's.
+BOARD_STATS_MINION_EXPONENT = 0.7
+BOARD_STATS_MINION_SCALE    = 3.0
 
 # Flat bonus when the board has >=4 minions of one tribe -- mirrors CLAUDE.md's
 # "synergistic" threshold (Symbolic Layer Rule 4). Binary, not per-card, since going
 # from 4->5 of a tribe is a much smaller jump than crossing the threshold at all.
-BOARD_STATS_SYNERGY_BONUS = 5.0
+BOARD_STATS_SYNERGY_BONUS = 9.0
 
 # Weights combining the board-strength and tavern-tier-pace components into
 # the single unified potential Φ(s) (see BattlegroundsGame._potential). Both
@@ -1014,18 +1070,34 @@ class BattlegroundsGame:
         layer uses elsewhere) plus keyword and tribal-synergy bonuses, saturating
         toward 1.0. Bounded to [0, 1), monotonic in board quality, zero noise.
 
-        This is quality-weighted, not count-weighted -- a board of seven 1/1s
-        scores barely above a board of two well-statted minions, so hoarding
-        weak minions to fill slots doesn't pay off the way it would under a
-        raw board-size proxy. Selling a weak minion to make room for a stronger
-        one causes a momentary dip (the sale drops power immediately) but the
-        replacement's placement raises the score net-positive, which is what
-        makes "sell weak, buy strong" a learnable win rather than a pure cost.
+        Quality-weighted AND width-weighted. Each minion contributes a CONCAVE
+        function of its own stats (see BOARD_STATS_MINION_EXPONENT), so:
+          - hoarding seven 1/1s still doesn't pay -- their stat sum is tiny; and
+          - stacking every buff into ONE body no longer scores the same as a
+            full board of the same total stats, which is what the old flat sum
+            did and what the policy learned to farm.
+        Selling a weak minion to make room for a stronger one causes a momentary
+        dip (the sale drops power immediately) but the replacement's placement
+        raises the score net-positive, which is what makes "sell weak, buy
+        strong" a learnable win rather than a pure cost.
+
+        _board_power stays the source of each minion's effective stats, so the
+        same base + perm_bonus + game_bonus resolution the symbolic layer uses
+        applies here unchanged. It is a pure per-minion sum with no cross-minion
+        terms, so evaluating it one minion at a time is an exact decomposition
+        of the old board-level call -- only the exponent is new.
         """
         if not ps.board:
             return 0.0
         board_dicts = [_minion_to_dict(m) for m in ps.board]
-        power = _board_power(board_dicts)
+        # Concave per MINION, then summed -- NOT concave over the board total,
+        # which would be width-blind in exactly the way this replaced.
+        # (_board_power floors its result at 1.0; per minion that floor can
+        # never bind, since every minion has at least 1 health.)
+        power = BOARD_STATS_MINION_SCALE * sum(
+            _board_power([d]) ** BOARD_STATS_MINION_EXPONENT
+            for d in board_dicts
+        )
 
         keyword_bonus = 0.0
         for m in board_dicts:
@@ -2118,6 +2190,13 @@ class BattlegroundsGame:
                     last_obs, 7, -1,   # type=end_turn, no pointer
                     reward=final_r,
                     done=True,
+                    # NOT a real decision -- END_TURN is only a carrier so the
+                    # placement reward lands on a done=True step and the value
+                    # target bootstraps to 0. The policy never chose it, so it
+                    # must not contribute a policy gradient; measured, these rows
+                    # had log_prob down to -43 (probability ~1e-19) and carried
+                    # the largest reward in the system. See Transition.is_bootstrap.
+                    is_bootstrap=True,
                 )
 
         return GameResult(

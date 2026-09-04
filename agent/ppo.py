@@ -42,7 +42,31 @@ class PPOConfig:
     max_grad_norm: float = 0.5 # gradient clipping norm
     n_epochs: int = 4          # PPO update epochs per rollout (KL early-stop may cut epochs
                                 # short BETWEEN epochs only — epoch 0 always runs in full)
-    target_kl: float = 0.03    # KL divergence threshold for early stopping between epochs
+    target_kl: float = 0.10    # KL threshold for early stopping between epochs.
+                               # Raised 0.03 -> 0.10 on 2026-09-04 after measuring
+                               # all 1,564 updates of the live run: the brake was
+                               # firing on ordinary batch-to-batch noise, not on
+                               # danger. 52.4% of updates stopped after ~1 epoch
+                               # (their epoch-0 KL median 0.0386) while 24.4% ran
+                               # all four with a 4-epoch mean KL of 0.0226 and p90
+                               # 0.0277 -- i.e. four epochs is already comfortably
+                               # safe at this step size, and 0.03 simply sat inside
+                               # the normal operating band. 0.10 clears that band
+                               # while still stopping the genuinely runaway updates
+                               # (1-epoch p90 was 0.178). Self-play games cost ~1/s
+                               # and epochs are nearly free, so under-using each
+                               # batch by 3x was the expensive half of the trade.
+    logratio_clip: float = 3.0 # Hard bound on |log importance ratio| before exp().
+                               # Bounds the ratio to [0.05, 20] instead of the
+                               # [2e-18, 5e17] the old per-log-prob clamp(-20)
+                               # allowed. Defence in depth: with is_bootstrap rows
+                               # now out of the policy loss the pathological source
+                               # is gone, but truncating the importance weight is
+                               # standard for off-policy correction (cf. V-trace's
+                               # rho-bar) and costs a little bias to remove an
+                               # unbounded-variance tail. Games are collected under
+                               # up to 2 weight versions, whose honest ratios sit
+                               # near 1, so 20x leaves real correction untouched.
     batch_size: int = 256
     device: str = "cpu"
 
@@ -72,6 +96,27 @@ class Transition:
                                   # transition belongs to — see compute_advantages.
                                   # None means "caller didn't tag it", which is only
                                   # safe when the whole buffer really is one trajectory.
+    is_bootstrap:   bool = False  # True = this row is NOT a real decision. The
+                                  # game loop records one synthetic transition per
+                                  # player at game end, using END_TURN as a no-op
+                                  # carrier so the terminal placement reward gets a
+                                  # done=True step and the value target bootstraps
+                                  # to 0. That action was never SAMPLED from the
+                                  # policy, so its stored log_prob is just "whatever
+                                  # the policy happens to assign END_TURN in a
+                                  # terminal state" -- measured at median -27, min
+                                  # -43, i.e. probability ~1e-12. Feeding that into
+                                  # an importance ratio is meaningless and actively
+                                  # harmful: exp(20) = 5e8 after the -20 clamp, and
+                                  # these rows carry FINAL_PLACEMENT_REWARD (the
+                                  # largest reward in the system, and often
+                                  # NEGATIVE) so PPO's one-sided clip does not bound
+                                  # them. Measured: ~0.3% of all transitions, ~1 per
+                                  # 256-row minibatch, and the direct cause of
+                                  # approx_kl spikes up to 14,597 against a median
+                                  # of 0.033. Excluded from the POLICY loss and
+                                  # entropy; kept in the VALUE loss and in GAE,
+                                  # which is the whole reason the row exists.
     round_num:      Optional[int] = None  # ps.round_num at the time of this action —
                                   # metadata only, like traj_id: not consumed by the
                                   # network, just carried along so training scripts can
@@ -180,7 +225,7 @@ class RolloutBuffer:
         Returns a dict with keys:
           board_tokens, shop_tokens, hand_tokens, opp_tokens, scalar_context,
           type_mask, pointer_mask, type_actions, ptr_actions,
-          rewards, dones, values, log_probs
+          rewards, dones, values, log_probs, policy_w
         """
         dev = torch.device(device)
         board    = np.stack([t.board_tokens   for t in self.transitions])
@@ -196,6 +241,8 @@ class RolloutBuffer:
         dones    = np.array([t.done           for t in self.transitions], dtype=np.float32)
         values   = np.array([t.value          for t in self.transitions], dtype=np.float32)
         logprobs = np.array([t.log_prob       for t in self.transitions], dtype=np.float32)
+        pol_w    = np.array([0.0 if getattr(t, "is_bootstrap", False) else 1.0
+                             for t in self.transitions], dtype=np.float32)
 
         return {
             "board_tokens":   torch.tensor(board,    dtype=torch.float32, device=dev),
@@ -211,6 +258,9 @@ class RolloutBuffer:
             "dones":          torch.tensor(dones,    dtype=torch.float32, device=dev),
             "values":         torch.tensor(values,   dtype=torch.float32, device=dev),
             "log_probs":      torch.tensor(logprobs, dtype=torch.float32, device=dev),
+            # 1.0 for a real sampled decision, 0.0 for a bootstrap carrier row
+            # (see Transition.is_bootstrap). Used to weight the POLICY loss only.
+            "policy_w":       torch.tensor(pol_w,    dtype=torch.float32, device=dev),
         }
 
 
@@ -328,6 +378,7 @@ class PPOTrainer:
         opp_tokens:     Optional[np.ndarray] = None,
         traj_id:        Any = None,
         round_num:      Optional[int] = None,
+        is_bootstrap:   bool = False,
     ) -> None:
         """Build a Transition (computing value/log_prob from policy) and add it.
 
@@ -384,6 +435,7 @@ class PPOTrainer:
             log_prob=log_prob_f,
             traj_id=traj_id,
             round_num=round_num,
+            is_bootstrap=is_bootstrap,
         )
         self.buffer.add(t)
         self.total_steps += 1
@@ -405,6 +457,7 @@ class PPOTrainer:
         opp_tokens:     Optional[np.ndarray] = None,
         traj_id:        Any = None,
         round_num:      Optional[int] = None,
+        is_bootstrap:   bool = False,
     ) -> None:
         """Store a transition with pre-computed log_prob and value.
 
@@ -437,6 +490,7 @@ class PPOTrainer:
             log_prob=log_prob,
             traj_id=traj_id,
             round_num=round_num,
+            is_bootstrap=is_bootstrap,
         )
         self.buffer.add(t)
         self.total_steps += 1
@@ -580,6 +634,7 @@ class PPOTrainer:
                 b_t_acts   = data["type_actions"][idx_t]
                 b_p_acts   = data["ptr_actions"][idx_t]
                 b_old_lp   = data["log_probs"][idx_t]
+                b_pol_w    = data["policy_w"][idx_t]
                 b_adv      = adv_t[idx_t]
                 b_ret      = ret_t[idx_t]
 
@@ -601,11 +656,16 @@ class PPOTrainer:
                     logger.warning("NaN detected in evaluate_actions — skipping mini-batch")
                     continue
 
-                # Importance-sampling ratio — clamp log_probs to avoid exp(+inf)
-                # when old_log_prob is -inf (stale near-zero-prob transitions)
+                # Importance-sampling ratio. Clamping each log_prob at -20 (as
+                # this did before) does NOT bound the ratio -- it bounds each
+                # term, so the difference can still reach 40 and exp(40) = 2e17.
+                # Clamp the DIFFERENCE instead, which is the quantity that
+                # actually has to stay finite. See cfg.logratio_clip.
                 new_log_probs_c = new_log_probs.clamp(min=-20.0)
                 b_old_lp_c      = b_old_lp.clamp(min=-20.0)
-                logratio = new_log_probs_c - b_old_lp_c
+                logratio = (new_log_probs_c - b_old_lp_c).clamp(
+                    min=-cfg.logratio_clip, max=cfg.logratio_clip
+                )
                 ratio = logratio.exp()
 
                 # KL estimator — Schulman's k3 (http://joschu.net/blog/kl-approx.html):
@@ -616,21 +676,34 @@ class PPOTrainer:
                 # minibatch could trip early stopping and discard the rest of the
                 # epoch's gradient steps (measured: 8/264 updates applied zero
                 # gradient steps in a 312-update run).
+                # Diagnostics are computed over REAL decisions only. A bootstrap
+                # carrier row has a log_prob the policy never sampled from, so its
+                # "KL" is meaningless and used to dominate this average.
                 with torch.no_grad():
-                    approx_kl = ((ratio - 1.0) - logratio).mean()
-                    clip_frac = ((ratio - 1.0).abs() > cfg.clip_eps).float().mean()
+                    _w = b_pol_w
+                    _den = _w.sum().clamp(min=1.0)
+                    approx_kl = ((((ratio - 1.0) - logratio) * _w).sum() / _den)
+                    clip_frac = (((ratio - 1.0).abs() > cfg.clip_eps).float() * _w).sum() / _den
                 epoch_kls.append(float(approx_kl.item()))
 
-                # Clipped surrogate objective
+                # Clipped surrogate objective, over REAL decisions only.
+                # b_pol_w is 0.0 for bootstrap carrier rows (see
+                # Transition.is_bootstrap): those actions were never sampled from
+                # the policy, so there is no valid importance ratio for them and
+                # including them injected a gradient driven by an arbitrary
+                # log_prob times the largest reward in the system.
                 surr1 = ratio * b_adv
                 surr2 = torch.clamp(ratio, 1.0 - cfg.clip_eps, 1.0 + cfg.clip_eps) * b_adv
-                policy_loss = -torch.min(surr1, surr2).mean()
+                _den = b_pol_w.sum().clamp(min=1.0)
+                policy_loss = -(torch.min(surr1, surr2) * b_pol_w).sum() / _den
 
-                # Value loss — plain MSE against ret_std-scaled targets (no value clipping).
+                # Value loss keeps EVERY row, bootstrap rows included -- carrying
+                # the terminal placement reward into the value target is the whole
+                # reason those rows are recorded.
                 value_loss = 0.5 * (new_values - b_ret).pow(2).mean()
 
                 # Entropy bonus — entropy_coef is this update's annealed value (FIX 4)
-                entropy_loss = -entropy.mean()
+                entropy_loss = -(entropy * b_pol_w).sum() / _den
 
                 total_loss = (
                     policy_loss
@@ -663,10 +736,17 @@ class PPOTrainer:
             # runs to completion regardless of KL, so this guard alone can
             # never make an update apply zero gradient steps.
             if epoch_kls:
-                mean_epoch_kl = float(np.mean(epoch_kls))
-                if mean_epoch_kl > cfg.target_kl:
+                # MEDIAN, not mean. The mean let a single outlier minibatch cancel
+                # every remaining epoch: measured per-update means up to 14,597
+                # against a median of 0.033, so one bad row in one minibatch threw
+                # away three quarters of the learning from a batch of games that
+                # cost ~50 seconds of self-play to collect. A median needs half the
+                # minibatches to agree before it stops the update, which is what an
+                # "is the policy moving too fast overall" test should require.
+                epoch_kl = float(np.median(epoch_kls))
+                if epoch_kl > cfg.target_kl:
                     logger.debug(
-                        "KL early stop after epoch %d (kl=%.4f)", epoch_i, mean_epoch_kl
+                        "KL early stop after epoch %d (median kl=%.4f)", epoch_i, epoch_kl
                     )
                     break  # stop remaining epochs
 

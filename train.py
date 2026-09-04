@@ -445,8 +445,13 @@ class PPOAgent:
         ptr_action:  int,
         reward: float,
         done:   bool,
+        is_bootstrap: bool = False,
     ) -> None:
         """Push a completed transition into the PPO rollout buffer.
+
+        is_bootstrap=True marks a row that is NOT a real decision -- the game
+        loop's terminal transition, which reuses END_TURN as a no-op carrier for
+        the final placement reward. See agent/ppo.py Transition.is_bootstrap.
 
         Uses masks cached in get_action (pre-mutation) rather than
         recomputing from obs['player_state'] which is a live reference
@@ -479,6 +484,7 @@ class PPOAgent:
             opp_tokens     = obs.get("opp_tokens"),
             traj_id        = self.traj_id,
             round_num      = getattr(_ps, "round_num", None),
+            is_bootstrap   = is_bootstrap,
         )
 
     def record_transition_precomputed(

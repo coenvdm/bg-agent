@@ -342,6 +342,10 @@ if __name__ == "__main__":
     update_heuristic_plc_avg,  update_heuristic_plc_std  = [], []
     update_greedy_plc_avg,     update_greedy_plc_std     = [], []
     best_avg10    = float('-inf')
+    # Running max of the gauntlet Elo -- the criterion bg_agent_ppo_best.pt is
+    # actually selected on (see _on_update). Persisted in history so a resumed
+    # run does not re-save "best" on the first eval that beats -inf.
+    best_elo      = float('-inf')
 
     if PPO_PATH.exists():
         loaded = ppo_trainer.load_checkpoint(str(PPO_PATH))
@@ -461,6 +465,7 @@ if __name__ == "__main__":
             update_greedy_plc_avg     = hist.get('update_greedy_plc_avg', [])
             update_greedy_plc_std     = hist.get('update_greedy_plc_std', [])
             best_avg10    = hist.get('best_avg10', float('-inf'))
+            best_elo      = hist.get('best_elo', float('-inf'))
             print(f'Resumed this run: steps={ppo_trainer.total_steps}, '
                   f'games={len(game_rewards)}, updates={ppo_trainer.update_count}', flush=True)
         else:
@@ -748,6 +753,7 @@ if __name__ == "__main__":
             'game_lengths': game_lengths,
             'action_counts': action_counts,
             'best_avg10': best_avg10,
+            'best_elo': best_elo,
             'board_sizes': board_sizes,
             'endturn_golds': endturn_golds,
             'endturn_tiers': endturn_tiers,
@@ -1230,7 +1236,7 @@ if __name__ == "__main__":
 
 
     def _on_update(metrics, update_count):
-        global best_avg10
+        global best_avg10, best_elo
         ppo_losses.append(metrics.get('total_loss', 0.0))
         ppo_values.append(metrics.get('value_loss', 0.0))
         entropies.append(metrics.get('entropy', 0.0))
@@ -1272,11 +1278,21 @@ if __name__ == "__main__":
         ppo_trainer.save_checkpoint(str(PPO_PATH), extra={'game': len(game_rewards)})
         if update_count % BACKUP_EVERY == 0:
             ppo_trainer.save_checkpoint(str(PPO_BACKUP_PATH), extra={'game': len(game_rewards)})
+        # best_avg10 is still TRACKED (it is printed each update and stored in
+        # history), but it no longer selects the "best" checkpoint. It cannot:
+        # game_rewards has sd ~2.5 dominated by placement, so a 10-game mean has
+        # sd ~0.8 and the running max is a LUCK record, not a skill record.
+        # Measured on the 2026-09-04 run: best_avg10 hit 3.452 at game 14,808
+        # (update 309) and was never beaten across the following 1,500 updates,
+        # so bg_agent_ppo_best.pt sat frozen at update 309 while the policy went
+        # on to peak at update 800 and then REGRESS ~155 Elo -- the run's actual
+        # best weights were never saved anywhere. Selection now happens off the
+        # gauntlet Elo in the eval block below, which is the only metric here
+        # that is (a) anchored to a fixed reference and (b) unfakeable by any
+        # shaping term -- see the GAUNTLET block further down in this function.
         _cur_avg10 = float(np.mean(game_rewards[-10:])) if len(game_rewards) >= 10 else float('-inf')
         if _cur_avg10 > best_avg10:
             best_avg10 = _cur_avg10
-            ppo_trainer.save_checkpoint('bg_agent_ppo_best.pt',
-                                         extra={'game': len(game_rewards), 'best_avg10': best_avg10})
         # Fixed-opponent eval (train.py's evaluate_policy) -- the only progress
         # signal here no shaping term can inflate. Collects no PPO
         # transitions and never touches ppo_trainer, so it's safe to run
@@ -1374,6 +1390,24 @@ if __name__ == "__main__":
                 except Exception as _e:
                     # An eval failure must never take down a multi-hour run.
                     print(f'  GAUNTLET eval failed ({type(_e).__name__}: {_e})', flush=True)
+
+            # Model selection on gauntlet Elo -- the honest progress metric.
+            # fit_gauntlet_elo anchors to the OLDEST reference (see train.py),
+            # so successive Elo values share a scale and "higher is better"
+            # actually holds across the whole run, which is exactly what the
+            # avg10 criterion this replaced could not provide.
+            if g_elo is not None and g_elo > best_elo:
+                best_elo = g_elo
+                ppo_trainer.save_checkpoint(
+                    'bg_agent_ppo_best.pt',
+                    extra={'game': len(game_rewards), 'best_elo': best_elo,
+                           'best_elo_update': update_count},
+                )
+                print(f'  NEW BEST by gauntlet Elo: {best_elo:+.0f} '
+                      f'@ update {update_count} -> bg_agent_ppo_best.pt', flush=True)
+            elif g_elo is not None:
+                print(f'  (best gauntlet Elo remains {best_elo:+.0f}; '
+                      f'this eval {g_elo:+.0f})', flush=True)
 
             eval_gauntlet_placement.append(g_place)
             eval_gauntlet_elo.append(g_elo)

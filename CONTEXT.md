@@ -1645,3 +1645,97 @@ instance 49799906 (i9-14900KF, 24 physical cores, RTX 4060 Ti, $0.1347/hr).
   to justify changing it.
 - Account credit was $9.96 at rental time (~74h at this instance's rate).
 ---
+
+---
+### 2026-09-05 — Deep debug: width-blind potential caused a 155-Elo regression; fresh restart
+**Files changed:** `env/game_loop.py`, `run_fresh_training.py`, `CLAUDE.md`, `agent/ppo.py`, `train.py` (last two = previous session's uncommitted bootstrap/KL fix, committed here)
+
+**What was done:**
+
+*Diagnosis.* The 2026-09-04 run had been REGRESSING for ~1,000 updates and no
+metric in the log showed it. Gauntlet Elo (anchored to a fixed oldest ref, so
+comparable over time): u400 `+92` -> u800 `+299` (peak) -> u1200 `+256` ->
+u1600 `+148` -> u1800 `+144`. Placement vs the frozen reference went 1.81 ->
+3.16 over the same span. The greedy/heuristic evals showed nothing because
+they saturated at update ~350 (top1 0.92 from there on).
+
+*Root cause 1 (the big one): `_board_stats_potential` was blind to board
+WIDTH.* It was a flat sum of attack+health, so one 40/40 scored `Phi=0.571`
+and seven 6/6s scored `Phi=0.562` — indistinguishable, while the 2026-09-04
+first-attacker fix had just made width MORE valuable. Its docstring defended
+the flat sum as guarding against hoarding 1/1s, but left the opposite
+degenerate board unguarded, and that is the one the policy found. Instrumented
+6 games on the live u1806 checkpoint (PPO seat only): **135 of 150 choices
+(90%) were Suspicious Prisonguard's "+3/+3 to another minion"**, 22.5/game;
+gold went **39.9% to REROLL, 24.0% to ACTIVATE (the pump), 13.6% to buying
+minions**; board size sat at **4.42/7 and never filled** (p90 5.05). Per gold
+the pump paid 0.0129 dPhi vs BUY's 0.0098 — the agent was correct to pump, the
+potential was wrong. Consistent with the run-level metrics: `choice_events`
+climbed 15 -> 64/game, combat win rate 0.558 -> 0.486, game length 24.8 ->
+19.8 rounds. Note the 2026-09-02 `BOARD_SHAPE_STATS_SATURATION` 30->60 change
+AMPLIFIED this: it was diagnosed from a Prisonguard-pumped board, and
+desaturating made each pump pay more.
+
+*Root cause 2: `bg_agent_ppo_best.pt` was frozen at update 309.* It was
+selected on `mean(game_rewards[-10:])`, whose sd is ~0.8; `best_avg10=3.452`
+was a lucky window at game 14,808 and stood for 1,500 updates. The run's
+actual best weights (u800) were never saved anywhere.
+
+*Root cause 3 (already fixed last session, uncommitted until now): bootstrap
+rows in the policy loss.* At 0.3% of rows and batch 256, ~54% of ALL
+minibatches contained a row with importance ratio ~5e8 carrying a
+placement-sized advantage; after `max_grad_norm=0.5` that single row set the
+direction of the whole step. Live for updates 1-1548.
+
+*Fixes.* (a) `value` is now `BOARD_STATS_MINION_SCALE * sum_i (atk_i+hp_i)**
+BOARD_STATS_MINION_EXPONENT` — concave **per minion, then summed** (never over
+the board total, which would be width-blind the same way). EXP=0.7/SCALE=3.0
+were fitted on 624 real end-of-turn boards so Phi's MEDIAN is unchanged (value
+p50 34.0 -> 59.8, Phi p50 0.362 -> 0.499 at SAT=60): the shape changes, the
+magnitude does not, so the validated dense-vs-placement balance carries over
+and `BOARD_SHAPE_STATS_SATURATION` stays 60.0. Keyword/synergy bonuses
+rescaled 3->5 and 5->9 purely to hold their existing share of `value` under
+the 1.76x median shift. (b) `bg_agent_ppo_best.pt` is now selected on gauntlet
+Elo (`best_elo`, persisted in history); `best_avg10` is still tracked but
+selects nothing. (c) Committed the bootstrap/KL fix. (d) CLAUDE.md updated:
+the board_potential spec, plus a new "Progress Metrics & Model Selection"
+section recording which metrics are and are not trustworthy.
+
+**Verified:** New ordering on equal-total-stat boards is 1x40/40 `0.518` <
+2x20/20 `0.569` < 4x10/10 `0.620` < 7x6/6 `0.652`, with 7x1/1 at `0.362`
+(still below the single 40/40, so the anti-hoarding property survives);
+BUY-and-place now pays 3.17x a +3/+3 pump (was 1.62x), which per gold is 1.49x
+in BUY's favour where it used to be 1.3x in the pump's. Phi stays in [0,1) at
+7x400/400 (`0.974`). Smoke gates pass on a real 3-game/364-transition rollout:
+potential shaping stays inside its telescoping bound on every game, bootstrap
+rows are tagged and reach `policy_w` as zeros (6/364), and a full PPO update
+runs with finite KL. Deployed with md5 parity checked on all four files.
+
+**Current state:** The 2026-09-04 run is archived (remote
+`archive/run_2026-09-04/`, local `checkpoint_backups/run_2026-09-04_regressed/`
+including `peak_elo_ref_u900.pt`). A FRESH run is training on vast.ai
+49799906 in tmux `train`; local sync loop `bgsync` restarted. Early sign is
+right: from random init BUY is 12-15% of actions vs 8% in the regressed run.
+
+**Open questions / next steps:**
+- **REROLL was NOT retuned and is the #1 thing to watch.** It was 32% of
+  actions and 40% of gold in the old run and is 31% from random init now.
+  Deliberately left alone so the potential fix can be attributed cleanly:
+  reroll spam may be a SYMPTOM of buying being underpriced. If `update_board_avg`
+  does not climb well above the old 4.42 by ~update 400, revisit
+  `REROLL_PENALTY_BASE`. Any escalation must stay under the 0.0075/gold
+  end-of-turn holding cost at every reachable count (max 10/turn) to preserve
+  the 2026-09-03 invariant — that caps a per-reroll step at ~0.0006.
+- Watch `update_board_avg` (target: well above 4.42, toward filling 7),
+  `update_choice_avg` (should NOT climb toward 38-64/game again) and gauntlet
+  Elo at u400/600/800 against the old run's +92/+299.
+- HERO_POWER is 8-10% of actions from random init; 10/10 sampled uses changed
+  no observable state in the old checkpoint. Probably an artifact of the
+  snapshot not covering `hero_power_used`/hero-specific state, but worth
+  confirming that non-`active_noptr` heroes aren't burning a real action for
+  nothing.
+- `batch=0.1s` / `batch=0.0s` lines appear intermittently in the log for
+  24-game batches, which is not physically possible — the batch timer is
+  measuring something other than wall-clock for those. Cosmetic, but it makes
+  throughput unreadable.
+---

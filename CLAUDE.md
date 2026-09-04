@@ -324,11 +324,48 @@ anywhere, they are stale — `env/game_loop.py` is the only source of truth.
    `SHAPE_ALPHA` was itself raised `0.20 → 1.5` on 2026-09-01 once telescoping
    made the old value pay out ~5% of what it used to (see `CONTEXT.md`).
    - `board_potential(s)`: deterministic, noise-free — `value / (value +
-     BOARD_SHAPE_STATS_SATURATION)`, where `value` = total effective
-     attack+health (`symbolic.board_computer._board_power`) plus a flat
-     `+3` per Divine Shield/Taunt/Reborn/Windfury instance
-     (`BOARD_STATS_KEYWORD_BONUS`) and a flat `+5` if any tribe reaches the
+     BOARD_SHAPE_STATS_SATURATION)`, where
+     `value = BOARD_STATS_MINION_SCALE * Σ_minion (atk+hp)**BOARD_STATS_MINION_EXPONENT`
+     (per-minion effective stats via `symbolic.board_computer._board_power`)
+     plus a flat `+5` per Divine Shield/Taunt/Reborn/Windfury instance
+     (`BOARD_STATS_KEYWORD_BONUS`) and a flat `+9` if any tribe reaches the
      CLAUDE.md "synergistic" threshold of 4+ (`BOARD_STATS_SYNERGY_BONUS`).
+
+     The per-minion **exponent** (`0.7`, with `SCALE = 3.0`) was added
+     2026-09-05 and is the load-bearing part. Before it, `value` was a flat
+     sum of attack+health over the whole board, which made Φ **blind to board
+     width**: measured on the live u1806 checkpoint, one 40/40 scored
+     `Φ=0.571` and seven 6/6s scored `Φ=0.562` — indistinguishable, when in
+     Battlegrounds the wide board wins that fight overwhelmingly (seven bodies
+     and seven attacks against one, and since the 2026-09-04 first-attacker
+     fix it also strikes first). The old code defended the flat sum as
+     "quality-weighted, not count-weighted", guarding against hoarding 1/1s to
+     fill slots — but it left the **opposite** degenerate board completely
+     unguarded, and that is the one the policy actually found. Measured over 6
+     games on that checkpoint: **135 of 150 choices (90%) were Suspicious
+     Prisonguard's "+3/+3 to another minion"** (22.5/game), **24% of all gold
+     went to ACTIVATE and only 13.6% to buying minions**, and board size sat
+     at **4.42/7, never filling**. Per gold the pump paid `0.0129` ΔΦ against
+     BUY's `0.0098` — the agent was right to pump; Φ was wrong. Combat win
+     rate fell 0.558 → 0.486 and gauntlet Elo peaked at update 800 (`+299`)
+     and decayed to `+144` by update 1800.
+     Concavity is applied **per minion, then summed** — never over the board
+     total, which would be width-blind in the same way. It is not a penalty
+     bolted on: a 50/50 genuinely does not beat a 25/25 twice as reliably,
+     since it still makes one attack and still dies to one Venomous or Zapp.
+     Ordering it now produces on equal-total-stat boards: 1×40/40 `0.518` <
+     2×20/20 `0.569` < 4×10/10 `0.620` < 7×6/6 `0.652`; BUY-and-place now pays
+     **3.17×** a `+3/+3` pump (was 1.62×). The 1/1-hoarding case stays handled
+     — seven 1/1s score `0.362`, below the single 40/40.
+     `EXPONENT`/`SCALE` were fitted on **624 real end-of-turn boards** so that
+     Φ's *median is unchanged* (flat sum: value p50 34.0 → Φ 0.362; new: value
+     p50 59.8 → Φ 0.499 at `SAT=60`): the point is to change the **shape** of
+     the potential, not its magnitude, so the dense-vs-placement balance stays
+     where it was validated. `BOARD_SHAPE_STATS_SATURATION` therefore stays at
+     `60.0`, and the keyword/synergy bonuses were rescaled `3→5` and `5→9`
+     purely to hold their existing *share* of `value` under the 1.76× median
+     shift — neither is a retune.
+
      `BOARD_SHAPE_STATS_SATURATION` was raised **30.0 → 60.0** on 2026-09-02:
      a 30-game measurement on the real seat mix (2 PPOAgent + 2 StaticAgent +
      2 HeuristicAgent + 2 GreedyPlayAgent) found the trained-policy
@@ -342,7 +379,12 @@ anywhere, they are stale — `env/game_loop.py` is the only source of truth.
      (71) and the round-8 median (57, genuinely "mid-game" given the ~21-round
      median game length) — see the long comment above
      `BOARD_SHAPE_STATS_SATURATION` in `env/game_loop.py` for the full
-     percentile table. An empty-board penalty (`-EMPTY_BOARD_PENALTY` =
+     percentile table. **Note that this 2026-09-02 change also amplified the
+     width-blindness above** — it was diagnosed *from* a Suspicious-Prisonguard
+     -pumped board, and desaturating Φ made each pump pay more, not less. The
+     percentile numbers quoted here are on the OLD flat-sum `value` scale and
+     do not transfer to the new one; the refitted figures are in the exponent
+     paragraph above. An empty-board penalty (`-EMPTY_BOARD_PENALTY` =
      `-0.09`) fires separately, on the SELL action that empties the board.
    - `tier_potential(s) = min(1.0, tavern_tier / _expected_tier_for_round(round_num))`
      — reaching/exceeding the round's on-curve tier fully saturates this
@@ -386,6 +428,39 @@ placement together (not `level_rate` alone) — a naive leveling incentive can
 reproduce the same kind of degenerate policy a flat `board_size` reward
 caused historically (agent chases the proxy metric at the expense of what it
 actually stands for).
+
+---
+
+## Progress Metrics & Model Selection
+
+**Only the gauntlet Elo is trustworthy.** `evaluate_policy(..., opponent=
+'gauntlet')` seats the policy against a spread of its own frozen past selves
+and fits Bradley-Terry ratings anchored to the **oldest** reference
+(`fit_gauntlet_elo` in `train.py`), so successive values share a scale and
+"higher is better" holds across a whole run. Nothing in the shaping can
+inflate it.
+
+The other numbers are not substitutes:
+
+- `greedy`/`heuristic` eval **saturate and then stop discriminating**. On the
+  2026-09-04 run they pinned at top1 ≈ 0.92 / top4 ≈ 0.94 from update ~350
+  onward — 80% of the run reading flat while the policy regressed 155 Elo.
+- **Gauntlet *placement* is not comparable across time** even though the Elo
+  is: the reference set grows stronger as new refs are frozen, so placement
+  drifts toward 4.5 on its own. Quote the Elo.
+- `game_rewards` / `avg10` is **not a progress metric at all.** It has sd ≈
+  2.5 (dominated by placement), so a 10-game mean has sd ≈ 0.8 and its running
+  max is a luck record. `bg_agent_ppo_best.pt` used to be selected on it and
+  froze at **update 309** with `best_avg10 = 3.452` — never beaten across the
+  next 1,500 updates, so the run's genuinely best weights (update ~800) were
+  never saved anywhere. Since 2026-09-05 `best` is selected on gauntlet Elo
+  (`best_elo`, persisted in history so a resumed run doesn't re-save on the
+  first eval); `best_avg10` is still tracked and printed, but selects nothing.
+
+When judging a run, read gauntlet Elo first, then `update_board_avg`,
+`update_cwin_avg` and the per-round action mix together — a policy that is
+reward-hacking shows up there (narrow board, gold flowing somewhere other
+than BUY) long before any placement number moves.
 
 ---
 
