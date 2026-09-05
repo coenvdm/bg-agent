@@ -971,6 +971,21 @@ def _activatable_board_slots(board, gold: int) -> List[bool]:
     return out
 
 
+try:  # hero definitions are data, not code -- policy.py must import without them
+    from agent.hero_encoder import HERO_DEF_MAP as _HERO_DEF_MAP
+except Exception:  # pragma: no cover - only hit if hero_definitions.json is absent
+    _HERO_DEF_MAP = {}
+
+
+def _hero_power_type(hero_card_id: str) -> str:
+    """power_type for a hero id, or "null" when unknown.
+
+    Unknown falls back to "null" (no active power) so a missing definition
+    masks HERO_POWER OFF rather than offering an action that cannot work.
+    """
+    return (_HERO_DEF_MAP.get(hero_card_id) or {}).get("power_type", "null")
+
+
 def build_type_mask(player_state) -> torch.Tensor:
     """Build a [10] boolean mask of valid action types from a player state.
 
@@ -1059,7 +1074,16 @@ def build_type_mask(player_state) -> torch.Tensor:
     _hp_charges = getattr(player_state, "hero_power_charges", -1)
     _hp_cost    = getattr(player_state, "hero_power_cost", 0)
     _hero_id    = getattr(player_state, "hero_card_id", "")
-    _hp_active  = _hero_id not in ("", "TB_BaconShop_HERO_00")
+    # Only heroes with an ACTIVE power may take the HERO_POWER action. Fixed
+    # 2026-09-05: this used to enable type 6 for any hero whose id was not the
+    # empty placeholder, but 17 of the 29 heroes are "passive"/"null" and
+    # step_shopping only calls activate_no_pointer when power_type is
+    # "active_noptr". For those 17 the action burned one of the turn's 30
+    # actions and did nothing but set hero_power_used -- measured at 71% of
+    # sampled HERO_POWER uses changing no state at all. This test now matches
+    # step_shopping's own condition exactly, so a legal HERO_POWER always does
+    # something. It subsumes the old id check ("null" is not "active_noptr").
+    _hp_active  = _hero_power_type(_hero_id) == "active_noptr"
     mask[6] = bool(
         not _hp_used
         and (_hp_charges == -1 or _hp_charges > 0)

@@ -157,7 +157,9 @@ is `agent/policy.py` (`N_ACTION_TYPES`, `ACTION_TYPE_NAMES`, `TYPES_WITH_POINTER
 3 REROLL               # no pointer
 4 FREEZE               # no pointer
 5 LEVEL_UP             # no pointer
-6 HERO_POWER           # no pointer
+6 HERO_POWER           # no pointer -- masked ON only for heroes whose
+                       #   power_type is "active_noptr" (17 of 29 are
+                       #   passive/null and could not act; fixed 2026-09-05)
 7 END_TURN             # no pointer
 8 ACTIVATE(board_idx)  # pointer: board slot -- the minion's own Activate (N)
 9 REORDER(board_idx)   # pointer: board slot 1-6 -- moves that minion to the
@@ -324,12 +326,59 @@ anywhere, they are stale — `env/game_loop.py` is the only source of truth.
    `SHAPE_ALPHA` was itself raised `0.20 → 1.5` on 2026-09-01 once telescoping
    made the old value pay out ~5% of what it used to (see `CONTEXT.md`).
    - `board_potential(s)`: deterministic, noise-free — `value / (value +
-     BOARD_SHAPE_STATS_SATURATION)`, where
+     field)`, where `field` is the mean board value of the **other alive
+     players**, floored at `BOARD_SHAPE_FIELD_FLOOR = 60.0`
+     (`_field_denominator`), and
      `value = BOARD_STATS_MINION_SCALE * Σ_minion (atk+hp)**BOARD_STATS_MINION_EXPONENT`
      (per-minion effective stats via `symbolic.board_computer._board_power`)
      plus a flat `+5` per Divine Shield/Taunt/Reborn/Windfury instance
      (`BOARD_STATS_KEYWORD_BONUS`) and a flat `+9` if any tribe reaches the
      CLAUDE.md "synergistic" threshold of 4+ (`BOARD_STATS_SYNERGY_BONUS`).
+     Minions in **hand** count too, at `BOARD_STATS_HAND_WEIGHT = 0.5`
+     (spells excluded).
+
+     **The denominator is the FIELD, not a constant** (2026-09-05). It was a
+     fixed `BOARD_SHAPE_STATS_SATURATION = 60`, standing in for "a typical
+     opponent" — but real opponent boards grow from ~8 at round 1 to ~190 by
+     round 16, so Φ saturated exactly when the board is full and upgrading is
+     the only lever left. Measured against `BGCombatSim` as ground truth, the
+     shaped reward paid per 1.0 of **real win probability** gained was `0.103`
+     at round 6, `0.061` at round 14, `0.026` at round 18 — a late upgrade
+     worth **+0.445 win probability was paid +0.0114**, barely more than the
+     `0.009` saved by not rerolling three times, while costing 2 net gold and
+     3 actions instead of 1. The live policy responded exactly as priced: from
+     round ~15 its action mix was REROLL + END_TURN and *nothing else*, with
+     SELL at 2.0% of actions and 43% of all gold burned on rerolls. Dividing
+     by the field makes Φ a ratio-to-field — a Bradley-Terry-shaped
+     win-probability proxy, which is what placement actually depends on.
+     Measured after: calibration spread `4.02x → 2.32x`, late payoff roughly
+     doubled, **early payoff unchanged** (`+0.0763 → +0.0768`) so the width
+     fix's early-game incentive survives — by construction, since the floor
+     equals the old constant and the field mean only passes 60 around round 6,
+     making this a strict *late-game* correction.
+     Three details that matter: the field is **snapshotted once per round**
+     (`_refresh_field_values`), so Φ stays a deterministic function of state —
+     a denominator drifting as other seats shop concurrently is not, and
+     within a turn Φ then moves only through the agent's own board; **self is
+     excluded** from the mean, since including it lets the agent's own
+     improvement inflate its own denominator and damps the true gradient ~12.5%
+     at n=8; and `reset()` **clears** the snapshot, because a reused
+     `BattlegroundsGame` would otherwise carry game N's endgame lobby into
+     game N+1's initial Φ. It is **self-calibrating** — it reads the live
+     lobby rather than a fitted per-round curve, so it cannot go stale as the
+     policy improves, which is the exact failure mode that killed the
+     round-indexed gold ramp (2026-09-02).
+
+     `BOARD_STATS_HAND_WEIGHT` exists because BUY used to pay **exactly
+     `+0.0000`**: the minion moves shop → hand, the board is unchanged, so 3
+     gold bought a shaped signal of "nothing happened" and the whole payoff was
+     deferred to a separate PLACE action, making BUY read as pure cost in a
+     per-action advantage. Note this does **not** change the total value of
+     buy-and-place and cannot — Φ telescopes, so the endpoints fix the sum
+     (measured `+0.0188` either way). It is purely credit-assignment smoothing,
+     and it matters because "sell first, hope to buy better" is a bootstrapping
+     trap: if the policy rarely upgrades then `V(post-sell)` is low, so
+     `A(sell)` is negative, so it never learns to sell.
 
      The per-minion **exponent** (`0.7`, with `SCALE = 3.0`) was added
      2026-09-05 and is the load-bearing part. Before it, `value` was a flat
@@ -366,6 +415,7 @@ anywhere, they are stale — `env/game_loop.py` is the only source of truth.
      purely to hold their existing *share* of `value` under the 1.76× median
      shift — neither is a retune.
 
+     *Historical (the constant this replaced).*
      `BOARD_SHAPE_STATS_SATURATION` was raised **30.0 → 60.0** on 2026-09-02:
      a 30-game measurement on the real seat mix (2 PPOAgent + 2 StaticAgent +
      2 HeuristicAgent + 2 GreedyPlayAgent) found the trained-policy

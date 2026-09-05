@@ -1739,3 +1739,101 @@ right: from random init BUY is 12-15% of actions vs 8% in the regressed run.
   measuring something other than wall-clock for those. Cosmetic, but it makes
   throughput unreadable.
 ---
+
+---
+### 2026-09-05 (b) — Field-relative potential: fixing the sell/upgrade path
+**Files changed:** `env/game_loop.py`, `agent/policy.py`, `CLAUDE.md`
+
+**What was done:**
+
+*Diagnosis.* The width fix earlier today worked on its target (Prisonguard pump
+down 45%, gold-to-BUY up 43%, board now fills to 7 by round ~10), but the agent
+still refused to sell-and-upgrade: from round ~15 its action mix was REROLL +
+END_TURN and literally nothing else (measured 8 games: R16 reroll=50,
+end_turn=5, everything else zero), with SELL at 2.0% of actions and 43% of all
+gold burned on rerolls. Tested two candidate causes and used BGCombatSim as
+ground truth for what a board change is actually WORTH. Shaped reward paid per
+1.0 of real win probability gained:
+    round  6 (add a 20 into an empty slot)   0.103
+    round 14 (upgrade a 6 into a 32)         0.061
+    round 18 (upgrade a 30 into a 70)        0.026   <- 4x under-priced
+A late upgrade worth **+0.445 win probability was paid +0.0114**, barely more
+than the 0.009 saved by not rerolling three times, while costing 2 net gold and
+3 actions instead of 1. This refutes the "late upgrades are genuinely marginal"
+reading I had argued the message before -- the sim says they are worth 31-45
+win-probability points. `BOARD_SHAPE_STATS_SATURATION = 60` was a stand-in for
+"a typical opponent", but real opponent boards grow ~8 (R1) -> ~190 (R16), so a
+fixed constant made Phi saturate exactly when the board is full and upgrading is
+the only lever left.
+
+*Fix A (the cause).* The denominator is now the mean board value of the OTHER
+alive players, floored at `BOARD_SHAPE_FIELD_FLOOR = 60.0`
+(`_field_denominator` / `_refresh_field_values`). Phi becomes a ratio-to-field,
+i.e. a Bradley-Terry-shaped win-probability proxy, which is what placement
+actually depends on. Snapshotted ONCE per round so Phi stays a deterministic
+function of state (a denominator drifting as other seats shop concurrently is
+not) and so Phi moves only through the agent's own board within a turn. Self is
+excluded from the mean -- including it lets the agent's own improvement inflate
+its own denominator, damping the true gradient ~12.5% at n=8. Self-calibrating
+by design: it reads the live lobby rather than a fitted per-round curve, so it
+cannot go stale as the policy improves (the exact failure mode that killed the
+round-indexed gold ramp on 2026-09-02).
+
+*Fix B (credit assignment).* `BOARD_STATS_HAND_WEIGHT = 0.5` counts non-spell
+minions in hand. BUY used to pay EXACTLY +0.0000 -- 3 gold for a shaped signal
+of "nothing happened", with the whole payoff deferred to PLACE, so BUY read as
+pure cost in a per-action advantage. Note this does NOT change the total value
+of buy-and-place and cannot (Phi telescopes; measured +0.0188 either way) -- it
+is purely smoothing, and it matters because "sell first, hope to buy better" is
+a bootstrapping trap: if the policy rarely upgrades, V(post-sell) is low, so
+A(sell) is negative, so it never learns to sell.
+
+*Fix C.* `build_type_mask` now enables HERO_POWER only when the hero's
+`power_type == "active_noptr"`, matching `step_shopping`'s own condition. 17 of
+29 heroes are passive/null; for those the action burned one of the turn's 30
+actions and only set `hero_power_used` (measured: 71% of sampled HERO_POWER
+uses changed no state).
+
+**Verified:** Calibration spread 4.02x -> 2.32x with late payoff roughly doubled
+and the EARLY payoff unchanged (+0.0763 -> +0.0768), so the width fix's
+early-game incentive survives intact -- by construction, since the floor equals
+the old constant and the field mean only passes 60 around round 6, making this a
+strict late-game correction. Phi stays in [0,1) at every extreme tested
+(empty board, 7x400/400 against a weak field, 1x1/1 against a huge field).
+Dense-vs-placement balance re-measured on the REAL seat mix (12 games / 96
+player-games): ratio **0.502**, inside the <~0.6-0.8 band (up from 0.39 -- a real
+increase, worth watching). Telescoping bound held on all 12 games; PPO update
+runs clean (kl 0.048, 24/3682 bootstrap rows tagged). Added a reset() clear of
+`_field_values` after confirming a reused BattlegroundsGame would otherwise
+carry game N's endgame lobby into game N+1's initial Phi.
+
+**Current state:** Deployed with md5 parity on all 5 files; training RESUMED
+(not restarted) from update 1010 / 13.6M steps, previous checkpoint archived
+remotely as `archive/pre_fieldphi_u1010.pt`. Running at update 1011+.
+
+**Operational note:** vast.ai instance 49799906 was found **stopped** by the host
+around 10:20 (credit was fine at $4.58, so not a billing stop). Restarted with
+`vastai start instance`; workspace, checkpoints and gauntlet refs all survived.
+One stale `/dev/shm/bg_snapshot_*.pt` worker error on relaunch, which the pool
+rebuild path handled by itself. The local sync loop had died with the tmux
+server and has been restarted -- it had synced through update 999, so nothing
+was lost.
+
+**Open questions / next steps:**
+- **My "Elo is flat-to-down" read from earlier today was WRONG and I should
+  not have leaned on it.** It was 2 gauntlet references and 32 games:
+  +122 (u400) -> +74 (u600) -> +72 (u800) -> **+194.6 (u1000, new best)**.
+  Do not call a trend off the gauntlet until there are >=4 refs.
+- Watch, in order: gauntlet Elo (beat +194.6), `update_board_avg` (was 4.62),
+  SELL rate (was 2.0% of actions), and the R15+ action mix (was reroll +
+  end_turn only). Early post-resume signal is in the right direction on all of
+  them (SELL 6->8%, BUY 9->12%, REROLL 33->26%, HERO_POWER 4->1%) but that is
+  2 updates on a 200-game window that still contains pre-change data.
+- `explained_var` will dip before recovering: the value function was fitted on
+  the old Phi and the reward function just changed under it.
+- Dense/placement ratio moved 0.39 -> 0.502. Still inside the band but it is the
+  second dense change in one day; re-measure before any third.
+- Reroll deliberately still NOT retuned. If R15+ is still reroll-only by
+  ~update 1400, the cause is not pricing and I should look at whether SELL's
+  pointer scorer can even identify the weakest minion.
+---
