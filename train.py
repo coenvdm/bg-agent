@@ -2748,6 +2748,14 @@ def evaluate_policy(
             _elo = fit_gauntlet_elo(extras) if opponent == "gauntlet" and extras else None
             return {
                 "mean_placement": float(placements_arr.mean()),
+                # Standard error of mean_placement. Reported because this
+                # project has twice mis-read a noisy eval as a trend: at 32
+                # games with placement sd ~2.3 the SE is ~0.41, so a swing of
+                # 0.4 in mean placement -- or the ~100 Elo it maps to -- is
+                # indistinguishable from noise. Quote mean +/- 2*SE, not mean.
+                "placement_se":    float(placements_arr.std(ddof=1) /
+                                         max(len(placements_arr), 1) ** 0.5)
+                                   if len(placements_arr) > 1 else float("nan"),
                 "top1_rate":       float((placements_arr == 1).mean()),
                 "top4_rate":       float((placements_arr <= 4).mean()),
                 "n_games":         n_games,

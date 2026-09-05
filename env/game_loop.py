@@ -299,36 +299,6 @@ BOARD_STATS_KEYWORD_BONUS = 5.0
 BOARD_STATS_MINION_EXPONENT = 0.7
 BOARD_STATS_MINION_SCALE    = 3.0
 
-# Weight on minions sitting in HAND (bought but not yet placed), added
-# 2026-09-05. Before it, BUY paid a shaped reward of EXACTLY +0.0000: the
-# minion moves shop -> hand, the board is unchanged, so the agent spent 3 gold
-# and the shaping said nothing happened, with the entire payoff deferred to the
-# separate PLACE action. In a per-action advantage estimate BUY therefore read
-# as pure cost. At 0.5 a buy pays roughly half the eventual gain up front
-# (measured: +0.0000 -> +0.0127..+0.0151 on realistic late boards) and PLACE
-# pays the other half, so placing is still strictly rewarded.
-#
-# This does NOT change the total value of a buy-and-place, and cannot: Phi
-# telescopes, so the sum is fixed by the endpoints (measured +0.0188 either
-# way on the R14 upgrade). It is purely credit-assignment smoothing -- it makes
-# the sell/upgrade cycle reachable without taking a loss on faith, which
-# matters because "sell first, hope to buy better" is a bootstrapping trap: if
-# the policy rarely upgrades then V(post-sell) is low, so A(sell) is negative,
-# so it never learns to sell.
-#
-# Hoarding in hand is not a new exploit: HAND_PENALTY_COEF already charges
-# 0.024/card at end of turn, and Phi telescopes so holding a card cannot be
-# farmed -- it only defers the placement half of the payout.
-BOARD_STATS_HAND_WEIGHT = 0.5
-
-# Floor for the FIELD denominator (see _field_denominator). Set equal to the
-# old constant BOARD_SHAPE_STATS_SATURATION on purpose: while the lobby's mean
-# board value is below this, Phi is bit-identical to the pre-2026-09-05
-# behaviour. Measured, the field mean passes 60 at about round 6, so this
-# change is a strict LATE-game correction and leaves the early-game incentive
-# (which the width fix had just repaired) exactly as it was.
-BOARD_SHAPE_FIELD_FLOOR = 60.0
-
 # Flat bonus when the board has >=4 minions of one tribe -- mirrors CLAUDE.md's
 # "synergistic" threshold (Symbolic Layer Rule 4). Binary, not per-card, since going
 # from 4->5 of a tribe is a much smaller jump than crossing the threshold at all.
@@ -947,13 +917,6 @@ class BattlegroundsGame:
         """Reset the game and return initial observations for each player."""
         self.tavern_pool.reset()
         self.matchmaker.history.clear()
-        # Drop last game's field snapshot. A BattlegroundsGame can be reused
-        # across games, and a stale denominator here would be applied to the
-        # fresh empty boards that ps.phi is initialised from at the bottom of
-        # this method -- giving game N+1 a starting Phi computed against game
-        # N's endgame lobby. Cleared to {} so _field_denominator falls back to
-        # BOARD_SHAPE_FIELD_FLOOR until the first round snapshot is taken.
-        self._field_values = {}
         self.round_num = 1
         self._placement_counter = self.n_players  # placements count down from n_players (last place)
         self._accumulated_rewards = {i: 0.0 for i in range(self.n_players)}
@@ -1101,88 +1064,6 @@ class BattlegroundsGame:
         except Exception:
             return 0.5
 
-    def _raw_board_value(self, ps) -> float:
-        """Un-normalised board strength for *ps* -- the numerator of
-        _board_stats_potential, without the hand credit.
-
-        Board only, deliberately: this feeds the FIELD denominator, and what an
-        opponent threatens you with in combat is the minions they have PLAYED.
-        """
-        if not ps.board:
-            return 0.0
-        return BOARD_STATS_MINION_SCALE * sum(
-            _board_power([_minion_to_dict(m)]) ** BOARD_STATS_MINION_EXPONENT
-            for m in ps.board
-        )
-
-    def _refresh_field_values(self) -> None:
-        """Snapshot every alive player's board value for this round's Phi.
-
-        Called ONCE per round (start of the shopping phase). Holding the
-        denominator fixed for the whole turn matters for two reasons:
-
-        1. Phi must be a deterministic function of state for potential-based
-           shaping to telescope. A snapshot taken at a well-defined point is;
-           a value that drifts as the OTHER seats shop concurrently is not.
-        2. Within a turn, Phi then moves only through the agent's own board,
-           which keeps the telescoping clean exactly where the agent acts.
-
-        Between rounds the denominator does move, which is intended: it is what
-        makes Phi mean "how do I compare to the field" rather than "how much
-        stat do I own".
-        """
-        self._field_values = {
-            p.player_id: self._raw_board_value(p)
-            for p in self.players if p.alive
-        }
-
-    def _field_denominator(self, ps) -> float:
-        """Denominator of the board potential: the mean board value of the
-        OTHER alive players, floored at BOARD_SHAPE_FIELD_FLOOR.
-
-        Replaces the constant BOARD_SHAPE_STATS_SATURATION (2026-09-05). That
-        constant was a stand-in for "a typical opponent", but real opponent
-        boards grow from ~8 at round 1 to ~190 by round 16, so a fixed 60 made
-        Phi saturate exactly when the board is full and upgrading is the only
-        lever left. Measured against BGCombatSim as ground truth, the shaped
-        reward paid per 1.0 of real win probability gained was:
-
-            round  6  (add a 20 into an empty slot)   0.103
-            round 14  (upgrade a 6 into a 32)         0.061
-            round 18  (upgrade a 30 into a 70)        0.026   <- 4x under-priced
-
-        A late upgrade worth +0.445 win probability paid +0.0114, barely more
-        than the 0.009 saved by not rerolling three times -- which is exactly
-        where the live policy stopped upgrading and switched to pure reroll
-        (measured: from round ~15 the action mix is reroll + end_turn and
-        nothing else). Dividing by the field instead makes Phi a ratio-to-field,
-        i.e. a Bradley-Terry-shaped win-probability proxy, which is the quantity
-        placement actually depends on. Same measurement after the change:
-        miscalibration spread 4.02x -> 2.21x, late payoff roughly doubled, and
-        the early payoff essentially unchanged (+0.0763 -> +0.0776) so the
-        board-building incentive the width fix had just repaired survives.
-
-        Self is EXCLUDED from the mean. Including it would let the agent's own
-        improvement inflate its own denominator: with n=8 that damps the true
-        gradient by ~12.5%, a pure artifact and trivially avoidable.
-
-        Self-calibrating on purpose -- it reads the actual lobby rather than a
-        fitted per-round curve, so it cannot go stale as the policy improves.
-        That is the exact failure mode that killed the round-indexed gold ramp
-        (CLAUDE.md 2026-09-02): the curve was tuned for ~23-round games, games
-        then got shorter, and its teeth fell outside the real round range.
-        """
-        vals = getattr(self, "_field_values", None)
-        if not vals:
-            # Before the first round's snapshot (reset(), which initialises
-            # ps.phi) and in any degenerate lobby: fall back to the floor,
-            # which reproduces the old constant-denominator behaviour exactly.
-            return BOARD_SHAPE_FIELD_FLOOR
-        others = [v for pid, v in vals.items() if pid != ps.player_id]
-        if not others:
-            return BOARD_SHAPE_FIELD_FLOOR
-        return max(sum(others) / len(others), BOARD_SHAPE_FIELD_FLOOR)
-
     def _board_stats_potential(self, ps) -> float:
         """Deterministic, noise-free board-strength potential: total effective
         stats (attack+health, via the same _board_power helper the symbolic
@@ -1206,8 +1087,7 @@ class BattlegroundsGame:
         terms, so evaluating it one minion at a time is an exact decomposition
         of the old board-level call -- only the exponent is new.
         """
-        hand_minions = [m for m in ps.hand if not getattr(m, "is_spell", False)]
-        if not ps.board and not hand_minions:
+        if not ps.board:
             return 0.0
         board_dicts = [_minion_to_dict(m) for m in ps.board]
         # Concave per MINION, then summed -- NOT concave over the board total,
@@ -1218,14 +1098,6 @@ class BattlegroundsGame:
             _board_power([d]) ** BOARD_STATS_MINION_EXPONENT
             for d in board_dicts
         )
-        # Minions in HAND count at a discount, so BUY pays something instead of
-        # exactly zero -- see BOARD_STATS_HAND_WEIGHT. Spells are excluded: a
-        # Blood Gem in hand is not a body and contributes no board strength.
-        if hand_minions:
-            power += BOARD_STATS_MINION_SCALE * BOARD_STATS_HAND_WEIGHT * sum(
-                _board_power([_minion_to_dict(m)]) ** BOARD_STATS_MINION_EXPONENT
-                for m in hand_minions
-            )
 
         keyword_bonus = 0.0
         for m in board_dicts:
@@ -1246,7 +1118,7 @@ class BattlegroundsGame:
         synergy_bonus = BOARD_STATS_SYNERGY_BONUS if tribe_counts and max(tribe_counts.values()) >= 4 else 0.0
 
         value = power + keyword_bonus + synergy_bonus
-        return value / (value + self._field_denominator(ps))
+        return value / (value + BOARD_SHAPE_STATS_SATURATION)
 
     def _board_potential(self, ps) -> float:
         """Board-strength component of Φ(s): the deterministic stats potential,
@@ -2073,10 +1945,6 @@ class BattlegroundsGame:
             # Phase 1 — setup all alive players (fast, no inference)
             initial_obs: dict = {}
             round_agents: dict = {}
-            # Snapshot the field BEFORE anyone shops, so every player's Phi
-            # this round is measured against the same, well-defined lobby state
-            # (see _refresh_field_values).
-            self._refresh_field_values()
             for ps in alive_players:
                 ps.round_num = round_num
                 ps.gold      = self._gold_for_round(round_num)

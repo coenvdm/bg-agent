@@ -1837,3 +1837,99 @@ was lost.
   ~update 1400, the cause is not pricing and I should look at whether SELL's
   pointer scorer can even identify the weakest minion.
 ---
+
+---
+### 2026-09-05 (c) — Reverted the field-relative Phi; fixed the instrument instead
+**Files changed:** `env/game_loop.py` (reverted), `train.py`, `run_fresh_training.py`, `CLAUDE.md`
+
+**What was done:**
+
+*The field-relative Phi (2026-09-05b) was a regression and is reverted.* 600
+updates / 8.8M steps of evidence, every axis worse: board_avg 4.586 -> 4.28-4.38,
+choice_avg (the Prisonguard pump) 22.5 -> 28-30, BUY 0.115 -> 0.101-0.108,
+SELL 0.083 -> 0.071-0.079, PLACE 0.116 -> 0.101-0.108, train placement
+4.045 -> 4.15-4.26, combat winrate 0.492 -> 0.478-0.485. Gauntlet Elo
+194.6 -> 188.7 -> 183.1 -> 163.3. The behavioural metrics don't depend on the
+gauntlet, so they corroborate the Elo decline independently.
+
+*Why my gates missed it.* The calibration gate measured dPhi for one player's
+board change **while holding the field fixed** at a measured constant. In
+self-play the field CO-EVOLVES with the agent: as the population's boards grow
+the denominator grows with them, damping the board-building signal in a way a
+fixed-field test cannot see. I had named this exact risk in the design
+discussion ("a relative Phi only rewards out-building others... the absolute
+signal is a much denser teacher") and then built a gate that could not test it.
+
+*What the deeper investigation actually found.* Chasing the "agent won't
+sell/upgrade" symptom further, three findings, all negative for the reward
+hypothesis:
+  - **The pointer scorers are near-perfect.** P(sell the 1/1 dud among six
+    30/30s) = 1.000 in every board position; on a graded 2/2..40/40 board the
+    mass is 0.54/0.46 on the two weakest and 0.00 elsewhere. P(buy the 40/40
+    among five 2/2s) = 1.000. Representation is NOT the problem.
+  - **The type distribution responds correctly.** On REAL in-game states
+    (round>=10, 8 games): full board with a genuine upgrade in the shop ->
+    P(SELL)=0.122, P(BUY)=0.058, P(END_TURN)=0.014; full board with no upgrade
+    -> P(SELL)=0.017, P(END_TURN)=0.191. SELL responds to shop quality by
+    **7.09x**, BUY by 5x. The agent recognises upgrades.
+  - **The by-round profile is healthy.** tier 6 by round 12 (curve says 10),
+    board 6.4-6.7/7 from round 11 on, hp 36-40 through round 17. The
+    "board 4.42/7, never fills" framing from earlier sessions was WRONG -- that
+    average is dragged down by rounds 1-5 where the board cannot be full.
+  - The self-play league (`SnapshotPool`: rolling + milestone snapshots,
+    recency-weighted sampling, thinning) is already sophisticated. Left alone.
+
+*Conclusion: stop changing the MDP; fix the measurement.* Potential-based
+shaping provably cannot change the value of the sell/upgrade cycle (Phi
+telescopes -- the endpoints fix the sum, measured +0.0188 regardless of hand
+weight), so Phi was never the lever for it. Meanwhile the only trustworthy
+progress metric was running on 32 games. Demonstrated directly: the SAME policy
+at the SAME seed scored mean placement **1.312 at n=32 and 1.562 at n=96**.
+
+*Changes (measurement only, zero MDP change):*
+  - `EVAL_GAUNTLET_GAMES` 32 -> 96 (placement SE 0.41 -> 0.23).
+  - `GAUNTLET_EVERY` 300 -> 150. GAUNTLET_SIZE is 7 but the pool held only 5
+    refs at update 1600 and would not have filled until 2100, so every gauntlet
+    so far fitted Bradley-Terry over a different, growing opponent graph -- a
+    large part of why successive Elo read 122/74/72/195.
+  - Eval budget REALLOCATED, not just increased: `EVAL_GREEDY_GAMES` 64->32 and
+    `EVAL_HEUR_GAMES` 32->16 (both documented as saturated and
+    non-discriminating) fund `EVAL_REF_GAMES` 32->96. Net +12% eval cost.
+  - `evaluate_policy` now returns `placement_se`, and both the EVAL and GAUNTLET
+    log lines print `+/-2se`, so these numbers get read as intervals.
+  - Kept from 2026-09-05b: the HERO_POWER mask fix (independently verified,
+    does not touch Phi). Reverted: field denominator AND hand credit -- hand
+    credit was confounded with the field change, and reverting both puts the
+    u1000 value function back in the exact MDP it was fitted on.
+
+**Verified:** `load_checkpoint` returns True on the u1000 checkpoint (a False
+here silently restarts from zero) and `explained_var` is 0.809 immediately,
+confirming the value function is back in its native MDP. Structural asserts
+that the width fix is present and the field/hand constants are gone. PPO update
+clean (kl 0.0031). `placement_se` verified non-nan and positive at n=32 and 96.
+md5 parity on all deployed files.
+
+**Current state:** Training RESUMED from `bg_agent_ppo_best.pt` (update 1000,
+13.46M steps, Elo +194.6) -- the checkpoint the Elo-based selection added on
+2026-09-05 preserved. That fix paid for itself: under the old avg10 criterion
+the peak would have been lost. Regressed run archived remotely at
+`archive/run_fieldphi_regressed/`. Gauntlet refs u1200/u1500 (frozen from the
+regressed policy) deleted so the new run freezes its own; **ref_u300 is kept as
+the Elo anchor, so the new run's Elo is directly comparable to the +194.6 bar.**
+History reset to a minimal `{best_elo, best_avg10}` file after verifying all 72
+history reads use `.get()` with defaults and none use `hist[...]`.
+
+**Open questions / next steps:**
+- **Do not touch Phi again without a co-evolution test.** Any shaping change
+  must be validated in a setting where the opponent population moves too, not
+  against a frozen field.
+- The bar is Elo **+194.6** (anchored to ref_u300, so comparable). First
+  gauntlet at update 1200 on 96 games; ignore anything inside +/-2se.
+- Reroll still NOT retuned, and I now have evidence AGAINST retuning it: the
+  policy rerolls 57% of the time in states where it has identified an upgrade,
+  but it also correctly shifts 7x toward SELL in those states. That may be
+  legitimate option value at 10 gold, not a defect. Needs a real
+  stopping-rule analysis before touching the price.
+- update_count (1000+) is offset from the fresh history's index (0+). Cosmetic
+  only -- `eval_updates` records true update numbers so eval charts are correct.
+---

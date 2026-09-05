@@ -634,9 +634,19 @@ if __name__ == "__main__":
     # share because it is the historical series; the smaller n is more than
     # offset by the fixed EVAL_SEED below, which removes the between-point
     # game-draw variance that used to dominate this metric.
-    EVAL_GREEDY_GAMES = 64
-    EVAL_HEUR_GAMES   = 32
-    EVAL_REF_GAMES    = 32
+    # Eval budget REALLOCATED 2026-09-05. greedy/heuristic are FIXED bars that
+    # a good policy clears and then stops discriminating -- measured, they pinned
+    # at top1 ~0.92 / top4 ~0.94 from update ~350 onward, i.e. 80% of a run with
+    # no readable signal, while the policy regressed 155 Elo underneath them.
+    # Spending 96 games every 50 updates on saturated bars while the two metrics
+    # that DO discriminate (reference and gauntlet) each got 32 was backwards.
+    # greedy 64->32 and heuristic 32->16 fund reference 32->96 below.
+    EVAL_GREEDY_GAMES = 32
+    EVAL_HEUR_GAMES   = 16
+    # 32 -> 96: SE on mean placement falls 2.3/sqrt(32)=0.41 to 2.3/sqrt(96)=0.23.
+    # This is the every-50-updates discriminating signal; at 32 games its observed
+    # range was 2.47..4.28, which is mostly sampling noise.
+    EVAL_REF_GAMES    = 96
     EVAL_SEED         = 12345      # FIXED for the whole run -- see the eval block
     # Update at which the frozen reference opponent is snapshotted. Early
     # enough that the policy is already past random flailing, late enough that
@@ -655,7 +665,13 @@ if __name__ == "__main__":
     # It does not saturate the way one reference does, because the comparison
     # set rolls forward as new checkpoints are added.
     GAUNTLET_DIR   = Path('gauntlet_refs')
-    GAUNTLET_EVERY = 300     # freeze a new gauntlet reference every N updates
+    # 300 -> 150. GAUNTLET_SIZE is 7 but at 300 the pool only reached 5 refs by
+    # update 1600 and would not have filled until update 2100, so every gauntlet
+    # eval so far fitted Bradley-Terry over a DIFFERENT, growing opponent graph --
+    # which is a large part of why successive Elo values swung 122/74/72/195.
+    # More refs sooner means more pairwise comparisons per game and a
+    # better-conditioned fit, for the cost of one extra state_dict on disk.
+    GAUNTLET_EVERY = 150     # freeze a new gauntlet reference every N updates
     GAUNTLET_SIZE  = 7       # non-eval seats in the lobby
     # Sizing, measured rather than guessed: a gauntlet lobby runs a neural
     # forward pass for ALL 8 seats, where the greedy/heuristic evals run one
@@ -664,7 +680,11 @@ if __name__ == "__main__":
     # 32 games still yields 32 x C(8,2) = 896 pairwise outcomes, which is
     # ample to fit 8 ratings -- the multiplayer lobby is exactly what makes
     # this affordable. Run on its own slower cadence.
-    EVAL_GAUNTLET_GAMES = 32
+    # 32 -> 96. The gauntlet Elo is the ONLY trustworthy progress metric here
+    # (CLAUDE.md, Progress Metrics), and at 32 games it could not resolve
+    # anything smaller than roughly 100 Elo -- which is larger than the effects
+    # being chased. ~9 min per eval every 200 updates (~2.7h) = ~5% overhead.
+    EVAL_GAUNTLET_GAMES = 96
     GAUNTLET_EVAL_EVERY = 200   # updates between gauntlet evals (vs EVAL_EVERY=50)
     EVAL_EVERY      = 50
     EVAL_N_GAMES    = 128
@@ -1383,8 +1403,13 @@ if __name__ == "__main__":
                     )
                     g_place = _gres['mean_placement']
                     g_elo   = (_gres.get('elo') or {}).get('current')
+                    _gse = _gres.get('placement_se', float('nan'))
+                    # +/-2*SE is printed so this number is read as an interval.
+                    # Two separate sessions have called a trend off gauntlet
+                    # swings that were inside their own noise band.
                     print(f'  GAUNTLET @ update {update_count}: '
-                          f'placement={g_place:.2f} vs {len(_sel)} past selves '
+                          f'placement={g_place:.2f}+/-{2*_gse:.2f} (2se, n={EVAL_GAUNTLET_GAMES}) '
+                          f'vs {len(_sel)} past selves '
                           f'({_sel[0].stem}..{_sel[-1].stem}) '
                           f'elo={"n/a" if g_elo is None else f"{g_elo:+.0f}"}', flush=True)
                 except Exception as _e:
@@ -1419,11 +1444,14 @@ if __name__ == "__main__":
             # None (not 0.0) before the reference snapshot exists -- 0.0 would
             # plot as a spectacular result rather than as missing data.
             eval_ref_mean_placement.append(ref_mean)
+            _rse = (ref_res.get('placement_se', float('nan'))
+                    if REF_SNAPSHOT_PATH.exists() else float('nan'))
             print(f'  EVAL @ update {update_count}: '
                   f'greedy={eval_result["mean_placement"]:.2f} '
                   f'(top1={eval_result["top1_rate"]:.2f} top4={eval_result["top4_rate"]:.2f}) | '
                   f'heuristic={eval_heur["mean_placement"]:.2f} | '
-                  f'reference={"n/a" if ref_mean is None else f"{ref_mean:.2f}"}', flush=True)
+                  f'reference={"n/a" if ref_mean is None else f"{ref_mean:.2f}+/-{2*_rse:.2f}"}',
+                  flush=True)
 
             # Adaptive opponent mix: trigger ONLY off this fixed-opponent
             # greedy eval (never in-game placement vs the co-evolving

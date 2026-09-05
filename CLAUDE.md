@@ -326,94 +326,31 @@ anywhere, they are stale — `env/game_loop.py` is the only source of truth.
    `SHAPE_ALPHA` was itself raised `0.20 → 1.5` on 2026-09-01 once telescoping
    made the old value pay out ~5% of what it used to (see `CONTEXT.md`).
    - `board_potential(s)`: deterministic, noise-free — `value / (value +
-     field)`, where `field` is the mean board value of the **other alive
-     players**, floored at `BOARD_SHAPE_FIELD_FLOOR = 60.0`
-     (`_field_denominator`), and
+     BOARD_SHAPE_STATS_SATURATION)`, where
      `value = BOARD_STATS_MINION_SCALE * Σ_minion (atk+hp)**BOARD_STATS_MINION_EXPONENT`
      (per-minion effective stats via `symbolic.board_computer._board_power`)
      plus a flat `+5` per Divine Shield/Taunt/Reborn/Windfury instance
      (`BOARD_STATS_KEYWORD_BONUS`) and a flat `+9` if any tribe reaches the
      CLAUDE.md "synergistic" threshold of 4+ (`BOARD_STATS_SYNERGY_BONUS`).
-     Minions in **hand** count too, at `BOARD_STATS_HAND_WEIGHT = 0.5`
-     (spells excluded).
 
-     **The denominator is the FIELD, not a constant** (2026-09-05). It was a
-     fixed `BOARD_SHAPE_STATS_SATURATION = 60`, standing in for "a typical
-     opponent" — but real opponent boards grow from ~8 at round 1 to ~190 by
-     round 16, so Φ saturated exactly when the board is full and upgrading is
-     the only lever left. Measured against `BGCombatSim` as ground truth, the
-     shaped reward paid per 1.0 of **real win probability** gained was `0.103`
-     at round 6, `0.061` at round 14, `0.026` at round 18 — a late upgrade
-     worth **+0.445 win probability was paid +0.0114**, barely more than the
-     `0.009` saved by not rerolling three times, while costing 2 net gold and
-     3 actions instead of 1. The live policy responded exactly as priced: from
-     round ~15 its action mix was REROLL + END_TURN and *nothing else*, with
-     SELL at 2.0% of actions and 43% of all gold burned on rerolls. Dividing
-     by the field makes Φ a ratio-to-field — a Bradley-Terry-shaped
-     win-probability proxy, which is what placement actually depends on.
-     Measured after: calibration spread `4.02x → 2.32x`, late payoff roughly
-     doubled, **early payoff unchanged** (`+0.0763 → +0.0768`) so the width
-     fix's early-game incentive survives — by construction, since the floor
-     equals the old constant and the field mean only passes 60 around round 6,
-     making this a strict *late-game* correction.
-     Three details that matter: the field is **snapshotted once per round**
-     (`_refresh_field_values`), so Φ stays a deterministic function of state —
-     a denominator drifting as other seats shop concurrently is not, and
-     within a turn Φ then moves only through the agent's own board; **self is
-     excluded** from the mean, since including it lets the agent's own
-     improvement inflate its own denominator and damps the true gradient ~12.5%
-     at n=8; and `reset()` **clears** the snapshot, because a reused
-     `BattlegroundsGame` would otherwise carry game N's endgame lobby into
-     game N+1's initial Φ. It is **self-calibrating** — it reads the live
-     lobby rather than a fitted per-round curve, so it cannot go stale as the
-     policy improves, which is the exact failure mode that killed the
-     round-indexed gold ramp (2026-09-02).
-
-     `BOARD_STATS_HAND_WEIGHT` exists because BUY used to pay **exactly
-     `+0.0000`**: the minion moves shop → hand, the board is unchanged, so 3
-     gold bought a shaped signal of "nothing happened" and the whole payoff was
-     deferred to a separate PLACE action, making BUY read as pure cost in a
-     per-action advantage. Note this does **not** change the total value of
-     buy-and-place and cannot — Φ telescopes, so the endpoints fix the sum
-     (measured `+0.0188` either way). It is purely credit-assignment smoothing,
-     and it matters because "sell first, hope to buy better" is a bootstrapping
-     trap: if the policy rarely upgrades then `V(post-sell)` is low, so
-     `A(sell)` is negative, so it never learns to sell.
-
-     The per-minion **exponent** (`0.7`, with `SCALE = 3.0`) was added
-     2026-09-05 and is the load-bearing part. Before it, `value` was a flat
-     sum of attack+health over the whole board, which made Φ **blind to board
-     width**: measured on the live u1806 checkpoint, one 40/40 scored
-     `Φ=0.571` and seven 6/6s scored `Φ=0.562` — indistinguishable, when in
-     Battlegrounds the wide board wins that fight overwhelmingly (seven bodies
-     and seven attacks against one, and since the 2026-09-04 first-attacker
-     fix it also strikes first). The old code defended the flat sum as
-     "quality-weighted, not count-weighted", guarding against hoarding 1/1s to
-     fill slots — but it left the **opposite** degenerate board completely
-     unguarded, and that is the one the policy actually found. Measured over 6
-     games on that checkpoint: **135 of 150 choices (90%) were Suspicious
-     Prisonguard's "+3/+3 to another minion"** (22.5/game), **24% of all gold
-     went to ACTIVATE and only 13.6% to buying minions**, and board size sat
-     at **4.42/7, never filling**. Per gold the pump paid `0.0129` ΔΦ against
-     BUY's `0.0098` — the agent was right to pump; Φ was wrong. Combat win
-     rate fell 0.558 → 0.486 and gauntlet Elo peaked at update 800 (`+299`)
-     and decayed to `+144` by update 1800.
-     Concavity is applied **per minion, then summed** — never over the board
-     total, which would be width-blind in the same way. It is not a penalty
-     bolted on: a 50/50 genuinely does not beat a 25/25 twice as reliably,
-     since it still makes one attack and still dies to one Venomous or Zapp.
-     Ordering it now produces on equal-total-stat boards: 1×40/40 `0.518` <
-     2×20/20 `0.569` < 4×10/10 `0.620` < 7×6/6 `0.652`; BUY-and-place now pays
-     **3.17×** a `+3/+3` pump (was 1.62×). The 1/1-hoarding case stays handled
-     — seven 1/1s score `0.362`, below the single 40/40.
-     `EXPONENT`/`SCALE` were fitted on **624 real end-of-turn boards** so that
-     Φ's *median is unchanged* (flat sum: value p50 34.0 → Φ 0.362; new: value
-     p50 59.8 → Φ 0.499 at `SAT=60`): the point is to change the **shape** of
-     the potential, not its magnitude, so the dense-vs-placement balance stays
-     where it was validated. `BOARD_SHAPE_STATS_SATURATION` therefore stays at
-     `60.0`, and the keyword/synergy bonuses were rescaled `3→5` and `5→9`
-     purely to hold their existing *share* of `value` under the 1.76× median
-     shift — neither is a retune.
+     **A field-relative denominator was tried on 2026-09-05 and REVERTED the
+     same day — do not retry it without a co-evolution test.** The idea was to
+     divide by the lobby's mean board value instead of a constant, on the
+     evidence that shaped reward per unit of *real* win probability (measured
+     against `BGCombatSim`) fell 4x from round 6 to round 18. The offline
+     calibration looked excellent (spread 4.02x → 2.32x, early payoff
+     unchanged). It was still a regression: over 600 updates board_avg fell
+     4.586 → 4.28, the Prisonguard pump rose 22.5 → 29 choices/game, BUY/SELL/
+     PLACE all fell, and gauntlet Elo went 194.6 → 163.3.
+     **Why the gate missed it:** it measured ΔΦ for one player's board change
+     while holding the field FIXED. In self-play the field co-evolves — as the
+     whole population's boards grow, the denominator grows with them, damping
+     the board-building signal in a way no fixed-field test can see. Any future
+     shaping change must be validated against a *moving* opponent population.
+     **And note the deeper point:** potential-based shaping provably cannot
+     change the value of the sell/upgrade cycle at all — Φ telescopes, so the
+     endpoints fix the sum (measured +0.0188 regardless of hand weight). Φ was
+     never the lever for that symptom.
 
      *Historical (the constant this replaced).*
      `BOARD_SHAPE_STATS_SATURATION` was raised **30.0 → 60.0** on 2026-09-02:
@@ -507,10 +444,24 @@ The other numbers are not substitutes:
   (`best_elo`, persisted in history so a resumed run doesn't re-save on the
   first eval); `best_avg10` is still tracked and printed, but selects nothing.
 
+**Read every eval as an interval, not a number.** `evaluate_policy` returns
+`placement_se`, and the EVAL/GAUNTLET log lines print `±2se`. This project has
+twice called a trend off noise: gauntlet Elo read `+122 → +74 → +72 → +195`
+over updates 400–1000, which was mostly a 32-game sample plus a *growing*
+reference set (Bradley-Terry was being fitted over a different opponent graph
+each time). Demonstrated directly: the same policy at the same seed scored
+mean placement **1.312 at n=32 and 1.562 at n=96**. Sizing as of 2026-09-05 —
+gauntlet 96 games every 200 updates, reference 96 every 50, a new gauntlet ref
+every 150 updates so the 7 seats actually fill; greedy (32) and heuristic (16)
+were *cut* to pay for it, since they saturate and stop discriminating.
+
 When judging a run, read gauntlet Elo first, then `update_board_avg`,
 `update_cwin_avg` and the per-round action mix together — a policy that is
 reward-hacking shows up there (narrow board, gold flowing somewhere other
-than BUY) long before any placement number moves.
+than BUY) long before any placement number moves. Read `update_board_avg`
+carefully though: it averages over ALL rounds including 1–5 where the board
+cannot be full, so ~4.6 is normal for a policy that actually runs 6.4–6.7/7
+from round 11 on. Profile by round before calling a board "narrow".
 
 ---
 
