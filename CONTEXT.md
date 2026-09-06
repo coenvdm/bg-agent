@@ -1933,3 +1933,62 @@ history reads use `.get()` with defaults and none use `hist[...]`.
 - update_count (1000+) is offset from the fresh history's index (0+). Cosmetic
   only -- `eval_updates` records true update numbers so eval charts are correct.
 ---
+
+---
+### 2026-09-06 — 1,400-update clean run on the reverted config; instance archived and destroyed
+**Files changed:** none (run + archive session)
+
+**What was done:** Ran the reverted config (width-fix Phi, hero-power mask, new
+eval sizing) from the u1000 peak for 1,404 updates / 19.7M steps / ~18h, then
+saved everything and destroyed the vast.ai box.
+
+**Result: the run improved slightly and then plateaued.** Gauntlet Elo
+(96 games, 7 refs, anchored to ref_u300 so directly comparable to the +194.6
+bar it resumed from):
+    u1200 **+221.5**  u1400 +218.8  u1600 +175.5  u1800 +124.6
+    u2000 +168.6   u2200 +208.5   u2400 +191.3
+So +194.6 -> +221.5 in the first 200 updates, then 1,200 updates of oscillation
+between +125 and +208 with no trend. Gauntlet placement 3.29 -> 3.85 over the
+same span with 2se ~ +/-0.5, i.e. the swings are partly real and partly noise --
+which is exactly what the new instrumentation was added to make visible, and it
+worked. Caveat that still stands: refs are added every 150 updates, so the
+opponent field genuinely strengthens across the run; some of the late decline
+is the gauntlet getting harder, not the policy getting worse.
+
+**Fundamentals drifted mildly WORSE over the run** even as Elo held: combat
+winrate 0.537 -> 0.490, damage taken 3.46 -> 3.72, game length 19.6 -> 18.8
+rounds, tavern tier 3.84 -> 3.64, choice_avg (the Prisonguard pump) 26.9 ->
+31.8, board_avg flat at ~4.4. The one clear improvement was REROLL 0.291 ->
+0.236 and SELL 0.069 -> 0.078; HERO_POWER sits at 0.006 (the mask fix holding).
+explained_var rose 0.803 -> 0.833.
+
+**Archive:** full workspace pulled to
+`~/files/bg-agent-archive/vast_49799906_final_2026-09-06/` (1.6G, 88 files).
+Verified BEFORE destroying: 88 files and 1.6G on both sides, md5 match on all
+five key files, every checkpoint loads, all 13 gauntlet refs present (including
+`ref_u300`, the Elo anchor), all three run histories parse (this run 1405
+updates, the 2026-09-04 run 1821, the field-Phi regressed run 1619), all three
+training logs present. Only files outside the workspace were `/dev/shm`
+transients (ephemeral worker IPC scratch, duplicates of live weights).
+Instance 49799906 destroyed; 0 instances remain.
+
+**Current state:** No GPU box running. Best weights are
+`archive/.../bg_agent_ppo_best.pt` (update 1200, 16.3M steps, Elo **+221.5**);
+latest are `bg_agent_ppo.pt` (update 2406, 33.1M steps) but that is ~30 Elo
+below best. Local `bggraph` dashboard still serves the last synced history at
+http://127.0.0.1:8420; the `bgsync` loop is stopped (nothing to sync).
+**Account credit is down to $0.64** -- a top-up is required before renting again.
+
+**Open questions / next steps:**
+- Resume from `bg_agent_ppo_best.pt` (u1200, +221.5), NOT the u2406 tip.
+- The plateau is the real finding: 1,200 updates bought nothing measurable. The
+  fundamentals drifting worse while Elo held flat suggests the gauntlet's
+  growing ref set is masking a mild decline. Consider a FIXED evaluation set
+  (freeze 7 refs once and never add) as a second, drift-free progress metric --
+  the growing-graph confound is now the main limit on the instrument.
+- Do NOT touch Phi without a co-evolution test (see 2026-09-05c).
+- The pump (choice_avg 31.8/game) and late-game reroll remain the two standing
+  behavioural oddities, both previously investigated without a clear defect
+  found: pointer scorers are near-perfect and the type distribution responds
+  correctly (SELL 7.09x to shop quality).
+---
