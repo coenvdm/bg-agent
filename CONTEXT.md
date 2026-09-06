@@ -1992,3 +1992,97 @@ http://127.0.0.1:8420; the `bgsync` loop is stopped (nothing to sync).
   found: pointer scorers are near-perfect and the type distribution responds
   correctly (SELL 7.09x to shop quality).
 ---
+
+---
+### 2026-09-06 (b) — Strategy analysis of the trained agent; the ceiling is tribal synergy
+**Files changed:** `CONTEXT.md` (analysis only, no code changes)
+
+**What was done:** Analysed `bg_agent_ppo_best.pt` (update 1200, Elo +221.5) over
+20 games vs 3 greedy + 4 heuristic. Mean placement 1.55, top1 0.70 -- it beats
+the scripted bots comfortably. Every rate below is reported against a BASE RATE,
+because "buys Activate minions 21% of the time" is meaningless without knowing
+what fraction of the shop had Activate.
+
+**The strategy it converged on:** rush tier 6 by round 8 (46%->60%->76% of gold
+into LEVEL_UP at rounds 6/7/8, during which 75-95% of turns buy nothing), then
+buy stat-engines, funnel buffs into one minion, then reroll aimlessly from
+round 14 onward.
+
+**1. Rerolling -- yes, but it is a SYMPTOM.** 2.99 rerolls/turn overall; by round
+17 it is 9.0/turn, 100% of gold, and 0.00 buys/turn (100% of turns buy nothing).
+53% of all turns end with zero minions bought. BUT from round ~14 the shop
+genuinely offers nothing better: its top minion is ~73 stats while a fresh
+tier-6 shop minion is ~20-30. Rerolling is locally rational because there is no
+remaining way to convert gold into board strength. **This vindicates the
+repeated decision NOT to reprice reroll** -- repricing would move the idling,
+not fix it. Note it also UNDER-rerolls at rounds 6-8 (0.2/turn) while level-rushing.
+
+**2. Replacement -- partially, then it stops.** It sells the right minion (mean
+rank 0.251 on its own board, 0=weakest) and gains +2.9 stats per replacement,
+but only 3.45 sells/game and zero buys after round 16. Board stat profile at
+round 13+, weakest->strongest: 9.1 / 13.0 / 16.5 / 20.8 / 27.4 / 32.6 / **73.1**
+-- the top minion is 2.2x the second. Checked what the weak slots actually are
+before calling them dead weight: **45% have an Activate ability** (Suspicious
+Prisonguard is the single most common occupant, 17/76) and are defensibly
+retained utility bodies; the other 55% are plain stat minions (Wrath Weaver,
+Fruit Vendor, Molten Rock at 9-13 stats on a round-15 board) and are real dead
+weight it never upgrades.
+
+**3. Activate bias -- confirmed, 3.35x.** Shop base rate 6.4% of slots; 21.3% of
+its buys. Only 13% of its SELLS are Activate minions, so it keeps them. Not
+obviously wrong in isolation (1 gold for a permanent +3/+3 every turn is strong)
+-- the problem is it is the ONLY engine it has.
+
+**4. THE CEILING: tribal synergy is at ZERO.** Across 20 games the max
+same-tribe count on board was: mean 1.37, p90 2, max 3. It crossed the 4-of-a-
+tribe threshold **not once**. Only 5.3% of buys (9/169) even extend an existing
+2+ tribe. `BOARD_STATS_SYNERGY_BONUS = 9.0` has therefore never fired -- it is
+dead code in practice.
+
+Why it cannot learn this under the current design, quantified:
+  - **Economics:** crossing into 4-of-a-tribe pays +0.0098 (round 8), +0.0040
+    (round 13), +0.0024 (round 16) shaped reward -- i.e. **1.1x to 1.55x a single
+    +10-stat upgrade** -- while GETTING there costs 3-4 deliberately worse
+    purchases. It can never pay.
+  - **Shape:** the bonus is a STEP FUNCTION. Going 1->2->3 of a tribe pays
+    exactly zero. There is no gradient anywhere below the threshold, so nothing
+    points toward tribes at all. This is a structural defect independent of
+    magnitude -- even a correctly-sized step would be unlearnable.
+  - **Supply:** each tribe is ~24-26 of 275 pool cards (~9%), so a 5-6 slot shop
+    offers ~0.5 on-tribe minions. Four of a tribe takes ~8 shops of deliberate
+    selection, from a pool SHARED with 7 opponents. Measured: only 14-33% of
+    late rounds could reach 4-of-a-tribe from board+shop even in principle.
+  - **Absence from the world:** the opponent population is its own past selves
+    plus GreedyPlayAgent/HeuristicAgent, none of which build tribes. **The agent
+    has never seen a tribal board in its life.** Self-play cannot discover a
+    strategy requiring a coordinated 8-round commitment when nothing in the
+    population demonstrates it -- the classic self-play blindspot.
+  - Tribal mechanics ARE implemented and ARE substantial: 80 of 275 cards (29%)
+    reference a tribe, `effect_target='tribe'` on 21 cards and `all_friendly` on
+    31, plus `stat_buff_tribe` / `end_of_turn_buff_tribe` /
+    `start_of_combat_buff_tribe` and 58 tribe references in `combat_sim.py`.
+    So this is a real, unexploited axis, not a missing feature.
+
+**Current state:** No GPU box running (destroyed 2026-09-06). Analysis only.
+
+**Open questions / next steps (ranked by value per unit of risk):**
+1. **Add a scripted `TribalAgent` to the opponent pool** -- commits to a tribe
+   at ~round 3 and buys on-tribe greedily. This is a HYPOTHESIS TEST before any
+   investment: if it beats the current policy, tribes are the ceiling and are
+   worth building toward; if it loses, tribes are not the ceiling and steps 2-3
+   are saved. It doubles as curriculum (the policy must learn to beat tribal
+   boards, which is the first step toward building them) and costs no MDP change.
+2. **Fix the threshold cliff** -- make the tribe term monotone in tribe count so
+   each on-tribe purchase pays, instead of a step at 4. Structural, not a
+   retune. Requires the co-evolution test (see 2026-09-05c).
+3. **A commitment/plan variable** (options / hierarchical RL): a low-frequency
+   head emitting a target tribe, fed back into the observation so the buy policy
+   conditions on it. Converts "5 lucky independent purchases" into ONE decision
+   the credit-assignment machinery can attribute to. Most work; do it only if
+   step 1 says tribes matter.
+4. **NOT search/MCTS.** It needs a leaf value function, and a myopic V makes the
+   search inherit the blindness -- search amplifies a good value function, it
+   cannot manufacture strategic understanding. The horizon is also wrong
+   (payoff ~8 rounds out, across 8 shop randomisations from a shared pool, 8
+   combats, and an MC combat sim at every leaf).
+---
